@@ -19,6 +19,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { HARVEST_TOOL_MAP, CHESTS } from '@/lib/assetRegistry';
+import { resolveGrudgeAssetUrl } from '@/lib/grudgeAssetConfig';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -530,7 +531,7 @@ export class IslandStarterMission {
   private _loadRaftAtDock(): void {
     const loader = new GLTFLoader();
     loader.load(
-      '/models/raft.glb',
+      resolveGrudgeAssetUrl('/models/raft.glb'),
       (gltf) => {
         const raft = gltf.scene;
         raft.name  = 'player_raft';

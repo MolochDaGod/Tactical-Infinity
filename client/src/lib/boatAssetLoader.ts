@@ -7,10 +7,7 @@ import {
   resolveBoatId,
   type BoatId,
 } from '@shared/gameDefinitions/boatRegistry';
-
-const CDN_BASE =
-  (import.meta.env.VITE_ASSETS_CDN_URL as string | undefined)?.replace(/\/$/, '') ||
-  'https://assets.grudge-studio.com';
+import { resolveGrudgeAssetUrl } from '@/lib/grudgeAssetConfig';
 
 /** In-memory template cache — clone per ship instance. */
 const templateCache = new Map<string, THREE.Group>();
@@ -25,11 +22,7 @@ function getLoader(): GLTFLoader {
 
 /** Resolve a boat model path: local in dev, CDN in production when configured. */
 export function resolveBoatModelUrl(boatId: string): string {
-  const localPath = getBoatModelPath(boatId);
-  if (import.meta.env.DEV) return localPath;
-  const useCdn = import.meta.env.VITE_USE_ASSETS_CDN !== 'false';
-  if (!useCdn) return localPath;
-  return `${CDN_BASE}${localPath}`;
+  return resolveGrudgeAssetUrl(getBoatModelPath(boatId));
 }
 
 function prepareTemplate(scene: THREE.Object3D, scale: number): THREE.Group {

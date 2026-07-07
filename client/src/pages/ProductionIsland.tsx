@@ -19,8 +19,6 @@ import { GameHUD } from '@/components/game/GameHUD';
 import type { SlotDef, VitalBarDef } from '@/components/game/GameHUD';
 import {
   generateIslandTerrain,
-  createWaterPlane,
-  updateIslandWater,
   snapToTerrain,
   generateResourceNodePositions,
   getNodeZone,
@@ -41,9 +39,12 @@ import {
   type ParticleSystem,
   type ShoreSplashSystem,
 } from '@/lib/islandVisualEffects';
-import type { Race } from '@/data/toonRTSAssets';
-import { UnitCharacter } from '@/lib/character/UnitGLBLoader';
-import { resolveUnitModel } from '@/lib/character/unitModel';
+import type { Race, WeaponStyle } from '@/data/toonRTSAssets';
+import { CharacterBuilder } from '@/lib/character/CharacterBuilder';
+import { CLASS_TO_WEAPON_STYLE, loadCaptainBuild } from '@/lib/captainBuild';
+import { IslandSky } from '@/lib/islandsCanonical/IslandSky';
+import { SeascapeOcean } from '@/lib/islandsCanonical/SeascapeOcean';
+import { getCanonicalBackdrop } from '@/lib/grudgeAssetConfig';
 import { createDock, isPlayerNearDock, type DockData } from '@/lib/islandDockSystem';
 import { ResourceNodeManager } from '@/lib/resourceNodes';
 import { IslandAnimalManager, ANIMAL_SPAWN_WEIGHTS, type AnimalType } from '@/lib/islandAnimals';
@@ -131,7 +132,10 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
   const grassRef = useRef<GrassSystem | null>(null);
   const particlesRef = useRef<ParticleSystem | null>(null);
   const splashRef = useRef<ShoreSplashSystem | null>(null);
-  const unitRef = useRef<UnitCharacter | null>(null);
+  const characterBuilderRef = useRef<CharacterBuilder | null>(null);
+  const captainAnimRef = useRef<'idle' | 'walk'>('idle');
+  const skyRef = useRef<IslandSky | null>(null);
+  const seascapeRef = useRef<SeascapeOcean | null>(null);
   const dockRef = useRef<DockData | null>(null);
   const carcassManagerRef = useRef<ResourceNodeManager | null>(null);
   const animalManagerRef = useRef<IslandAnimalManager | null>(null);
@@ -266,9 +270,18 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
     const h = containerRef.current.clientHeight;
 
     const scene = new THREE.Scene();
-    scene.background = new THREE.Color(0x87ceeb);
-    scene.fog = new THREE.FogExp2(0x87ceeb, 0.0025);
+    scene.background = null;
     sceneRef.current = scene;
+
+    const backdrop = getCanonicalBackdrop('homeIsland');
+    const sky = new IslandSky({
+      weather: backdrop.weather,
+      timeOfDay: backdrop.timeOfDay,
+    });
+    scene.add(sky.mesh);
+    skyRef.current = sky;
+    const fogStrength = sky.fogStrength * (backdrop.fogScale ?? 1);
+    scene.fog = new THREE.FogExp2(sky.material.uniforms.uHorizon.value.getHex(), fogStrength * 0.0012);
 
     const camera = new THREE.PerspectiveCamera(55, w / h, 0.5, 800);
     camera.position.set(0, 30, 50);
@@ -312,8 +325,8 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
     const hemiLight = new THREE.HemisphereLight(0xaaddff, 0x445533, 0.4);
     scene.add(hemiLight);
 
-    const sunLight = new THREE.DirectionalLight(0xffeedd, 1.8);
-    sunLight.position.set(80, 120, 60);
+    const sunLight = new THREE.DirectionalLight(sky.sunColor, sky.sunIntensity);
+    sunLight.position.copy(sky.sunDirection).multiplyScalar(200);
     sunLight.castShadow = true;
     sunLight.shadow.mapSize.set(2048, 2048);
     sunLight.shadow.camera.left = -150;
@@ -330,9 +343,16 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
     terrain.mesh.castShadow = true;
     scene.add(terrain.mesh);
 
-    const water = createWaterPlane(200);
-    waterRef.current = water;
-    scene.add(water);
+    const seascape = new SeascapeOcean({
+      size: 640,
+      segments: 128,
+      sunDirection: sky.sunDirection,
+    });
+    seascape.setSkyTint(sky.material.uniforms.uHorizon.value as THREE.Color);
+    seascape.mesh.position.y = -0.4;
+    scene.add(seascape.mesh);
+    seascapeRef.current = seascape;
+    waterRef.current = seascape.mesh;
 
     const dock = createDock(terrain, 'south');
     scene.add(dock.group);
@@ -378,34 +398,31 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
     scene.add(playerGroup);
     playerRef.current = playerGroup;
 
-    let captainRace: Race = 'human';
+    const captainBuild = loadCaptainBuild();
+    let captainRace: Race = captainBuild?.race ?? 'human';
+    let weaponStyle: WeaponStyle = captainBuild?.weaponStyle
+      ?? (captainBuild ? CLASS_TO_WEAPON_STYLE[captainBuild.classKey] : 'sword_shield');
     try {
       const saved = localStorage.getItem('tethical_captain');
       if (saved) {
         const data = JSON.parse(saved);
-        if (data.race && resolveUnitModel(data.race as Race)) {
-          captainRace = data.race;
-        }
+        if (data.race) captainRace = data.race;
       }
     } catch {}
 
-    // Canonical baked-GLB captain: OWN skeleton, weapon baked into the mesh, and
-    // its OWN idle clip played directly (no retargeting / external weapon attach).
-    const resolved = resolveUnitModel(captainRace);
-    if (resolved) {
-      UnitCharacter.load(resolved.path, { targetHeight: 1.8, includeBank: false })
-        .then((unit) => {
-          if (!playerRef.current) { unit.dispose(); return; } // scene torn down
-          const ph = playerGroup.getObjectByName('placeholder');
-          if (ph) playerGroup.remove(ph);
-          playerGroup.add(unit.object);
-          unit.playFirstAvailable(['idle', 'stand'], { loop: true });
-          unitRef.current = unit;
-        })
-        .catch((err) => {
-          console.warn('Player GLB load failed, keeping placeholder:', err);
-        });
-    }
+    // Canonical Toon-RTS captain: prefix-based armor toggles + hand-bone weapon attach.
+    const builder = new CharacterBuilder({ race: captainRace, weaponStyle });
+    builder.load()
+      .then(() => {
+        if (!playerRef.current) { builder.dispose(); return; }
+        const ph = playerGroup.getObjectByName('placeholder');
+        if (ph) playerGroup.remove(ph);
+        playerGroup.add(builder.group);
+        characterBuilderRef.current = builder;
+      })
+      .catch((err) => {
+        console.warn('Captain CharacterBuilder load failed, keeping placeholder:', err);
+      });
 
     spawnResourceNodes(scene, terrain);
 
@@ -517,11 +534,14 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
         }
       }
 
-      if (waterRef.current) updateIslandWater(waterRef.current, elapsed);
+      if (skyRef.current) {
+        skyRef.current.update(elapsed, dt);
+        seascapeRef.current?.update(elapsed, camera);
+        seascapeRef.current?.setSunPosition(skyRef.current.sunDirection);
+      }
       if (grassRef.current) grassRef.current.update(elapsed);
       if (particlesRef.current) particlesRef.current.update(elapsed);
       if (splashRef.current) splashRef.current.update(elapsed, dt);
-      if (unitRef.current) unitRef.current.update(dt);
       animateTreeSway(resourceNodesRef.current, elapsed);
 
       // Huntable animals: wander/flee/aggro + baked idle clips, seated on terrain.
@@ -530,6 +550,16 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
       }
 
       const keys = keysRef.current;
+      if (characterBuilderRef.current?.ready) {
+        characterBuilderRef.current.update(dt);
+        const moving = keys.has('w') || keys.has('s') || keys.has('a') || keys.has('d')
+          || keys.has('arrowup') || keys.has('arrowdown') || keys.has('arrowleft') || keys.has('arrowright');
+        const nextAnim = moving ? 'walk' : 'idle';
+        if (captainAnimRef.current !== nextAnim) {
+          captainAnimRef.current = nextAnim;
+          characterBuilderRef.current.play(nextAnim);
+        }
+      }
       const moveDir = new THREE.Vector3();
       if (keys.has('w') || keys.has('arrowup'))    moveDir.z -= 1;
       if (keys.has('s') || keys.has('arrowdown'))  moveDir.z += 1;
@@ -704,8 +734,12 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
       grassRef.current?.dispose();
       particlesRef.current?.dispose();
       splashRef.current?.dispose();
-      unitRef.current?.dispose();
-      unitRef.current = null;
+      characterBuilderRef.current?.dispose();
+      characterBuilderRef.current = null;
+      skyRef.current?.dispose();
+      skyRef.current = null;
+      seascapeRef.current?.dispose();
+      seascapeRef.current = null;
       animalManagerRef.current?.clearAllAnimals();
       animalManagerRef.current = null;
       carcassManagerRef.current?.clearAllNodes();

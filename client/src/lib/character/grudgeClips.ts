@@ -15,6 +15,7 @@ import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { stripRootMotion } from '@/lib/animation/clipUtils';
 import { WEAPON_STYLE_CONFIGS, type WeaponStyle } from '@/data/toonRTSAssets';
+import { resolveGrudgeAssetUrl } from '@/lib/grudgeAssetConfig';
 
 export type CharState = 'idle' | 'walk' | 'run' | 'attack' | 'block' | 'cast' | 'death' | 'jump';
 
@@ -90,7 +91,7 @@ export function loadClipSource(key: string): Promise<AnimSourceEntry | null> {
 
   const p = new Promise<AnimSourceEntry | null>((resolve) => {
     loader().load(
-      path,
+      resolveGrudgeAssetUrl(path),
       (fbx) => {
         let clip = fbx.animations?.[0];
         if (!clip) {

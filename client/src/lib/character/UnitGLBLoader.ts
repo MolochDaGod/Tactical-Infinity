@@ -17,6 +17,7 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { registerClip, getClip, listClips } from '@/lib/animation';
 import { ANIM_BANK_PATH } from '@/data/factionUnits';
+import { resolveGrudgeAssetUrl, GLB_ATTACH_PATTERNS } from '@/lib/grudgeAssetConfig';
 import { applyLoadout3D, disposeLoadout3D, findHandBone, findHeadBone, type Rig3D } from '@/lib/gear/rig3d';
 import type { ResolvedLoadout } from '@/lib/gear/loadout';
 
@@ -52,7 +53,7 @@ export async function loadAnimBank(): Promise<string[]> {
   if (bankPromise) return bankPromise;
   bankPromise = (async () => {
     try {
-      const gltf = await gltfLoader.loadAsync(ANIM_BANK_PATH);
+      const gltf = await gltfLoader.loadAsync(resolveGrudgeAssetUrl(ANIM_BANK_PATH));
       const keys: string[] = [];
       for (const clip of gltf.animations ?? []) {
         const key = `bank/${clip.name}`;
@@ -153,7 +154,7 @@ export class UnitCharacter {
   static async load(path: string, opts: UnitLoadOptions = {}): Promise<UnitCharacter> {
     const { targetHeight = 1.8, includeBank = true, envMap = null, stripRootMotion = false } = opts;
 
-    const gltf = await gltfLoader.loadAsync(path);
+    const gltf = await gltfLoader.loadAsync(resolveGrudgeAssetUrl(path));
     const root = gltf.scene as THREE.Group;
 
     root.traverse((child) => {
@@ -302,11 +303,8 @@ export class UnitCharacter {
     this.rightHandOffset = new THREE.Quaternion().setFromEuler(e);
   }
 
-  /** Name patterns for the rigid attachment containers baked into the unit GLBs. */
-  private static readonly ATTACH_PATTERNS: Record<string, RegExp[]> = {
-    shield: [/^l_shield_container$/i, /shield.*container/i, /l_.*shield/i],
-    weapon: [/^r_hand_container$/i, /r_.*hand.*container/i, /weapon.*container/i],
-  };
+  /** Canonical rigid attachment containers (see grudgeAssetConfig). */
+  private static readonly ATTACH_PATTERNS = GLB_ATTACH_PATTERNS;
 
   /** Resolve (and cache) the container node for an attachment slot by name. */
   private resolveAttachment(slot: string): THREE.Object3D | null {

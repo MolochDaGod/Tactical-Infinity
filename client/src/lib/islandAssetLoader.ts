@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { resolveGrudgeAssetUrl } from '@/lib/grudgeAssetConfig';
 
 const gltfLoader = new GLTFLoader();
 const fbxLoader = new FBXLoader();
@@ -12,20 +13,22 @@ const modelCache = new Map<string, THREE.Group>();
 const textureCache = new Map<string, THREE.Texture>();
 
 function loadTexture(url: string): THREE.Texture {
-  if (textureCache.has(url)) return textureCache.get(url)!;
-  const tex = texLoader.load(url);
+  const resolved = resolveGrudgeAssetUrl(url);
+  if (textureCache.has(resolved)) return textureCache.get(resolved)!;
+  const tex = texLoader.load(resolved);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  textureCache.set(url, tex);
+  textureCache.set(resolved, tex);
   return tex;
 }
 
 async function loadGLTF(url: string, scale: number): Promise<THREE.Group> {
-  if (modelCache.has(url)) {
-    return modelCache.get(url)!.clone();
+  const resolved = resolveGrudgeAssetUrl(url);
+  if (modelCache.has(resolved)) {
+    return modelCache.get(resolved)!.clone();
   }
   try {
-    const gltf = await gltfLoader.loadAsync(url);
+    const gltf = await gltfLoader.loadAsync(resolved);
     const model = gltf.scene;
     model.scale.setScalar(scale);
     model.traverse((child) => {
@@ -34,26 +37,28 @@ async function loadGLTF(url: string, scale: number): Promise<THREE.Group> {
         child.receiveShadow = true;
       }
     });
-    modelCache.set(url, model.clone());
+    modelCache.set(resolved, model.clone());
     return model;
   } catch (e) {
-    console.warn(`[IslandAssets] Failed to load glTF: ${url}`, e);
+    console.warn(`[IslandAssets] Failed to load glTF: ${resolved}`, e);
     return new THREE.Group();
   }
 }
 
 async function loadFBX(url: string, scale: number, textureUrl?: string): Promise<THREE.Group> {
-  const cacheKey = `${url}__${textureUrl || ''}`;
+  const resolved = resolveGrudgeAssetUrl(url);
+  const resolvedTex = textureUrl ? resolveGrudgeAssetUrl(textureUrl) : undefined;
+  const cacheKey = `${resolved}__${resolvedTex || ''}`;
   if (modelCache.has(cacheKey)) {
     return modelCache.get(cacheKey)!.clone();
   }
   try {
-    const fbx = await fbxLoader.loadAsync(url);
+    const fbx = await fbxLoader.loadAsync(resolved);
     const group = new THREE.Group();
     group.add(fbx);
     fbx.scale.setScalar(scale);
-    if (textureUrl) {
-      const tex = loadTexture(textureUrl);
+    if (resolvedTex) {
+      const tex = loadTexture(resolvedTex);
       fbx.traverse((child) => {
         if ((child as THREE.Mesh).isMesh) {
           (child as THREE.Mesh).material = new THREE.MeshStandardMaterial({
@@ -74,7 +79,7 @@ async function loadFBX(url: string, scale: number, textureUrl?: string): Promise
     modelCache.set(cacheKey, group.clone());
     return group;
   } catch (e) {
-    console.warn(`[IslandAssets] Failed to load FBX: ${url}`, e);
+    console.warn(`[IslandAssets] Failed to load FBX: ${resolved}`, e);
     return new THREE.Group();
   }
 }

@@ -32,6 +32,7 @@ import {
 import {
   type CharState, stateClipKeys, clipKeysForStyle, loadClipSources, getSourceClip,
 } from './grudgeClips';
+import { resolveGrudgeAssetUrl } from '@/lib/grudgeAssetConfig';
 
 export const CHAR_SCALE = 0.012;
 
@@ -169,8 +170,8 @@ export class CharacterBuilder {
 
   /** Load mesh, texture, animations and the initial weapon set. */
   async load(): Promise<this> {
-    const modelPath = RACE_MODELS[this.race].character;
-    const texturePath = RACE_TEXTURES[this.race].standard;
+    const modelPath = resolveGrudgeAssetUrl(RACE_MODELS[this.race].character);
+    const texturePath = resolveGrudgeAssetUrl(RACE_TEXTURES[this.race].standard);
 
     const fbx = await new Promise<THREE.Group>((resolve, reject) => {
       this.fbxLoader.load(modelPath, (g) => resolve(g as THREE.Group), undefined, reject);
@@ -289,7 +290,7 @@ export class CharacterBuilder {
     const paths = getWeaponFBXForRace(this.race, style);
 
     if (paths.mainHand && this.rightHand) {
-      this.fbxLoader.load(paths.mainHand, (wpn) => {
+      this.fbxLoader.load(resolveGrudgeAssetUrl(paths.mainHand), (wpn) => {
         if (this.disposed || this.equipToken !== token) { disposeObject(wpn); return; }
         wpn.scale.setScalar(config.mainHandScale / this.scale);
         wpn.position.set(...config.mainHandOffset);
@@ -301,7 +302,7 @@ export class CharacterBuilder {
     }
 
     if (paths.offHand && this.leftHand) {
-      this.fbxLoader.load(paths.offHand, (wpn) => {
+      this.fbxLoader.load(resolveGrudgeAssetUrl(paths.offHand), (wpn) => {
         if (this.disposed || this.equipToken !== token) { disposeObject(wpn); return; }
         wpn.scale.setScalar(config.offHandScale / this.scale);
         wpn.position.set(...config.offHandOffset);
