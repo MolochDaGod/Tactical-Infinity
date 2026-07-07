@@ -58,7 +58,7 @@ app.use('/avatars', express.static(path.resolve(import.meta.dirname, '..', 'publ
 app.use(express.urlencoded({ extended: false }));
 
 const corsOrigins = (process.env.CORS_ORIGINS ||
-  "http://localhost:5000,http://localhost:5173,https://tactical-infinity.vercel.app,https://tethical.grudge-studio.com")
+  "http://localhost:5000,http://localhost:5173,https://water.grudge-studio.com,https://tactical-infinity.vercel.app,https://tethical.grudge-studio.com")
   .split(",")
   .map((o) => o.trim())
   .filter(Boolean);

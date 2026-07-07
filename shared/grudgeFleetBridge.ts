@@ -19,6 +19,8 @@ export const GRUDGE_FLEET = {
   warlords: 'https://grudgewarlords.com',
   /** Tactical-Infinity-specific APIs (battles, meshy) */
   tacticalApi: 'https://api.tactical-infinity.up.railway.app',
+  /** Production Tactical-Infinity SPA (Vercel + Cloudflare DNS) */
+  tacticalClient: 'https://water.grudge-studio.com',
 } as const;
 
 /** Same-origin API paths when deployed on Vercel (rewrites handle routing). */
