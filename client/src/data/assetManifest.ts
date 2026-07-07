@@ -69,6 +69,87 @@ export const CRAFTING_STATIONS: GameAsset[] = [
   { id: 'tanning_rack', name: 'Tanning Rack', category: 'crafting', subcategory: 'leatherworking', gridSize: '2x2' },
 ];
 
+// Profession workbenches with GLTF model paths (Conan Exiles-style interaction)
+export type ProfessionType = 'mystic' | 'forester' | 'miner' | 'engineer' | 'chef';
+
+export interface ProfessionWorkbench {
+  id: string;
+  profession: ProfessionType;
+  name: string;
+  description: string;
+  modelPath: string;
+  scale: number;
+  gridSize: GridSize;
+  interactionRange: number;
+  hasAnimation?: boolean;
+  animationType?: 'fire' | 'glow' | 'spin';
+  recipes: string[];
+}
+
+export const PROFESSION_WORKBENCHES: ProfessionWorkbench[] = [
+  {
+    id: 'mystic_table',
+    profession: 'mystic',
+    name: "Mystic's Arcane Table",
+    description: 'An enchanted table where mystics brew potions and inscribe scrolls',
+    modelPath: '/models/scenes/wizard_table/scene.gltf',
+    scale: 1.0,
+    gridSize: '2x2',
+    interactionRange: 2.5,
+    hasAnimation: true,
+    animationType: 'glow',
+    recipes: ['health_potion', 'mana_potion', 'scroll_fireball', 'scroll_heal', 'enchant_weapon'],
+  },
+  {
+    id: 'forester_bench',
+    profession: 'forester',
+    name: "Forester's Workbench",
+    description: 'A sturdy bench for crafting bows, arrows, and wooden tools',
+    modelPath: '/models/scenes/wooden_props/scene.gltf',
+    scale: 1.2,
+    gridSize: '2x1',
+    interactionRange: 2.0,
+    recipes: ['wooden_bow', 'arrows', 'wooden_shield', 'fishing_rod', 'wooden_tools'],
+  },
+  {
+    id: 'miner_station',
+    profession: 'miner',
+    name: "Miner's Smelting Station",
+    description: 'A forge station for smelting ores and crafting metal ingots',
+    modelPath: '/models/scenes/medieval_workstation/scene.gltf',
+    scale: 1.0,
+    gridSize: '2x2',
+    interactionRange: 2.5,
+    hasAnimation: true,
+    animationType: 'fire',
+    recipes: ['copper_ingot', 'iron_ingot', 'steel_ingot', 'mithril_ingot', 'alloy_mixture'],
+  },
+  {
+    id: 'engineer_workshop',
+    profession: 'engineer',
+    name: "Engineer's Workshop",
+    description: 'A complex workstation for building machinery and siege equipment',
+    modelPath: '/models/scenes/medieval_workstation/scene.gltf',
+    scale: 1.0,
+    gridSize: '2x2',
+    interactionRange: 2.5,
+    recipes: ['ballista', 'catapult', 'trap', 'repair_kit', 'mechanical_parts'],
+  },
+  {
+    id: 'chef_campfire',
+    profession: 'chef',
+    name: "Chef's Campfire",
+    description: 'A cooking fire for preparing meals and brewing beverages',
+    modelPath: '/models/scenes/campfire/scene.gltf',
+    scale: 1.5,
+    gridSize: '1x1',
+    interactionRange: 2.0,
+    hasAnimation: true,
+    animationType: 'fire',
+    recipes: ['cooked_meat', 'fish_stew', 'bread', 'ale', 'healing_soup'],
+  },
+];
+
 export const ALL_ASSETS: GameAsset[] = [
   ...BUILDINGS,
   ...HARVESTABLE_RESOURCES,
