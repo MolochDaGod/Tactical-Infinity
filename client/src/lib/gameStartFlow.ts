@@ -1,6 +1,7 @@
 import type { OnboardingStep } from '@/lib/playerProgression';
 import { getOnboardingStep, markCaptainReady } from '@/lib/playerProgression';
 import { loadCaptainBuild } from '@/lib/captainBuild';
+import { getFleetCharacterId, TACTICAL_CAPTAIN_KEY } from '@/lib/grudgeCharacterSync';
 
 export type GamePhase =
   | 'menu'
@@ -51,8 +52,19 @@ export function getPlayButtonHint(step: OnboardingStep = getOnboardingStep()): s
   }
 }
 
+/** True when a captain exists locally or on the fleet roster. */
+export function hasCaptainProfile(): boolean {
+  if (loadCaptainBuild()) return true;
+  if (getFleetCharacterId()) return true;
+  try {
+    return !!localStorage.getItem(TACTICAL_CAPTAIN_KEY);
+  } catch {
+    return false;
+  }
+}
+
 /** Call after captain creation locks in. */
 export function onCaptainCreated(): GamePhase {
-  if (loadCaptainBuild()) markCaptainReady();
+  if (hasCaptainProfile()) markCaptainReady();
   return 'productionisland';
 }

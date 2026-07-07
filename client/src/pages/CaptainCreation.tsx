@@ -172,7 +172,7 @@ const RACE_FALLBACK_MODELS: Record<string, string> = {
 
 interface CaptainCreationProps {
   onBack: () => void;
-  onCaptainCreated?: (captain: CaptainData) => void;
+  onCaptainCreated?: (captain: CaptainData) => void | Promise<void>;
 }
 
 interface CaptainData {
@@ -182,6 +182,7 @@ interface CaptainData {
   hairColor: string;
   build: string;
   taskId?: string;
+  headModelUrl?: string;
   useFallbackModel?: boolean;
   fallbackModelPath?: string;
 }
@@ -214,6 +215,7 @@ export default function CaptainCreation({ onBack, onCaptainCreated }: CaptainCre
   const [retextureStatus, setRetextureStatus] = useState<'idle' | 'queued' | 'generating' | 'done' | 'failed'>('idle');
   const [retextureProgress, setRetextureProgress] = useState(0);
   const retexturePollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [isPersisting, setIsPersisting] = useState(false);
 
   // Check Meshy availability on mount
   useEffect(() => {
@@ -400,6 +402,19 @@ export default function CaptainCreation({ onBack, onCaptainCreated }: CaptainCre
     }
   };
 
+  const finalizeCaptain = async (payload: CaptainData) => {
+    if (!onCaptainCreated) return;
+    setIsPersisting(true);
+    try {
+      await onCaptainCreated(payload);
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : "Could not save captain to fleet.";
+      toast({ title: "Save failed", description: message, variant: "destructive" });
+    } finally {
+      setIsPersisting(false);
+    }
+  };
+
   // Quick create with fallback model (no API call needed)
   const handleQuickCreate = () => {
     if (!captainName.trim()) {
@@ -418,17 +433,15 @@ export default function CaptainCreation({ onBack, onCaptainCreated }: CaptainCre
       description: `${captainName} the ${RACE_INFO[selectedRace].name} ${CLASS_INFO[selectedClass].name} is ready to play!`
     });
 
-    if (onCaptainCreated) {
-      onCaptainCreated({
-        name: captainName,
-        race: selectedRace,
-        characterClass: selectedClass,
-        hairColor,
-        build,
-        useFallbackModel: true,
-        fallbackModelPath
-      });
-    }
+    void finalizeCaptain({
+      name: captainName,
+      race: selectedRace,
+      characterClass: selectedClass,
+      hairColor,
+      build,
+      useFallbackModel: true,
+      fallbackModelPath
+    });
   };
 
   const handleCreateCaptain = async () => {
@@ -465,16 +478,14 @@ export default function CaptainCreation({ onBack, onCaptainCreated }: CaptainCre
           description: `${captainName} the ${RACE_INFO[selectedRace].name} ${CLASS_INFO[selectedClass].name} is being generated. Task ID: ${data.taskId}`
         });
 
-        if (onCaptainCreated) {
-          onCaptainCreated({
-            name: captainName,
-            race: selectedRace,
-            characterClass: selectedClass,
-            hairColor,
-            build,
-            taskId: data.taskId
-          });
-        }
+        void finalizeCaptain({
+          name: captainName,
+          race: selectedRace,
+          characterClass: selectedClass,
+          hairColor,
+          build,
+          taskId: data.taskId
+        });
       } else {
         // API failed - offer fallback option
         toast({
@@ -796,8 +807,21 @@ export default function CaptainCreation({ onBack, onCaptainCreated }: CaptainCre
                     {headStatus === 'done' && (
                       <Button
                         size="sm"
-                        onClick={handleQuickCreate}
-                        disabled={!captainName.trim()}
+                        onClick={() => {
+                          if (!captainName.trim()) return;
+                          void finalizeCaptain({
+                            name: captainName,
+                            race: selectedRace,
+                            characterClass: selectedClass,
+                            hairColor,
+                            build,
+                            headModelUrl: headModelUrl ?? undefined,
+                            useFallbackModel: false,
+                            fallbackModelPath: RACE_FALLBACK_MODELS[selectedRace],
+                            taskId: headTaskId ?? undefined,
+                          });
+                        }}
+                        disabled={!captainName.trim() || isPersisting}
                         data-testid="button-accept-face"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5 mr-1.5" />Accept
@@ -908,11 +932,20 @@ export default function CaptainCreation({ onBack, onCaptainCreated }: CaptainCre
                   className="w-full" 
                   size="lg"
                   onClick={handleQuickCreate}
-                  disabled={!captainName.trim()}
+                  disabled={!captainName.trim() || isPersisting}
                   data-testid="button-quick-create"
                 >
-                  <Sword className="w-4 h-4 mr-2" />
-                  Quick Start (Use Race Model)
+                  {isPersisting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                      Saving Captain…
+                    </>
+                  ) : (
+                    <>
+                      <Sword className="w-4 h-4 mr-2" />
+                      Quick Start (Use Race Model)
+                    </>
+                  )}
                 </Button>
                 
                 <div className="relative">

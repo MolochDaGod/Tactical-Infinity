@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import RacePreview3D from "@/components/classtree/RacePreview3D";
 import { buildCaptainFromClassTree, saveCaptainBuild, CLASS_TO_WEAPON_STYLE, type ClassKey as CaptainClassKey } from "@/lib/captainBuild";
+import { persistCaptainBuildToFleet } from "@/lib/grudgeCharacterSync";
 import humanImg from "@/assets/races/human.png";
 import elfImg from "@/assets/races/elf.png";
 import dwarfImg from "@/assets/races/dwarf.png";
@@ -340,6 +341,9 @@ export default function ClassTree({ onBack, onForgeCaptain }: Props) {
     setTimeout(() => setToast(null), 1900);
     const build = buildCaptainFromClassTree(state.race, cls as CaptainClassKey, state.picks[cls] ?? {});
     saveCaptainBuild(build);
+    void persistCaptainBuildToFleet(build).catch((err) =>
+      console.warn("[ClassTree] fleet sync failed:", err),
+    );
     // eslint-disable-next-line no-console
     console.log("[ClassTree] Captain build saved:", build);
   };
@@ -348,6 +352,9 @@ export default function ClassTree({ onBack, onForgeCaptain }: Props) {
     if (!cls || !ready || !state.race) return;
     const build = buildCaptainFromClassTree(state.race, cls as CaptainClassKey, state.picks[cls] ?? {});
     saveCaptainBuild(build);
+    void persistCaptainBuildToFleet(build).catch((err) =>
+      console.warn("[ClassTree] fleet sync failed:", err),
+    );
     onForgeCaptain?.();
   };
 

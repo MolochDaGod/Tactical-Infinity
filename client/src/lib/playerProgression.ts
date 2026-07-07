@@ -2,6 +2,7 @@ import type { BoatId } from '@shared/gameDefinitions/boatRegistry';
 import { BOAT_IDS, getBoat } from '@shared/gameDefinitions/boatRegistry';
 import { SHIP_TIERS, type ShipTierId } from '@shared/gameDefinitions/shipTiers';
 import { loadCaptainBuild, saveCaptainBuild } from '@/lib/captainBuild';
+import { getFleetCharacterId, TACTICAL_CAPTAIN_KEY } from '@/lib/grudgeCharacterSync';
 
 const STORAGE_KEY = 'gw-player-progression';
 
@@ -62,9 +63,20 @@ export function saveProgression(p: PlayerProgression): void {
   } catch { /* ignore */ }
 }
 
+function hasCaptainLocally(): boolean {
+  if (loadCaptainBuild()) return true;
+  if (getFleetCharacterId()) return true;
+  try {
+    return !!localStorage.getItem(TACTICAL_CAPTAIN_KEY);
+  } catch {
+    return false;
+  }
+}
+
 export function getOnboardingStep(): OnboardingStep {
   const p = loadProgression();
-  if (!p.captainReady && !loadCaptainBuild()) return 'needs_captain';
+  const captainDone = p.captainReady || hasCaptainLocally();
+  if (!captainDone) return 'needs_captain';
   if (!p.raftBuilt) return 'needs_raft';
   return 'ready';
 }
