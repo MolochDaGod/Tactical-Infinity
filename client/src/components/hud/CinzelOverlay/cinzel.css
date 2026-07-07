@@ -1,0 +1,247 @@
+/*
+ * Cinzel HUD overlay — vendored from attached_assets/UIlayer_*.html
+ * Original visual identity preserved (gold/stone "Grudge Arena" theme).
+ * Scoped under .cinzel-hud so it never collides with the rest of the app.
+ *
+ * Edits vs source:
+ *   - Removed Tailwind/Cinzel CDN inclusion (font is loaded via index.html or
+ *     inherited from the host doc; falls back to serif).
+ *   - All selectors prefixed/scoped to .cinzel-hud.
+ *   - Animations (panel slide-in, pulses) untouched.
+ */
+
+.cinzel-hud {
+  --gold:          #c5a059;
+  --gold-soft:     rgba(197, 160, 89, 0.5);
+  --stone:         #1a1a1a;
+  --border-shadow: #000;
+
+  position:        fixed;
+  bottom:          0;
+  left:            0;
+  width:           100%;
+  pointer-events:  none;
+  /* Sit ABOVE the in-scene world (z-10..z-30) but BELOW transient modal
+   * overlays like MagicBookUI / MainGamePanel / LoreCodex (z-50). Otherwise
+   * the persistent HUD draws on top of those modals' backdrops. */
+  z-index:         30;
+  font-family:     'Cinzel', 'Trajan Pro', 'Times New Roman', serif;
+  display:         flex;
+  align-items:     stretch;
+  padding:         0 8px 8px;
+  gap:             8px;
+  box-sizing:      border-box;
+}
+
+/* ── Compact mode ────────────────────────────────────────────────────────
+ * When both chat and hotbar are hidden (e.g. sailing scene where the
+ * GameHUD owns the bottom bar with its bespoke cannon controls), float
+ * the captain status card to the top-right corner instead of stretching
+ * across the bottom. Avoids visual overlap with bottom-centre HUDs.
+ */
+.cinzel-hud.cinzel-hud--compact {
+  top:     auto;
+  right:   auto;
+  bottom:  12px;
+  left:    12px;
+  width:   auto;
+  padding: 0;
+  gap:    0;
+  display: block;
+}
+.cinzel-hud.cinzel-hud--compact .status-section {
+  flex: 0 0 auto;
+  min-width: 200px;
+  max-width: 240px;
+}
+
+.cinzel-hud .ui-element {
+  pointer-events: auto;
+}
+
+/* ── Stone / gold panel ─────────────────────────────────────────────── */
+.cinzel-hud .panel-style {
+  background: linear-gradient(to bottom, #2a2a2a, #111);
+  border: 2px solid var(--gold);
+  box-shadow:
+    inset 0 0 10px #000,
+    0 0 10px rgba(0, 0, 0, 0.8),
+    inset 1px 1px 0 rgba(255, 255, 255, 0.2);
+  position: relative;
+}
+.cinzel-hud .panel-style::before,
+.cinzel-hud .panel-style::after {
+  content: '';
+  position: absolute;
+  width: 6px; height: 6px;
+  background: var(--gold);
+  border: 1px solid #fff;
+  box-shadow: 0 0 3px gold;
+}
+.cinzel-hud .panel-style::before { top: 2px; left:  2px; }
+.cinzel-hud .panel-style::after  { top: 2px; right: 2px; }
+
+/* ── Hotbar slots ───────────────────────────────────────────────────── */
+.cinzel-hud .hotbar-slot {
+  width: 48px; height: 48px;
+  background: #000;
+  border: 2px solid #444;
+  display: flex; align-items: center; justify-content: center;
+  font-weight: bold; color: #fff;
+  box-shadow: inset 0 0 5px #000;
+  position: relative;
+  cursor: pointer;
+  transition: all 0.1s;
+  user-select: none;
+}
+.cinzel-hud .hotbar-slot:hover    { border-color: var(--gold); transform: scale(1.05); }
+.cinzel-hud .hotbar-slot.pressed  { transform: scale(0.88); border-color: var(--gold); box-shadow: inset 0 0 10px var(--gold-soft); }
+.cinzel-hud .hotbar-slot.disabled { opacity: 0.35; cursor: default; }
+.cinzel-hud .hotbar-num           { position: absolute; top: 2px; left: 4px; font-size: 10px; color: #aaa; }
+.cinzel-hud .hotbar-cd {
+  position: absolute; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  display: flex; align-items: center; justify-content: center;
+  color: #fff; font-size: 14px; font-weight: 700;
+  pointer-events: none;
+}
+
+/* ── Circle utility buttons (I / C / S) ─────────────────────────────── */
+.cinzel-hud .circle-btn {
+  width: 36px; height: 36px;
+  border-radius: 50%;
+  background: radial-gradient(#333, #000);
+  border: 2px solid var(--gold);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--gold);
+  font-weight: bold;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  user-select: none;
+}
+.cinzel-hud .circle-btn:hover  { background: rgba(197, 160, 89, 0.15); }
+.cinzel-hud .circle-btn.active {
+  background: radial-gradient(rgba(197, 160, 89, 0.35), #111);
+  border-color: var(--gold);
+  box-shadow: 0 0 14px var(--gold-soft);
+  color: #fff;
+}
+
+/* ── Bars (HP / MP / SP) ────────────────────────────────────────────── */
+.cinzel-hud .bar-track {
+  width: 100%; height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+}
+.cinzel-hud .bar-fill {
+  height: 100%; border-radius: 2px;
+  transition: width .4s;
+}
+
+.cinzel-hud .bar-track.hp { background: #300; }
+.cinzel-hud .bar-fill.hp  { background: #d00; }
+.cinzel-hud .bar-track.mp { background: #003; }
+.cinzel-hud .bar-fill.mp  { background: #00d; }
+.cinzel-hud .bar-track.sp { background: #230; }
+.cinzel-hud .bar-fill.sp  { background: #8b0; }
+
+/* ── Portrait / name / class ────────────────────────────────────────── */
+.cinzel-hud .hud-portrait {
+  width: 44px; height: 44px;
+  border-radius: 8px;
+  background: #000;
+  border: 2px solid var(--gold);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 24px;
+  cursor: pointer;
+  transition: .15s;
+  user-select: none;
+}
+.cinzel-hud .hud-portrait:hover { box-shadow: 0 0 10px var(--gold-soft); }
+
+.cinzel-hud .hud-name {
+  color: var(--gold);
+  font-weight: 700;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.cinzel-hud .hud-class {
+  color: #777;
+  font-size: 9px;
+  margin-top: 1px;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+}
+.cinzel-hud .hud-divider {
+  border-top: 1px solid #333;
+  margin: 6px 0 4px;
+}
+.cinzel-hud .hud-equipped-label {
+  font-size: 8px;
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: .5px;
+  margin-bottom: 3px;
+}
+.cinzel-hud .hud-gear {
+  display: flex; flex-direction: column; gap: 2px;
+  font-size: 10px; line-height: 1.4;
+}
+.cinzel-hud .hud-gear .weapon { color: #d4a400; }
+.cinzel-hud .hud-gear .armor  { color: #ccc; }
+
+/* ── Chat log ───────────────────────────────────────────────────────── */
+.cinzel-hud .chat-section {
+  flex: 0 0 280px;
+  min-width: 220px;
+  display: flex; flex-direction: column;
+}
+.cinzel-hud .chat-log {
+  flex: 1;
+  padding: 8px;
+  font-size: 11px;
+  color: #ccc;
+  overflow-y: auto;
+  line-height: 1.5;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+.cinzel-hud .chat-log .chat-system { color: #888; font-style: italic; }
+.cinzel-hud .chat-log .chat-self   { color: var(--gold); }
+.cinzel-hud .chat-log .chat-loot   { color: #8aff8a; }
+
+/* ── Centre hotbar section ──────────────────────────────────────────── */
+.cinzel-hud .hotbar-section {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center;
+  padding: 14px 10px 10px;
+}
+
+/* ── Right-hand status section (portrait + bars + buttons) ──────────── */
+.cinzel-hud .status-section {
+  flex: 0 0 220px;
+  min-width: 170px;
+  display: flex; flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+}
+.cinzel-hud .status-buttons {
+  display: flex; gap: 6px;
+}
+.cinzel-hud .status-card {
+  width: 100%;
+  height: 132px;
+  display: flex;
+  padding: 14px 10px 10px;
+  gap: 9px;
+}
+.cinzel-hud .status-bars {
+  width: 56px;
+  display: flex; flex-direction: column; gap: 4px;
+  align-items: stretch;
+}
+.cinzel-hud .status-info {
+  flex: 1;
+  overflow: hidden;
+}
