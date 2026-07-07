@@ -2,10 +2,53 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "buildCommand": "npm run build",
   "outputDirectory": "dist/public",
-  "installCommand": "npm install",
+  "installCommand": "npm install --legacy-peer-deps",
   "framework": null,
+  "build": {
+    "env": {
+      "NODE_VERSION": "22",
+      "VITE_USE_ASSETS_CDN": "true",
+      "VITE_ASSETS_CDN_URL": "https://assets.grudge-studio.com",
+      "VITE_WARLORDS_URL": "https://grudgewarlords.com"
+    }
+  },
   "rewrites": [
+    { "source": "/auth/callback", "destination": "/index.html" },
+
+    { "source": "/api/auth/:path*", "destination": "https://id.grudge-studio.com/api/auth/:path*" },
+    { "source": "/auth/:path*", "destination": "https://id.grudge-studio.com/auth/:path*" },
+    { "source": "/login", "destination": "https://id.grudge-studio.com/login" },
+
+    { "source": "/api/assets/:path*", "destination": "https://assets.grudge-studio.com/:path*" },
+    { "source": "/models/:path*", "destination": "https://assets.grudge-studio.com/models/:path*" },
+    { "source": "/textures/:path*", "destination": "https://assets.grudge-studio.com/textures/:path*" },
+    { "source": "/toon_rts/:path*", "destination": "https://assets.grudge-studio.com/toon_rts/:path*" },
+    { "source": "/animations/:path*", "destination": "https://assets.grudge-studio.com/animations/:path*" },
+    { "source": "/sprites/:path*", "destination": "https://assets.grudge-studio.com/sprites/:path*" },
+
+    { "source": "/api/objectstore/:path*", "destination": "https://objectstore.grudge-studio.com/api/:path*" },
+
+    { "source": "/api/characters", "destination": "https://grudge-api-production-0d46.up.railway.app/api/characters" },
+    { "source": "/api/characters/:path*", "destination": "https://grudge-api-production-0d46.up.railway.app/api/characters/:path*" },
+    { "source": "/api/island", "destination": "https://grudge-api-production-0d46.up.railway.app/api/island" },
+    { "source": "/api/island/:path*", "destination": "https://grudge-api-production-0d46.up.railway.app/api/island/:path*" },
+    { "source": "/api/islands", "destination": "https://grudge-api-production-0d46.up.railway.app/api/islands" },
+    { "source": "/api/islands/:path*", "destination": "https://grudge-api-production-0d46.up.railway.app/api/islands/:path*" },
+    { "source": "/api/wallet", "destination": "https://grudge-api-production-0d46.up.railway.app/api/wallet" },
+    { "source": "/api/wallet/:path*", "destination": "https://grudge-api-production-0d46.up.railway.app/api/wallet/:path*" },
+    { "source": "/api/inventory", "destination": "https://grudge-api-production-0d46.up.railway.app/api/inventory" },
+    { "source": "/api/inventory/:path*", "destination": "https://grudge-api-production-0d46.up.railway.app/api/inventory/:path*" },
+    { "source": "/api/professions", "destination": "https://grudge-api-production-0d46.up.railway.app/api/professions" },
+    { "source": "/api/professions/:path*", "destination": "https://grudge-api-production-0d46.up.railway.app/api/professions/:path*" },
+    { "source": "/api/account", "destination": "https://grudge-api-production-0d46.up.railway.app/api/account" },
+    { "source": "/api/account/:path*", "destination": "https://grudge-api-production-0d46.up.railway.app/api/account/:path*" },
+
+    { "source": "/api/battles/:path*", "destination": "https://api.tactical-infinity.up.railway.app/api/battles/:path*" },
+    { "source": "/api/meshy/:path*", "destination": "https://api.tactical-infinity.up.railway.app/api/meshy/:path*" },
+    { "source": "/api/roster", "destination": "https://api.tactical-infinity.up.railway.app/api/roster" },
+    { "source": "/api/harvest/:path*", "destination": "https://api.tactical-infinity.up.railway.app/api/harvest/:path*" },
     { "source": "/api/(.*)", "destination": "https://api.tactical-infinity.up.railway.app/api/$1" },
+
     { "source": "/(.*)", "destination": "/index.html" }
   ],
   "headers": [

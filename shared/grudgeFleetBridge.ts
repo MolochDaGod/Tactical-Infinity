@@ -3,13 +3,31 @@
  * Maps world-map islands, boats, and navigation to grudgewarlords.com routes.
  */
 
+/** Canonical fleet URLs — mirrors GrudgeBuilder `shared/fleet/manifest.ts`. */
 export const GRUDGE_FLEET = {
-  gameApi: 'https://api.grudge-studio.com',
+  /** Grudge ID auth gateway */
   auth: 'https://id.grudge-studio.com',
+  /** Game state SSOT (characters, island, wallet, inventory) */
+  gameData: 'https://grudge-api-production-0d46.up.railway.app',
+  /** Legacy alias — prefer gameData */
+  gameApi: 'https://grudge-api-production-0d46.up.railway.app',
   assetsCdn: 'https://assets.grudge-studio.com',
+  objectStore: 'https://objectstore.grudge-studio.com/api/v1',
+  infoHub: 'https://info.grudge-studio.com',
+  ai: 'https://ai.grudge-studio.com',
   client: 'https://client.grudge-studio.com',
   warlords: 'https://grudgewarlords.com',
-  objectStore: 'https://molochdagod.github.io/ObjectStore/api/v1',
+  /** Tactical-Infinity-specific APIs (battles, meshy) */
+  tacticalApi: 'https://api.tactical-infinity.up.railway.app',
+} as const;
+
+/** Same-origin API paths when deployed on Vercel (rewrites handle routing). */
+export const FLEET_API_PATHS = {
+  characters: '/api/characters',
+  island: '/api/island',
+  wallet: '/api/wallet',
+  auth: '/api/auth',
+  battles: '/api/battles',
 } as const;
 
 /** Grudge Warlords production routes players can deep-link into. */
