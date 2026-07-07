@@ -4,6 +4,8 @@ Open-world tactical RPG satellite for the [Grudge Warlords](https://grudgewarlor
 
 **Production:** [https://water.grudge-studio.com](https://water.grudge-studio.com)
 
+Deployed on **Vercel** (Nexus Server / `grudgenexus`) with **Cloudflare DNS** and **Railway** API backends. Pushes to `main` auto-deploy the SPA; Vercel rewrites proxy `/api/*` to the correct Railway service so the browser never calls cross-origin backends directly.
+
 ## Live URLs
 
 | Surface | URL | Platform |
@@ -101,6 +103,22 @@ VITE_WARLORDS_URL=https://grudgewarlords.com
 
 Pushes to `main` auto-deploy via the GitHub → Vercel integration.
 
+**Custom domain setup (already configured):**
+
+1. Cloudflare CNAME `water` → `cname.vercel-dns.com` (proxied)
+2. Vercel project `tactical-infinity` → Domains → `water.grudge-studio.com`
+3. `vercel.json` rewrites route `/api/*` to Railway + Grudge ID + CDN
+
+**Smoke test after deploy:**
+
+```bash
+curl -I https://water.grudge-studio.com
+curl https://water.grudge-studio.com/api/health
+curl https://water.grudge-studio.com/api/characters
+```
+
+The health and characters calls hit Tactical Railway and GrudgeBuilder Railway respectively via Vercel rewrites.
+
 ### Railway (Tactical game API)
 
 Deploy this repo as a Railway service (separate from GrudgeBuilder):
@@ -115,6 +133,11 @@ Deploy this repo as a Railway service (separate from GrudgeBuilder):
 Health check: `GET /api/health` (see `railway.toml`).
 
 GrudgeBuilder Railway (`grudge-api-production-0d46.up.railway.app`) is **not** deployed from this repo — it is owned by [GrudgeBuilder](https://github.com/MolochDaGod/GrudgeBuilder). Tactical-Infinity reaches it through Vercel rewrites only.
+
+| Railway service | URL | Reached via Vercel rewrite |
+|-----------------|-----|----------------------------|
+| GrudgeBuilder (characters, island, wallet) | `grudge-api-production-0d46.up.railway.app` | `/api/characters`, `/api/island`, `/api/wallet`, … |
+| Tactical (battles, meshy, roster, harvest) | `api.tactical-infinity.up.railway.app` | `/api/battles`, `/api/meshy`, `/api/roster`, `/api/*` fallback |
 
 ## Fleet integration checklist
 

@@ -1,0 +1,104 @@
+/*
+ * sailingFx — pure-CSS HUD reactivity layer for OpenWaterSailing.
+ *
+ * Why CSS instead of React state for these effects?
+ *   - Damage flashes / low-HP pulses change ~every frame → re-rendering React
+ *     would burn cycles and drop FPS during heavy combat.
+ *   - These are *visual* concerns with no game-logic feedback loop, so they
+ *     belong in the style layer.
+ *   - Toggling a single class on a wrapper div lets the GPU drive the
+ *     animation; React only ever sees a className diff.
+ *
+ * Usage pattern:
+ *
+ *   <div className={`sailing-fx-root ${hpPct < 30 ? 'is-low-hp' : ''} ${burning ? 'is-burning' : ''}`}>
+ *     <div className="sailing-fx-damage" data-hit={hitTick} />
+ *     ... game viewport ...
+ *   </div>
+ *
+ *   - `is-low-hp`     → slow red vignette pulse
+ *   - `is-burning`    → orange flickering vignette
+ *   - `data-hit`      → bumping a counter restarts the damage flash animation
+ */
+
+.sailing-fx-root {
+  position: relative;
+}
+
+/* ── Damage flash ─────────────────────────────────────────────────────────
+ * We key the keyframe restart off `data-hit` changing — bumping the attribute
+ * value forces the browser to re-evaluate the animation. */
+.sailing-fx-damage {
+  position:      absolute;
+  inset:         0;
+  pointer-events: none;
+  z-index:       40;
+  background:    radial-gradient(ellipse at center,
+                   rgba(255, 30, 30, 0) 40%,
+                   rgba(255, 30, 30, 0.55) 100%);
+  opacity:       0;
+}
+.sailing-fx-damage[data-hit]:not([data-hit="0"]) {
+  animation: sailing-fx-flash 0.45s ease-out;
+}
+@keyframes sailing-fx-flash {
+  0%   { opacity: 0;    }
+  15%  { opacity: 0.95; }
+  100% { opacity: 0;    }
+}
+
+/* ── Low-HP vignette (≤ ~30%) ─────────────────────────────────────────── */
+.sailing-fx-root.is-low-hp::before {
+  content:       "";
+  position:      absolute;
+  inset:         0;
+  pointer-events:none;
+  z-index:       38;
+  background:    radial-gradient(ellipse at center,
+                   rgba(180, 0, 0, 0)   55%,
+                   rgba(180, 0, 0, 0.6) 100%);
+  animation:     sailing-fx-lowhp-pulse 1.4s ease-in-out infinite;
+}
+@keyframes sailing-fx-lowhp-pulse {
+  0%, 100% { opacity: 0.35; }
+  50%      { opacity: 0.85; }
+}
+
+/* ── Burning state ────────────────────────────────────────────────────── */
+.sailing-fx-root.is-burning::after {
+  content:       "";
+  position:      absolute;
+  inset:         0;
+  pointer-events:none;
+  z-index:       39;
+  background:    radial-gradient(ellipse at 50% 110%,
+                   rgba(255, 140, 30, 0.55) 0%,
+                   rgba(255, 70,  10, 0.0)  60%);
+  animation:     sailing-fx-burn-flicker 0.18s steps(2, end) infinite alternate;
+  mix-blend-mode:screen;
+}
+@keyframes sailing-fx-burn-flicker {
+  0%   { opacity: 0.55; transform: translateY(0); }
+  100% { opacity: 0.85; transform: translateY(-2px); }
+}
+
+/* ── Reusable cooldown sweep ─────────────────────────────────────────────
+ * Drop on any square button. Set `--cd` (0..1, fraction of cooldown
+ * remaining) inline. Pure conic gradient — no JS frame loop. */
+.cd-sweep {
+  position: relative;
+  isolation: isolate;
+}
+.cd-sweep::after {
+  content:        "";
+  position:       absolute;
+  inset:          0;
+  pointer-events: none;
+  border-radius:  inherit;
+  background:     conic-gradient(
+                    rgba(0,0,0,0.65) calc(var(--cd, 0) * 360deg),
+                    rgba(0,0,0,0)    calc(var(--cd, 0) * 360deg)
+                  );
+  transition:     background 0.05s linear;
+  z-index:        1;
+}
