@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { SpriteAnimator, SpritePreviewCard } from '@/components/SpriteAnimator';
-import { SPRITE_CHARACTERS, CharacterSprite, getAnimationCategories } from '@/lib/spriteManifest';
-import { ArrowLeft, Play, Pause, Grid3X3, LayoutGrid, Sword, Sparkles, Target } from 'lucide-react';
+import { Switch } from '@/components/ui/switch';
+import { Label } from '@/components/ui/label';
+import { SpriteAnimator, SpritePreviewCard, SpriteColorTints } from '@/components/SpriteAnimator';
+import { SPRITE_CHARACTERS, CharacterSprite, getAnimationCategories, getTotalAnimationCount, getTotalFrameCount } from '@/lib/spriteManifest';
+import { ArrowLeft, Play, Pause, Grid3X3, LayoutGrid, Sword, Sparkles, Target, Bug, Palette, RotateCcw } from 'lucide-react';
 
 type ViewMode = 'grid' | 'detail';
 
@@ -14,14 +16,36 @@ interface AdminSpritesPageProps {
   onBack?: () => void;
 }
 
+const COLOR_PRESETS = [
+  { name: 'Default', hue: 0, saturate: 100, brightness: 100 },
+  { name: 'Crusade Red', hue: 0, saturate: 140, brightness: 100 },
+  { name: 'Fabled Blue', hue: 200, saturate: 120, brightness: 105 },
+  { name: 'Legion Green', hue: 90, saturate: 130, brightness: 95 },
+  { name: 'Royal Purple', hue: 270, saturate: 120, brightness: 100 },
+  { name: 'Elite Gold', hue: 40, saturate: 150, brightness: 115 },
+  { name: 'Shadow', hue: 0, saturate: 60, brightness: 55 },
+  { name: 'Ghost', hue: 180, saturate: 40, brightness: 140 },
+  { name: 'Fire', hue: 20, saturate: 160, brightness: 110 },
+  { name: 'Ice', hue: 190, saturate: 100, brightness: 120 },
+  { name: 'Poison', hue: 100, saturate: 150, brightness: 90 },
+  { name: 'Undead', hue: 60, saturate: 50, brightness: 80 },
+];
+
 export default function AdminSpritesPage({ onBack }: AdminSpritesPageProps) {
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [viewMode, setViewMode] = useState<ViewMode>('detail');
   const [selectedCharacter, setSelectedCharacter] = useState<CharacterSprite>(SPRITE_CHARACTERS[0]);
   const [selectedAnimation, setSelectedAnimation] = useState<string>('idle');
   const [globalAnimation, setGlobalAnimation] = useState<string>('idle');
   const [fps, setFps] = useState<number>(8);
   const [scale, setScale] = useState<number>(2);
   const [isPlaying, setIsPlaying] = useState(true);
+  const [showDebug, setShowDebug] = useState(false);
+  
+  const [colorTints, setColorTints] = useState<SpriteColorTints>({
+    hueRotate: 0,
+    saturate: 100,
+    brightness: 100,
+  });
   
   const commonAnimations = ['idle', 'walk', 'attack01', 'attack02', 'attack03', 'block', 'death', 'hurt'];
   const effectAnimations = ['attack01_effect', 'attack02_effect', 'attack03_effect', 'attack_effect', 'heal_effect'];
@@ -38,6 +62,18 @@ export default function AdminSpritesPage({ onBack }: AdminSpritesPageProps) {
     const cats = getAnimationCategories(c);
     return acc + cats.projectiles.length;
   }, 0);
+  
+  const resetColors = () => {
+    setColorTints({ hueRotate: 0, saturate: 100, brightness: 100 });
+  };
+  
+  const applyPreset = (preset: typeof COLOR_PRESETS[0]) => {
+    setColorTints({
+      hueRotate: preset.hue,
+      saturate: preset.saturate,
+      brightness: preset.brightness,
+    });
+  };
   
   return (
     <div className="min-h-screen bg-background p-6">
@@ -81,6 +117,33 @@ export default function AdminSpritesPage({ onBack }: AdminSpritesPageProps) {
           <CardContent>
             <div className="flex items-center gap-6 flex-wrap">
               <div className="flex items-center gap-2">
+                <label className="text-sm">Character:</label>
+                <Select 
+                  value={selectedCharacter.id} 
+                  onValueChange={(id) => {
+                    const char = SPRITE_CHARACTERS.find(c => c.id === id);
+                    if (char) {
+                      setSelectedCharacter(char);
+                      if (!char.animations[selectedAnimation]) {
+                        setSelectedAnimation(Object.keys(char.animations)[0]);
+                      }
+                    }
+                  }}
+                >
+                  <SelectTrigger className="w-48" data-testid="select-character">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SPRITE_CHARACTERS.map(char => (
+                      <SelectItem key={char.id} value={char.id}>
+                        {char.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              
+              <div className="flex items-center gap-2">
                 <Button
                   variant="outline"
                   size="icon"
@@ -96,7 +159,10 @@ export default function AdminSpritesPage({ onBack }: AdminSpritesPageProps) {
               
               <div className="flex items-center gap-2">
                 <label className="text-sm">Animation:</label>
-                <Select value={globalAnimation} onValueChange={setGlobalAnimation}>
+                <Select value={globalAnimation} onValueChange={(v) => {
+                  setGlobalAnimation(v);
+                  setSelectedAnimation(v);
+                }}>
                   <SelectTrigger className="w-40" data-testid="select-global-animation">
                     <SelectValue />
                   </SelectTrigger>
@@ -141,6 +207,146 @@ export default function AdminSpritesPage({ onBack }: AdminSpritesPageProps) {
                   data-testid="slider-scale"
                 />
               </div>
+              
+              <div className="flex items-center gap-2">
+                <Switch
+                  id="debug-mode"
+                  checked={showDebug}
+                  onCheckedChange={setShowDebug}
+                  data-testid="switch-debug"
+                />
+                <Label htmlFor="debug-mode" className="text-sm flex items-center gap-1">
+                  <Bug className="w-3 h-3" />
+                  Debug
+                </Label>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+        
+        <Card className="mb-6">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm flex items-center gap-2">
+              <Palette className="w-4 h-4" />
+              Color Customization
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <div className="flex flex-wrap gap-2">
+                {COLOR_PRESETS.map(preset => (
+                  <Button
+                    key={preset.name}
+                    variant="outline"
+                    size="sm"
+                    onClick={() => applyPreset(preset)}
+                    className="text-xs"
+                    data-testid={`button-preset-${preset.name.toLowerCase()}`}
+                  >
+                    <div 
+                      className="w-3 h-3 rounded-full mr-1 border"
+                      style={{ 
+                        backgroundColor: `hsl(${preset.hue}, ${preset.saturate}%, 50%)`,
+                        filter: `brightness(${preset.brightness}%)`
+                      }}
+                    />
+                    {preset.name}
+                  </Button>
+                ))}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={resetColors}
+                  className="text-xs"
+                  data-testid="button-reset-colors"
+                >
+                  <RotateCcw className="w-3 h-3 mr-1" />
+                  Reset
+                </Button>
+              </div>
+              
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="space-y-2">
+                  <Label className="text-xs">Hue Rotation: {colorTints.hueRotate}°</Label>
+                  <Slider
+                    value={[colorTints.hueRotate || 0]}
+                    onValueChange={([v]) => setColorTints(prev => ({ ...prev, hueRotate: v }))}
+                    min={0}
+                    max={360}
+                    step={5}
+                    data-testid="slider-hue"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>0° (Original)</span>
+                    <span>180° (Inverse)</span>
+                    <span>360°</span>
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label className="text-xs">Saturation: {colorTints.saturate}%</Label>
+                  <Slider
+                    value={[colorTints.saturate || 100]}
+                    onValueChange={([v]) => setColorTints(prev => ({ ...prev, saturate: v }))}
+                    min={0}
+                    max={200}
+                    step={5}
+                    data-testid="slider-saturate"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>0% (Gray)</span>
+                    <span>100% (Normal)</span>
+                    <span>200% (Vivid)</span>
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <Label className="text-xs">Brightness: {colorTints.brightness}%</Label>
+                  <Slider
+                    value={[colorTints.brightness || 100]}
+                    onValueChange={([v]) => setColorTints(prev => ({ ...prev, brightness: v }))}
+                    min={20}
+                    max={200}
+                    step={5}
+                    data-testid="slider-brightness"
+                  />
+                  <div className="flex justify-between text-[10px] text-muted-foreground">
+                    <span>20% (Dark)</span>
+                    <span>100% (Normal)</span>
+                    <span>200% (Bright)</span>
+                  </div>
+                </div>
+              </div>
+              
+              <div className="flex justify-center gap-8 p-4 bg-slate-800 rounded-lg">
+                <div className="text-center">
+                  <div className="mb-2">
+                    <SpriteAnimator
+                      character={selectedCharacter}
+                      animation={selectedAnimation}
+                      scale={2}
+                      fps={fps}
+                      playing={isPlaying}
+                      showDebug={false}
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground">Original</span>
+                </div>
+                <div className="text-center">
+                  <div className="mb-2">
+                    <SpriteAnimator
+                      character={selectedCharacter}
+                      animation={selectedAnimation}
+                      scale={2}
+                      fps={fps}
+                      playing={isPlaying}
+                      showDebug={false}
+                      colorTints={colorTints}
+                    />
+                  </div>
+                  <span className="text-xs text-muted-foreground">With Tint</span>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -153,6 +359,7 @@ export default function AdminSpritesPage({ onBack }: AdminSpritesPageProps) {
                 character={character}
                 selectedAnimation={globalAnimation}
                 onAnimationChange={setGlobalAnimation}
+                showDebug={showDebug}
               />
             ))}
           </div>
@@ -198,6 +405,8 @@ export default function AdminSpritesPage({ onBack }: AdminSpritesPageProps) {
                       scale={scale}
                       fps={fps}
                       playing={isPlaying}
+                      showDebug={showDebug}
+                      colorTints={colorTints}
                     />
                   </div>
                   
@@ -352,6 +561,8 @@ export default function AdminSpritesPage({ onBack }: AdminSpritesPageProps) {
                           scale={1}
                           fps={fps}
                           playing={isPlaying}
+                          showDebug={showDebug}
+                          colorTints={colorTints}
                         />
                       </div>
                       <span className="text-xs text-center">{anim.name}</span>
@@ -376,9 +587,7 @@ export default function AdminSpritesPage({ onBack }: AdminSpritesPageProps) {
                 <div className="text-xs text-muted-foreground">Characters</div>
               </div>
               <div>
-                <div className="text-2xl font-bold">
-                  {SPRITE_CHARACTERS.reduce((acc, c) => acc + Object.keys(c.animations).length, 0)}
-                </div>
+                <div className="text-2xl font-bold">{getTotalAnimationCount()}</div>
                 <div className="text-xs text-muted-foreground">Total Animations</div>
               </div>
               <div>
@@ -390,11 +599,7 @@ export default function AdminSpritesPage({ onBack }: AdminSpritesPageProps) {
                 <div className="text-xs text-muted-foreground">Projectiles</div>
               </div>
               <div>
-                <div className="text-2xl font-bold">
-                  {SPRITE_CHARACTERS.reduce((acc, c) => 
-                    acc + Object.values(c.animations).reduce((a, anim) => a + anim.frames, 0), 0
-                  )}
-                </div>
+                <div className="text-2xl font-bold">{getTotalFrameCount()}</div>
                 <div className="text-xs text-muted-foreground">Total Frames</div>
               </div>
             </div>

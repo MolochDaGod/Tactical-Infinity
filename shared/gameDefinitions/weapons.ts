@@ -30,6 +30,13 @@ export interface Weapon {
   signatureAbility: string;
   passives: string[];
   craftedBy: "Miner" | "Forester" | "Engineer" | "Mystic";
+  /**
+   * Optional path to a GLB/GLTF model for in-world rendering. When absent,
+   * consumers fall back to a procedural primitive sized for the weapon type.
+   * Pistols and ranged weapons populate this; melee weapons are being
+   * back-filled tier by tier.
+   */
+  assetPath?: string;
 }
 
 function parseWeaponStats(dmg: string, speed: string, combo: string, crit: string, block: string, def: string): WeaponStats {
@@ -90,7 +97,10 @@ export const BOWS: Weapon[] = [
   { id: "bow-duskreaver", name: "Duskreaver Bow", type: "Bow", category: "Ranged 2h", lore: "Reaves at dusk fall", stats: parseWeaponStats("58 +13", "70 +16", "40 +18", "9 +1.3", "2 +0.5", "12 +3"), basicAbility: "Grudge Arrow", abilities: ["Volley", "Swift Shot", "Piercing Barrage", "Phantom Arrows (pierce)", "Shadow Shot (stealth)", "Dusk Arrow (high crit)"], signatureAbility: "Night's Rain (AoE silence + dmg)", passives: ["Crit Chance", "Speed Draw", "Precision"], craftedBy: "Forester" },
 ];
 
-export const ALL_WEAPONS = [...SWORDS, ...AXES, ...BOWS];
+import { PISTOLS } from './pistols';
+export { PISTOLS };
+
+export const ALL_WEAPONS = [...SWORDS, ...AXES, ...BOWS, ...PISTOLS];
 
 export function getWeaponById(id: string): Weapon | undefined {
   return ALL_WEAPONS.find(w => w.id === id);

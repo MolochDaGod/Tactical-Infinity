@@ -59,7 +59,7 @@ export function generateNpcShips(count: number = CONFIG.NUM_NPC_SHIPS): NpcShip[
     ships.push({
       id: `npc_${randomId()}`,
       name: PIRATE_NAMES[i % PIRATE_NAMES.length],
-      type: level <= 2 ? "sloop" : level <= 4 ? "brigantine" : level <= 6 ? "galleon" : "warship",
+      type: level <= 1 ? "skiff" : level <= 3 ? "sloop" : level <= 5 ? "brigantine" : "galleon",
       x: rand(100, CONFIG.MAP_WIDTH - 100),
       y: rand(100, CONFIG.MAP_HEIGHT - 100),
       dir: rand(0, Math.PI * 2),
@@ -450,6 +450,7 @@ export function updateCannonballs(
 export function generateLoot(ship: NpcShip): FloatingLoot[] {
   const loot: FloatingLoot[] = [];
   const table = ship.lootTable || generateLootTable(ship.level);
+  if (!table) return loot;
 
   for (const item of table) {
     if (Math.random() <= item.chance) {

@@ -1,4 +1,40 @@
 import { z } from "zod";
+import { pgTable, serial, integer, text, timestamp, varchar, jsonb, real, boolean } from "drizzle-orm/pg-core";
+import { createInsertSchema } from "drizzle-zod";
+import { sql } from "drizzle-orm";
+
+// ============================================================
+// AI CHAT CONVERSATIONS - Database Schema
+// ============================================================
+
+export const conversations = pgTable("conversations", {
+  id: serial("id").primaryKey(),
+  title: text("title").notNull(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const messages = pgTable("messages", {
+  id: serial("id").primaryKey(),
+  conversationId: integer("conversation_id").notNull().references(() => conversations.id, { onDelete: "cascade" }),
+  role: text("role").notNull(),
+  content: text("content").notNull(),
+  createdAt: timestamp("created_at").default(sql`CURRENT_TIMESTAMP`).notNull(),
+});
+
+export const insertConversationSchema = createInsertSchema(conversations).omit({
+  id: true,
+  createdAt: true,
+});
+
+export const insertMessageSchema = createInsertSchema(messages).omit({
+  id: true,
+  createdAt: true,
+});
+
+export type Conversation = typeof conversations.$inferSelect;
+export type InsertConversation = z.infer<typeof insertConversationSchema>;
+export type Message = typeof messages.$inferSelect;
+export type InsertMessage = z.infer<typeof insertMessageSchema>;
 
 // Unit Classes (Warrior, Ranger, Mage, Worge)
 export const unitClasses = ["warrior", "ranger", "mage", "worge"] as const;
@@ -504,9 +540,13 @@ export type BattleState = z.infer<typeof battleStateSchema>;
 export const loreEntrySchema = z.object({
   id: z.string(),
   title: z.string(),
-  category: z.enum(["history", "factions", "characters", "bestiary", "locations"]),
+  category: z.enum(["history", "factions", "races", "characters", "bestiary", "locations"]),
   content: z.string(),
   unlocked: z.boolean().default(true),
+  image: z.string().optional(),
+  tags: z.array(z.string()).optional(),
+  quote: z.string().optional(),
+  quoteAuthor: z.string().optional(),
 });
 export type LoreEntry = z.infer<typeof loreEntrySchema>;
 
@@ -980,7 +1020,10 @@ export const WORLD_MAP_CONFIG = {
 } as const;
 
 // Ship Types
-export const shipTypes = ["sloop", "brigantine", "galleon", "warship"] as const;
+// Canonical boat ids — see shared/gameDefinitions/boatRegistry.ts (single
+// source of truth). Legacy ids (warship/frigate/manOWar/small/medium/…)
+// resolve onto these via LEGACY_BOAT_ALIASES.
+export const shipTypes = ["raft", "skiff", "sloop", "brigantine", "galleon"] as const;
 export type ShipType = typeof shipTypes[number];
 
 // NPC Ship States
@@ -1137,10 +1180,11 @@ export const SHIP_TIER_STATS: Record<ShipType, {
   cannonDamage: number;
   cannonRange: number;
 }> = {
+  raft: { hp: 40, speed: 1.5, cargoCapacity: 10, cannonDamage: 0, cannonRange: 0 },
+  skiff: { hp: 70, speed: 1.35, cargoCapacity: 25, cannonDamage: 10, cannonRange: 300 },
   sloop: { hp: 100, speed: 1.2, cargoCapacity: 50, cannonDamage: 15, cannonRange: 350 },
   brigantine: { hp: 150, speed: 1.0, cargoCapacity: 100, cannonDamage: 25, cannonRange: 400 },
   galleon: { hp: 250, speed: 0.7, cargoCapacity: 200, cannonDamage: 35, cannonRange: 450 },
-  warship: { hp: 350, speed: 0.6, cargoCapacity: 150, cannonDamage: 50, cannonRange: 500 },
 };
 
 // Loot drop tables by NPC level
@@ -1172,3 +1216,95 @@ export function distanceBetween(x1: number, y1: number, x2: number, y2: number):
 export function clampValue(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }
+
+// ============================================================
+// PERSISTENT WORLD — Ships, Weapons, Loadouts, Flag Designs
+// ============================================================
+// All four tables are keyed by a Grudge UUID (varchar PK, format
+// PREFIX-TIMESTAMP-SEQUENCE-HASH). They replace the in-memory
+// representations that used to live in MemStorage.
+
+// ── Ships ────────────────────────────────────────────────────
+// One row per player-owned ship instance. `tierId` references
+// SHIP_TIERS in shared/gameDefinitions/shipTiers.ts (string fk).
+export const playerShips = pgTable("player_ships", {
+  grudgeUuid:    varchar("grudge_uuid").primaryKey(),         // SHIP-...
+  ownerId:       varchar("owner_id").notNull(),               // ACCT-... (account.grudgeUuid)
+  tierId:        varchar("tier_id", { length: 32 }).notNull(),// 'flotsam' | 'raft' | 'dinghy' | ...
+  name:          text("name").notNull(),                      // player-given (e.g. "Black Wake")
+  hpHull:        real("hp_hull").notNull(),                   // current hull hp
+  hpHullMax:     real("hp_hull_max").notNull(),               // tier max (snapshotted for upgrades)
+  /**
+   * Live ShipRig override — anchor positions, cannon assignments, crew slots.
+   * Defaults to the tier template (null = use template). Stored as JSONB so
+   * customisation survives tier upgrades and respawns.
+   */
+  rigOverride:   jsonb("rig_override"),
+  /** Optional flag design FK — references flagDesigns.grudgeUuid */
+  flagDesignId:  varchar("flag_design_id"),
+  /** Last known world position so a player who logs out at sea returns there. */
+  lastPos:       jsonb("last_pos"),                           // { x, y, z, heading } | null
+  isActive:      boolean("is_active").notNull().default(false), // currently piloted
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+  updatedAt:     timestamp("updated_at").notNull().defaultNow(),
+});
+export type PersistedShip = typeof playerShips.$inferSelect;
+export const insertPlayerShipSchema = createInsertSchema(playerShips).omit({
+  createdAt: true, updatedAt: true,
+});
+export type InsertPersistedShip = z.infer<typeof insertPlayerShipSchema>;
+
+// ── Weapon instances ─────────────────────────────────────────
+// One row per player-owned weapon copy. Two weapons of the same
+// catalogue type can have different upgrade levels and customisations.
+export const playerWeapons = pgTable("player_weapons", {
+  grudgeUuid:    varchar("grudge_uuid").primaryKey(),         // WPNI-...
+  ownerId:       varchar("owner_id").notNull(),               // ACCT-...
+  weaponDefId:   varchar("weapon_def_id", { length: 64 }).notNull(), // 'sword-bloodfeud' | 'pistol-flintlock' | ...
+  tier:          integer("tier").notNull().default(1),        // 1..5 — drives stats.perTier scaling
+  quality:       varchar("quality", { length: 16 }).notNull().default('common'),
+  /** Per-instance modifiers: enchantments, runes, paint colour, custom name. */
+  customisations: jsonb("customisations"),
+  createdAt:     timestamp("created_at").notNull().defaultNow(),
+});
+export type PersistedWeapon = typeof playerWeapons.$inferSelect;
+export const insertPlayerWeaponSchema = createInsertSchema(playerWeapons).omit({
+  createdAt: true,
+});
+export type InsertPersistedWeapon = z.infer<typeof insertPlayerWeaponSchema>;
+
+// ── Loadouts ─────────────────────────────────────────────────
+// Which weapon instance a character has equipped in which slot.
+// Composite logical key: (characterId, slot). One row per equipped slot.
+export const characterLoadouts = pgTable("character_loadouts", {
+  id:              serial("id").primaryKey(),
+  characterId:     varchar("character_id").notNull(),          // CHAR-...
+  slot:            varchar("slot", { length: 16 }).notNull(),  // 'weapon' | 'offhand' | 'head' | ...
+  weaponInstanceId: varchar("weapon_instance_id"),             // WPNI-... (nullable = empty slot)
+  hotbarSlot:      integer("hotbar_slot"),                     // 1..4 if mapped to ship cannon UI
+  equippedAt:      timestamp("equipped_at").notNull().defaultNow(),
+});
+export type CharacterLoadout = typeof characterLoadouts.$inferSelect;
+export const insertCharacterLoadoutSchema = createInsertSchema(characterLoadouts).omit({
+  id: true, equippedAt: true,
+});
+export type InsertCharacterLoadout = z.infer<typeof insertCharacterLoadoutSchema>;
+
+// ── Flag designs ─────────────────────────────────────────────
+// Player-painted Jolly Rogers, sail emblems, banner crests.
+// `canvasData` is a 256×256 RGBA payload — base64 PNG keeps it portable.
+export const flagDesigns = pgTable("flag_designs", {
+  grudgeUuid:   varchar("grudge_uuid").primaryKey(),           // FLAG-...
+  ownerId:      varchar("owner_id").notNull(),                 // ACCT-...
+  name:         text("name").notNull(),                        // e.g. "Bloodtide Crew"
+  canvasPng:    text("canvas_png").notNull(),                  // data:image/png;base64,...
+  width:        integer("width").notNull().default(256),
+  height:       integer("height").notNull().default(256),
+  isPublic:     boolean("is_public").notNull().default(false), // shareable in flag library
+  createdAt:    timestamp("created_at").notNull().defaultNow(),
+});
+export type FlagDesign = typeof flagDesigns.$inferSelect;
+export const insertFlagDesignSchema = createInsertSchema(flagDesigns).omit({
+  createdAt: true,
+});
+export type InsertFlagDesign = z.infer<typeof insertFlagDesignSchema>;

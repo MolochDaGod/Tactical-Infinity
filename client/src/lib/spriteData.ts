@@ -1,4 +1,5 @@
 import type { UnitClass, Faction, WeaponType, ArmorType, EquipmentItem, CharacterEquipment, SpriteConfig } from "@shared/schema";
+import { getSpriteOverridePath } from "./adminOverrides";
 
 export const SPRITE_BASE_PATH = "/sprites";
 export const CHARACTER_SPRITE_PATH = "/sprites/characters";
@@ -185,8 +186,28 @@ export const classToCharacterSprite: Record<UnitClass, string> = {
 
 export const factionSpriteVariants: Record<Faction, { hue: number; saturation: number }> = {
   crusade: { hue: 45, saturation: 100 },
-  fabled: { hue: 270, saturation: 80 },
-  legion: { hue: 0, saturation: 70 },
+  fabled:  { hue: 270, saturation: 80 },
+  legion:  { hue: 0,   saturation: 70 },
+};
+
+export type RaceSpriteId = 'human' | 'barbarian' | 'dwarf' | 'elf' | 'orc' | 'undead';
+
+export const raceSpriteFilters: Record<RaceSpriteId, string> = {
+  human:    'hue-rotate(0deg)   saturate(1.05) brightness(1.0)',
+  barbarian:'hue-rotate(22deg)  saturate(1.25) brightness(1.05)',
+  dwarf:    'hue-rotate(12deg)  saturate(0.85) brightness(0.95)',
+  elf:      'hue-rotate(38deg)  saturate(1.2)  brightness(1.1) sepia(0.1)',
+  orc:      'hue-rotate(95deg)  saturate(1.4)  brightness(0.82)',
+  undead:   'hue-rotate(195deg) saturate(0.15) brightness(1.35) contrast(1.1)',
+};
+
+export const raceBodyColors: Record<RaceSpriteId, { primary: string; secondary: string; accent: string }> = {
+  human:    { primary: '#C4956A', secondary: '#D4B890', accent: '#909090' },
+  barbarian:{ primary: '#D4A870', secondary: '#D4853A', accent: '#F0F0E0' },
+  dwarf:    { primary: '#B8865A', secondary: '#B09070', accent: '#C0A030' },
+  elf:      { primary: '#D4B090', secondary: '#D4A840', accent: '#4A5A7A' },
+  orc:      { primary: '#5C7A32', secondary: '#8B5A28', accent: '#5A6070' },
+  undead:   { primary: '#E8E0C8', secondary: '#7A7060', accent: '#C8C8C8' },
 };
 
 export function generateEquipment(unitClass: UnitClass, tier: number = 0): CharacterEquipment {
@@ -224,9 +245,19 @@ export function getWeaponSprite(weaponType: WeaponType, tier: number): string | 
   return weaponSprites[weaponType]?.[tier] || weaponSprites[weaponType]?.[0];
 }
 
-export function getCharacterSprite(unitClass: UnitClass): SpriteConfig | undefined {
+export function getCharacterSprite(unitClass: UnitClass, race?: string): SpriteConfig | undefined {
   const spriteKey = classToCharacterSprite[unitClass];
-  return characterSprites[spriteKey];
+  const base = characterSprites[spriteKey];
+  const override = getSpriteOverridePath(unitClass, race);
+  if (override) {
+    return {
+      baseSprite: override,
+      frameWidth: base?.frameWidth ?? 64,
+      frameHeight: base?.frameHeight ?? 64,
+      animations: base?.animations,
+    };
+  }
+  return base;
 }
 
 export function getTierGlow(tier: number): string {

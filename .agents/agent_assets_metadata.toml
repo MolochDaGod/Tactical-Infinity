@@ -1,0 +1,97 @@
+uploads = []
+
+[[generated]]
+id = "cJCkaZMI9PSoZtseZDiE2"
+uri = "file://attached_assets/generated_images/codex_journal_bg.png"
+type = "image"
+title = "codex journal background"
+
+[[generated]]
+id = "9IrH_ZJ9gev6NLvjQfHld"
+uri = "file://attached_assets/generated_images/codex_beast_sky_terror.png"
+type = "image"
+title = "sky terror"
+
+[[generated]]
+id = "k2ihiAbc1mNTTaMJRPGk3"
+uri = "file://attached_assets/generated_images/codex_god_madra.png"
+type = "image"
+title = "madra portrait"
+
+[[generated]]
+id = "CNckSRHT-qxeaAw5zSNnz"
+uri = "file://attached_assets/generated_images/codex_god_omni.png"
+type = "image"
+title = "omni portrait"
+
+[[generated]]
+id = "YnzfvUZLdWlGIBsxCvTWw"
+uri = "file://attached_assets/generated_images/codex_faction_crusade.png"
+type = "image"
+title = "crusade banner"
+
+[[generated]]
+id = "GDiTkjmMSu7TJrwzrC0aU"
+uri = "file://attached_assets/generated_images/codex_faction_fabled.png"
+type = "image"
+title = "fabled banner"
+
+[[generated]]
+id = "8UZ5ncTpOltHfMiOEA4e9"
+uri = "file://attached_assets/generated_images/codex_faction_legion.png"
+type = "image"
+title = "legion banner"
+
+[[generated]]
+id = "C8rT7FfRsN7VOw43Tq0Fj"
+uri = "file://public/icons/elements/earth.png"
+type = "image"
+title = "earth element medallion"
+
+[[generated]]
+id = "12GjENrSmODjKg44y6Vhk"
+uri = "file://public/icons/elements/nature.png"
+type = "image"
+title = "nature element medallion"
+
+[[generated]]
+id = "LZ-aOPfsq4e0Knlretuxx"
+uri = "file://public/icons/elements/water.png"
+type = "image"
+title = "water element medallion"
+
+[[generated]]
+id = "HgC52Y5jXTZujLJtwQ6dH"
+uri = "file://public/icons/elements/arcane.png"
+type = "image"
+title = "arcane element medallion"
+
+[[generated]]
+id = "30zOmcQ6KTl6roCIz4gM1"
+uri = "file://public/icons/elements/shadow.png"
+type = "image"
+title = "shadow element medallion"
+
+[[generated]]
+id = "fw5AQ5sodlqBCSiAqeSlu"
+uri = "file://public/icons/elements/poison.png"
+type = "image"
+title = "poison element medallion"
+
+[[generated]]
+id = "QCJBjk8jwW8qIIETqC2gv"
+uri = "file://public/icons/elements/physical.png"
+type = "image"
+title = "physical element medallion"
+
+[[outputs]]
+id = "beugd_kLDwpiGxWmlYeJc"
+uri = "file://CLOUDFLARE_DEPLOY.md"
+type = "text"
+title = "Cloudflare Deployment & ObjectStore Integration Guide"
+
+[[outputs]]
+id = "bKiyzQ42FnDfC9zea_m06"
+uri = "file://readmedeploy.txt"
+type = "text"
+title = "Tethical — Deployment Guide"

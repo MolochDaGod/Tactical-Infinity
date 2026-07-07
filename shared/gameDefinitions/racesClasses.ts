@@ -32,9 +32,30 @@ export interface CharacterClass {
 }
 
 export const FACTIONS = {
-  crusade: { id: 'crusade', name: 'Crusade', races: ['human', 'barbarian'] },
-  fabled: { id: 'fabled', name: 'Fabled', races: ['dwarf', 'elf'] },
-  legion: { id: 'legion', name: 'Legion', races: ['orc', 'undead'] },
+  crusade: {
+    id: 'crusade',
+    name: 'Crusade',
+    races: ['human', 'barbarian'],
+    color: '#3b82f6',
+    emblem: '/factions/crusade-emblem.png',
+    motto: 'Steel and faith.',
+  },
+  fabled: {
+    id: 'fabled',
+    name: 'Fabled',
+    races: ['dwarf', 'elf'],
+    color: '#22c55e',
+    emblem: '/factions/fabled-emblem.png',
+    motto: 'The ancient bargain holds.',
+  },
+  legion: {
+    id: 'legion',
+    name: 'Legion',
+    races: ['orc', 'undead'],
+    color: '#dc2626',
+    emblem: '/factions/legion-emblem.png',
+    motto: 'Conquer, then conquer again.',
+  },
 } as const;
 
 export const RACES: Record<string, Race> = {
@@ -48,7 +69,7 @@ export const RACES: Record<string, Race> = {
       { type: 'skillPoints', value: 1, description: '+1 starting skill point' },
       { type: 'diplomacy', value: 0.05, description: 'Better prices from merchants' },
     ],
-    recommendedClasses: ['warrior', 'mage', 'rogue', 'cleric'],
+    recommendedClasses: ['warrior', 'mage', 'ranger', 'worge'],
   },
   barbarian: {
     id: 'barbarian',
@@ -72,7 +93,7 @@ export const RACES: Record<string, Race> = {
       { type: 'physicalDefense', value: 0.10, description: '+10% physical defense' },
       { type: 'craftingQuality', value: 0.10, description: '+10% crafting quality bonus' },
     ],
-    recommendedClasses: ['warrior', 'cleric'],
+    recommendedClasses: ['warrior', 'worge'],
   },
   elf: {
     id: 'elf',
@@ -164,21 +185,21 @@ export const CLASSES: Record<string, CharacterClass> = {
       { name: 'Shadow Step', description: 'Teleport behind target' },
     ],
   },
-  cleric: {
-    id: 'cleric',
-    name: 'Cleric',
-    role: 'Healer / Support',
-    description: 'Divine spellcasters who heal allies and smite enemies.',
-    primaryStats: ['WIS', 'VIT', 'INT'],
-    armorTypes: ['Cloth', 'Mail'],
-    weaponTypes: ['Maces', 'Staves', 'Shields'],
-    resource: 'Mana',
-    startingAttributes: { Vitality: 5, Intellect: 5, Wisdom: 10 },
+  worge: {
+    id: 'worge',
+    name: 'Worge',
+    role: 'Forge / Engineer',
+    description: 'Battle-hardened smiths who forge weapons mid-battle and deploy explosive contraptions.',
+    primaryStats: ['STR', 'INT', 'END'],
+    armorTypes: ['Leather', 'Mail'],
+    weaponTypes: ['Hammers', 'Axes', 'Crossbows', 'Gadgets'],
+    resource: 'Heat',
+    startingAttributes: { Strength: 7, Endurance: 7, Intellect: 6 },
     abilities: [
-      { name: 'Heal', description: 'Restore ally health' },
-      { name: 'Smite', description: 'Holy damage to enemies' },
-      { name: 'Blessing', description: 'Buff ally stats' },
-      { name: 'Resurrection', description: 'Revive fallen allies' },
+      { name: 'Forge Strike', description: 'Smash with a super-heated weapon' },
+      { name: 'Deploy Turret', description: 'Place an auto-firing cannon' },
+      { name: 'Overclock', description: 'Boost ally attack speed temporarily' },
+      { name: 'Bomb Toss', description: 'Lob an explosive device at enemies' },
     ],
   },
 };

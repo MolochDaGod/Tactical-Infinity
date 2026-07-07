@@ -4,18 +4,3 @@ dist
 server/public
 vite.config.ts.*
 *.tar.gz
-# Large asset ZIPs (>100MB, GitHub limit)
-attached_assets/Medieval_Village_MegaKit*.zip
-attached_assets/Toon_RTS*.zip
-attached_assets/tworld-master*.zip
-attached_assets/glTF-main*.zip
-
-# Long filename assets (cause git push failures)
-attached_assets/GrudgeRPGAssets2d/
-# Large GeneratedWarones zip
-attached_assets/GeneratedWarones*.zip
-
-# Large 3D asset packs (552MB) - store separately
-client/public/3dassets/
-# Remaining attached_assets (720MB local only)
-attached_assets/

@@ -1,5 +1,17 @@
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { landscapeAssets, ENVIRONMENT_TEXTURE_PATHS } from './landscapeAssets';
+import { populateIsland, getGenerationManifest } from './generationLibrary';
+import { enhanceWithGrassShader } from './grassTerrainMaterial';
+
+let _manifestLogged = false;
+function logManifestOnce() {
+  if (_manifestLogged) return;
+  _manifestLogged = true;
+  try {
+    const m = getGenerationManifest();
+    console.log('[GenerationLibrary] Biome inventory:', m);
+  } catch (e) { /* ignore */ }
+}
 
 export interface IslandConfig {
   seed: number;
@@ -12,6 +24,8 @@ export interface GeneratedIsland {
   terrainMesh: THREE.Mesh;
   propMeshes: THREE.Group;
   collisionRadius: number;
+  underwaterBase: THREE.Mesh;
+  collisionMesh: THREE.Mesh;
 }
 
 const BIOME_COLORS: Record<string, { grass: number; sand: number; rock: number; accent: number }> = {
@@ -19,7 +33,9 @@ const BIOME_COLORS: Record<string, { grass: number; sand: number; rock: number; 
   volcanic: { grass: 0x3d3d3d, sand: 0x2a2a2a, rock: 0x1a1a1a, accent: 0xff4500 },
   arctic: { grass: 0xf0f8ff, sand: 0xe6f3ff, rock: 0xd4e5f7, accent: 0x87ceeb },
   desert: { grass: 0xdeb887, sand: 0xf4d03f, rock: 0xcd853f, accent: 0xffa500 },
-  haunted: { grass: 0x4a4a6a, sand: 0x3d3d5c, rock: 0x2d2d4d, accent: 0x800080 }
+  haunted: { grass: 0x4a4a6a, sand: 0x3d3d5c, rock: 0x2d2d4d, accent: 0x800080 },
+  forest: { grass: 0x3d6b21, sand: 0xc4a86a, rock: 0x6b5b4d, accent: 0x1d4a0d },
+  beach: { grass: 0x6b8e23, sand: 0xf5deb3, rock: 0x8b7355, accent: 0x32cd32 }
 };
 
 class SimplexNoise {
@@ -107,32 +123,31 @@ class SimplexNoise {
 }
 
 export class IslandGenerator {
-  private modelCache: Map<string, THREE.Group> = new Map();
-  private textureCache: Map<string, THREE.Texture> = new Map();
-  private loader: GLTFLoader;
-  private textureLoader: THREE.TextureLoader;
+  private assetsPreloaded: boolean = false;
+  private preloadPromise: Promise<void> | null = null;
 
   constructor() {
-    this.loader = new GLTFLoader();
-    this.textureLoader = new THREE.TextureLoader();
-    this.preloadModels();
+    this.preloadPromise = this.preloadAssets();
   }
 
-  private async preloadModels() {
-    const models = ['bush', 'palmer', 'rock', 'tree'];
-    for (const model of models) {
-      try {
-        const gltf = await this.loader.loadAsync(`/models/islands/${model}.glb`);
-        this.modelCache.set(model, gltf.scene.clone());
-      } catch (e) {
-        console.warn(`Failed to load model: ${model}`);
-      }
+  async ensureAssetsLoaded(): Promise<void> {
+    if (this.preloadPromise) {
+      await this.preloadPromise;
     }
   }
 
-  private getModel(name: string): THREE.Group | null {
-    const cached = this.modelCache.get(name);
-    return cached ? cached.clone() : null;
+  isReady(): boolean {
+    return this.assetsPreloaded;
+  }
+
+  private async preloadAssets(): Promise<void> {
+    try {
+      await landscapeAssets.preloadAllAssets();
+      this.assetsPreloaded = true;
+      console.log('[IslandGenerator] Stylized landscape assets preloaded');
+    } catch (e) {
+      console.warn('[IslandGenerator] Failed to preload landscape assets:', e);
+    }
   }
 
   generateIsland(config: IslandConfig): GeneratedIsland {
@@ -174,12 +189,21 @@ export class IslandGenerator {
           if (normalizedDist > 0.7) {
             height *= Math.pow((1 - normalizedDist) / 0.3, 0.5);
           }
+        } else {
+          // Vertices outside the island circle: drop them well below sea level
+          // so the ocean plane hides them. Without this they sit at y=0 and
+          // form a flat square "beach" footprint around every island.
+          height = -12 - (normalizedDist - 1) * config.radius * 0.4;
         }
         
         vertices.push(x, height, z);
         
         let vertexColor: THREE.Color;
-        if (normalizedDist > 0.85) {
+        if (normalizedDist >= 1) {
+          // Underwater skirt — color matches the sunken rock so any peek-through
+          // reads as submerged shelf rather than mystery beach.
+          vertexColor = colorRock;
+        } else if (normalizedDist > 0.88) {
           vertexColor = colorSand;
         } else if (height > config.radius * 0.15) {
           vertexColor = colorRock;
@@ -212,6 +236,10 @@ export class IslandGenerator {
       vertexColors: true,
       side: THREE.DoubleSide
     });
+    // Voronoi grass-blade-tip overlay: breaks up the flat biome green tint
+    // with cell-based root→tip shading + soil patches + wind shimmer in the
+    // grass areas only. Sand / rock / snow vertex colours pass through.
+    enhanceWithGrassShader(material);
     
     const terrainMesh = new THREE.Mesh(geometry, material);
     terrainMesh.position.copy(config.position);
@@ -219,11 +247,78 @@ export class IslandGenerator {
     
     const propMeshes = this.generateProps(config, noise, vertices, segments);
     propMeshes.position.copy(config.position);
+
+    // Stylized biome features (gems, ice clusters, ice spires, frozen logs,
+    // fire vents, fire tornadoes). Async/best-effort — landmarks pop in once
+    // their lazy packs arrive. Sample y from the vertex grid we just built.
+    const segCount = segments + 1;
+    const sampleHeight = (worldX: number, worldZ: number): number => {
+      const localX = worldX - config.position.x;
+      const localZ = worldZ - config.position.z;
+      const u = (localX / (config.radius * 2)) + 0.5;
+      const v = (localZ / (config.radius * 2)) + 0.5;
+      if (u < 0 || u > 1 || v < 0 || v > 1) return 0;
+      const i = Math.floor(u * segments);
+      const j = Math.floor(v * segments);
+      const idx = (i * segCount + j) * 3 + 1; // y component
+      return vertices[idx] ?? 0;
+    };
+    logManifestOnce();
+    populateIsland({
+      group: propMeshes,
+      centerX: 0,           // propMeshes is already positioned at config.position
+      centerZ: 0,
+      radius: config.radius,
+      biome: config.biome,
+      getHeightAt: (x, z) => sampleHeight(x + config.position.x, z + config.position.z),
+    });
+    
+    // Create underwater base to prevent clipping through island
+    const underwaterDepth = 30;
+    const baseColors = BIOME_COLORS[config.biome] || BIOME_COLORS.tropical;
+    const underwaterGeometry = new THREE.CylinderGeometry(
+      config.radius * 1.1,  // Top radius
+      config.radius * 0.7,  // Bottom radius (tapers down)
+      underwaterDepth,
+      16,
+      4,
+      false
+    );
+    const underwaterMaterial = new THREE.MeshLambertMaterial({
+      color: new THREE.Color(baseColors.rock).multiplyScalar(0.6),
+      side: THREE.DoubleSide
+    });
+    const underwaterBase = new THREE.Mesh(underwaterGeometry, underwaterMaterial);
+    underwaterBase.position.copy(config.position);
+    underwaterBase.position.y = -underwaterDepth / 2;
+    underwaterBase.receiveShadow = true;
+    
+    // Create invisible collision mesh (cylinder around island for solid collision)
+    const collisionGeometry = new THREE.CylinderGeometry(
+      config.radius,
+      config.radius,
+      underwaterDepth + 10,
+      16,
+      1,
+      false
+    );
+    const collisionMaterial = new THREE.MeshBasicMaterial({
+      visible: false,
+      transparent: true,
+      opacity: 0
+    });
+    const collisionMesh = new THREE.Mesh(collisionGeometry, collisionMaterial);
+    collisionMesh.position.copy(config.position);
+    collisionMesh.position.y = -underwaterDepth / 2 + 5;
+    collisionMesh.userData.isCollision = true;
+    collisionMesh.userData.islandId = 'island-collision';
     
     return {
       terrainMesh,
       propMeshes,
-      collisionRadius: config.radius
+      collisionRadius: config.radius,
+      underwaterBase,
+      collisionMesh
     };
   }
 
@@ -234,7 +329,7 @@ export class IslandGenerator {
     segments: number
   ): THREE.Group {
     const group = new THREE.Group();
-    const propCount = Math.floor(config.radius * 0.5);
+    const propCount = Math.floor(config.radius * 0.6);
     const colors = BIOME_COLORS[config.biome] || BIOME_COLORS.tropical;
     
     for (let i = 0; i < propCount; i++) {
@@ -252,68 +347,221 @@ export class IslandGenerator {
       
       if (y < 0.5) continue;
       
-      let propMesh: THREE.Object3D | null = null;
       const propType = Math.random();
+      const position = new THREE.Vector3(x, y, z);
+      const rotation = Math.random() * Math.PI * 2;
       
-      if (config.biome === 'tropical' || config.biome === 'haunted') {
-        if (propType < 0.3) {
-          propMesh = this.getModel('palmer');
-          if (propMesh) {
-            propMesh.scale.setScalar(3 + Math.random() * 2);
-          }
-        } else if (propType < 0.6) {
-          propMesh = this.getModel('tree');
-          if (propMesh) {
-            propMesh.scale.setScalar(2 + Math.random() * 1.5);
-          }
-        } else if (propType < 0.8) {
-          propMesh = this.getModel('bush');
-          if (propMesh) {
-            propMesh.scale.setScalar(1.5 + Math.random());
-          }
-        } else {
-          propMesh = this.getModel('rock');
-          if (propMesh) {
-            propMesh.scale.setScalar(1 + Math.random() * 0.5);
-          }
-        }
-      } else if (config.biome === 'volcanic') {
-        propMesh = this.getModel('rock');
-        if (propMesh) {
-          propMesh.scale.setScalar(1 + Math.random() * 2);
-        }
-      } else if (config.biome === 'arctic') {
-        if (propType < 0.7) {
-          propMesh = this.getModel('rock');
-          if (propMesh) {
-            propMesh.scale.setScalar(0.5 + Math.random());
-          }
-        }
-      } else if (config.biome === 'desert') {
-        if (propType < 0.3) {
-          propMesh = this.getModel('rock');
-          if (propMesh) {
-            propMesh.scale.setScalar(0.5 + Math.random() * 1.5);
-          }
-        } else if (propType < 0.5) {
-          propMesh = this.getModel('palmer');
-          if (propMesh) {
-            propMesh.scale.setScalar(2 + Math.random());
-          }
-        }
+      if (this.assetsPreloaded) {
+        this.addRealisticPropSync(group, config.biome, propType, position, rotation);
+      } else {
+        this.addFallbackProp(group, config, propType, position, rotation, colors);
       }
-      
-      if (!propMesh) {
-        const propGeo = new THREE.ConeGeometry(0.5 + Math.random() * 0.5, 2 + Math.random() * 3, 6);
-        const propMat = new THREE.MeshLambertMaterial({ color: colors.accent });
-        propMesh = new THREE.Mesh(propGeo, propMat);
-      }
-      
-      propMesh.position.set(x, y, z);
-      propMesh.rotation.y = Math.random() * Math.PI * 2;
-      group.add(propMesh);
     }
     
     return group;
+  }
+  
+  private addRealisticPropSync(
+    group: THREE.Group,
+    biome: string,
+    propType: number,
+    position: THREE.Vector3,
+    rotation: number
+  ): void {
+    let propMesh: THREE.Group | null = null;
+    let scale = 1;
+    
+    if (biome === 'tropical' || biome === 'beach') {
+      if (propType < 0.25) {
+        propMesh = landscapeAssets.getTreeModelSync('palm');
+        scale = 2 + Math.random() * 1.5;
+      } else if (propType < 0.45) {
+        propMesh = landscapeAssets.getTreeModelSync('birch');
+        scale = 1.5 + Math.random();
+      } else if (propType < 0.6) {
+        const vegType = landscapeAssets.getRandomVegetationTypeForBiome(biome);
+        propMesh = landscapeAssets.getVegetationModelSync(vegType);
+        scale = 1 + Math.random() * 0.5;
+      } else if (propType < 0.75) {
+        propMesh = landscapeAssets.getVegetationModelSync('bushLargeFlowers');
+        scale = 1.2 + Math.random() * 0.8;
+      } else if (propType < 0.9) {
+        propMesh = landscapeAssets.getVegetationModelSync('grassLarge');
+        scale = 0.8 + Math.random() * 0.4;
+      } else {
+        propMesh = landscapeAssets.getRockModelSync();
+        scale = 0.8 + Math.random() * 1.2;
+      }
+    } else if (biome === 'forest') {
+      if (propType < 0.35) {
+        propMesh = landscapeAssets.getTreeModelSync('normal');
+        scale = 2 + Math.random() * 1.5;
+      } else if (propType < 0.55) {
+        propMesh = landscapeAssets.getTreeModelSync('pine');
+        scale = 2.5 + Math.random() * 2;
+      } else if (propType < 0.7) {
+        propMesh = landscapeAssets.getTreeModelSync('birch');
+        scale = 1.8 + Math.random();
+      } else if (propType < 0.85) {
+        propMesh = landscapeAssets.getVegetationModelSync('bushLarge');
+        scale = 1 + Math.random() * 0.5;
+      } else {
+        propMesh = landscapeAssets.getVegetationModelSync('flower2Clump');
+        scale = 0.8 + Math.random() * 0.3;
+      }
+    } else if (biome === 'volcanic' || biome === 'haunted') {
+      if (propType < 0.5) {
+        propMesh = landscapeAssets.getTreeModelSync('dead');
+        scale = 1.5 + Math.random() * 2;
+      } else if (propType < 0.8) {
+        propMesh = landscapeAssets.getRockModelSync();
+        scale = 1 + Math.random() * 2;
+      } else {
+        propMesh = landscapeAssets.getVegetationModelSync('grassSmall');
+        scale = 0.5 + Math.random() * 0.3;
+      }
+    } else if (biome === 'arctic') {
+      if (propType < 0.4) {
+        propMesh = landscapeAssets.getTreeModelSync('pine');
+        scale = 2 + Math.random() * 1.5;
+      } else if (propType < 0.7) {
+        propMesh = landscapeAssets.getRockModelSync();
+        scale = 0.5 + Math.random();
+      } else {
+        propMesh = landscapeAssets.getVegetationModelSync('bushSmall');
+        scale = 0.6 + Math.random() * 0.3;
+      }
+    } else if (biome === 'desert') {
+      if (propType < 0.35) {
+        propMesh = landscapeAssets.getTreeModelSync('palm');
+        scale = 2 + Math.random();
+      } else if (propType < 0.5) {
+        propMesh = landscapeAssets.getTreeModelSync('dead');
+        scale = 1 + Math.random();
+      } else if (propType < 0.8) {
+        propMesh = landscapeAssets.getRockModelSync();
+        scale = 0.5 + Math.random() * 1.5;
+      } else {
+        propMesh = landscapeAssets.getVegetationModelSync('grassSmall');
+        scale = 0.4 + Math.random() * 0.2;
+      }
+    } else {
+      const treeType = landscapeAssets.getRandomTreeTypeForBiome(biome);
+      if (propType < 0.4) {
+        propMesh = landscapeAssets.getTreeModelSync(treeType);
+        scale = 1.5 + Math.random() * 1.5;
+      } else if (propType < 0.6) {
+        const vegType = landscapeAssets.getRandomVegetationTypeForBiome(biome);
+        propMesh = landscapeAssets.getVegetationModelSync(vegType);
+        scale = 0.8 + Math.random() * 0.5;
+      } else if (propType < 0.85) {
+        propMesh = landscapeAssets.getVegetationModelSync('bush');
+        scale = 1 + Math.random() * 0.5;
+      } else {
+        propMesh = landscapeAssets.getRockModelSync();
+        scale = 0.8 + Math.random();
+      }
+    }
+    
+    if (propMesh) {
+      propMesh.position.copy(position);
+      propMesh.rotation.y = rotation;
+      propMesh.scale.setScalar(scale);
+      propMesh.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const mesh = child as THREE.Mesh;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+        }
+      });
+      group.add(propMesh);
+    }
+  }
+  
+  private addFallbackProp(
+    group: THREE.Group,
+    config: IslandConfig,
+    propType: number,
+    position: THREE.Vector3,
+    rotation: number,
+    colors: { grass: number; sand: number; rock: number; accent: number }
+  ): void {
+    let propMesh: THREE.Group | null = null;
+    let scale = 1;
+    
+    if (config.biome === 'tropical' || config.biome === 'haunted') {
+      if (propType < 0.3) {
+        propMesh = landscapeAssets.getTreeModelSync('palm');
+        scale = 2 + Math.random() * 1.5;
+      } else if (propType < 0.6) {
+        propMesh = landscapeAssets.getTreeModelSync('normal');
+        scale = 1.5 + Math.random();
+      } else if (propType < 0.8) {
+        propMesh = landscapeAssets.getVegetationModelSync('bush');
+        scale = 1.2 + Math.random() * 0.5;
+      } else {
+        propMesh = landscapeAssets.getRockModelSync();
+        scale = 0.8 + Math.random() * 0.5;
+      }
+    } else if (config.biome === 'volcanic') {
+      propMesh = landscapeAssets.getRockModelSync();
+      scale = 1 + Math.random() * 2;
+    } else if (config.biome === 'arctic') {
+      if (propType < 0.5) {
+        propMesh = landscapeAssets.getRockModelSync();
+        scale = 0.5 + Math.random();
+      } else {
+        propMesh = landscapeAssets.getTreeModelSync('pine');
+        scale = 1.5 + Math.random();
+      }
+    } else if (config.biome === 'desert') {
+      if (propType < 0.3) {
+        propMesh = landscapeAssets.getRockModelSync();
+        scale = 0.5 + Math.random() * 1.5;
+      } else if (propType < 0.5) {
+        propMesh = landscapeAssets.getTreeModelSync('palm');
+        scale = 1.5 + Math.random();
+      }
+    } else if (config.biome === 'forest') {
+      if (propType < 0.4) {
+        const treeType = landscapeAssets.getRandomTreeTypeForBiome('forest');
+        propMesh = landscapeAssets.getTreeModelSync(treeType);
+        scale = 1.5 + Math.random();
+      } else if (propType < 0.7) {
+        propMesh = landscapeAssets.getVegetationModelSync('bushLarge');
+        scale = 1 + Math.random() * 0.5;
+      } else {
+        propMesh = landscapeAssets.getRockModelSync();
+        scale = 0.6 + Math.random() * 0.6;
+      }
+    } else if (config.biome === 'beach') {
+      if (propType < 0.4) {
+        propMesh = landscapeAssets.getTreeModelSync('palm');
+        scale = 2 + Math.random() * 1.5;
+      } else if (propType < 0.6) {
+        propMesh = landscapeAssets.getVegetationModelSync('grassSmall');
+        scale = 0.8 + Math.random() * 0.4;
+      } else {
+        propMesh = landscapeAssets.getRockModelSync();
+        scale = 0.4 + Math.random() * 0.4;
+      }
+    }
+    
+    if (!propMesh) {
+      propMesh = landscapeAssets.getRockModelSync();
+      scale = 0.5 + Math.random() * 0.5;
+    }
+    
+    propMesh.position.copy(position);
+    propMesh.rotation.y = rotation;
+    propMesh.scale.setScalar(scale);
+    propMesh.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        const mesh = child as THREE.Mesh;
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+      }
+    });
+    group.add(propMesh);
   }
 }

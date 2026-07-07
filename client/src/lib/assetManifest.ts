@@ -103,7 +103,7 @@ export interface EffectAsset {
 
 export const ASSET_BASE_PATH = "/2dassets";
 
-export const characterAssets: Record<UnitClass, CharacterSpriteAsset> = {
+export const characterAssets: Record<string, CharacterSpriteAsset> = {
   warrior: {
     id: "char-warrior",
     name: "Warrior",

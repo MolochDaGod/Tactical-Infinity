@@ -181,6 +181,7 @@ export class ThreeSceneManager {
     });
     
     if (this.renderer) {
+      this.renderer.forceContextLoss();
       this.renderer.dispose();
       
       if (this.container && this.renderer.domElement.parentNode === this.container) {

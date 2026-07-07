@@ -3,12 +3,36 @@ import { FBXLoader } from "three/examples/jsm/loaders/FBXLoader.js";
 import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
 import { DRACOLoader } from "three/examples/jsm/loaders/DRACOLoader.js";
 import { TGALoader } from "three/examples/jsm/loaders/TGALoader.js";
+import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js";
 import type { Race, UnitClass } from "@shared/schema";
 
-const TOON_RTS_BASE = "/3dassets/Toon_RTS";
+const TOON_RTS_BASE = "/toon_rts/Toon_RTS";
 const TEXTURES_BASE = `${TOON_RTS_BASE}/WesternKingdoms/models/Materials/textures/`;
-const BUILDINGS_BASE = "/3dassets/buildings/FBX";
-const GLTF_MODELS_BASE = "/3dassets/gltf";
+const BUILDINGS_BASE = "/buildings/FBX";
+const GLTF_MODELS_BASE = "/gltf";
+
+// FBXLoader deletes bone influences beyond the 4th WITHOUT renormalizing the
+// remaining weights, so they no longer sum to 1 and the skin deforms
+// incorrectly (limbs collapse/balloon near heavily-weighted joints). Rescale
+// each vertex's surviving 4 weights so they sum to 1 again.
+function normalizeSkinWeights(root: THREE.Object3D): void {
+  const v = new THREE.Vector4();
+  root.traverse((child) => {
+    const sk = child as THREE.SkinnedMesh;
+    if (!sk.isSkinnedMesh) return;
+    const skinWeight = sk.geometry.attributes.skinWeight as THREE.BufferAttribute | undefined;
+    if (!skinWeight) return;
+    for (let i = 0; i < skinWeight.count; i++) {
+      v.fromBufferAttribute(skinWeight, i);
+      const sum = v.x + v.y + v.z + v.w;
+      if (sum > 0 && Math.abs(sum - 1) > 1e-4) {
+        v.multiplyScalar(1 / sum);
+        skinWeight.setXYZW(i, v.x, v.y, v.z, v.w);
+      }
+    }
+    skinWeight.needsUpdate = true;
+  });
+}
 
 export interface LoadedModel {
   model: THREE.Group;
@@ -135,21 +159,29 @@ export class FBXModelLoader {
   }
 
   private deepCloneGroup(original: THREE.Group): THREE.Group {
-    const clone = original.clone(true);
-    
+    // Use three's SkeletonUtils.clone for skin-aware deep cloning. Plain
+    // `clone(true)` leaves every clone's SkinnedMesh pointing at the original
+    // source skeleton — animating one clone then animates them all, and any
+    // bone-array mismatch produces "Cannot read properties of undefined"
+    // crashes inside `Skeleton.update()`.
+    const clone = cloneSkinned(original) as THREE.Group;
+
+    // SkeletonUtils.clone leaves geometry and materials SHARED. We want
+    // per-instance copies so individual units can be tinted / damaged /
+    // body-part-swapped without affecting the cache.
     clone.traverse((child) => {
-      if ((child as THREE.Mesh).isMesh) {
-        const mesh = child as THREE.Mesh;
-        mesh.geometry = mesh.geometry.clone();
-        
-        if (Array.isArray(mesh.material)) {
-          mesh.material = mesh.material.map(mat => mat.clone());
-        } else if (mesh.material) {
-          mesh.material = mesh.material.clone();
-        }
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+
+      mesh.geometry = mesh.geometry.clone();
+
+      if (Array.isArray(mesh.material)) {
+        mesh.material = mesh.material.map((mat) => mat.clone());
+      } else if (mesh.material) {
+        mesh.material = mesh.material.clone();
       }
     });
-    
+
     return clone;
   }
 
@@ -322,6 +354,10 @@ export class FBXModelLoader {
               }
             }
           });
+
+          // Renormalize the surviving skin weights (FBXLoader dropped any
+          // >4th influences without rescaling — see normalizeSkinWeights).
+          normalizeSkinWeights(fbx);
 
           const animations = new Map<string, THREE.AnimationClip>();
 

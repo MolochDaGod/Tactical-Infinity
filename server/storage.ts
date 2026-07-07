@@ -21,6 +21,13 @@ import type {
   EntityRegistry,
   Session,
   AccountRole,
+  PersistedShip,
+  InsertPersistedShip,
+  PersistedWeapon,
+  InsertPersistedWeapon,
+  CharacterLoadout,
+  FlagDesign,
+  InsertFlagDesign,
 } from "@shared/schema";
 import { calculateHarvestYield, nodeTypeToProfession, TIER_MULTIPLIERS } from "@shared/schema";
 import { UuidGenerators } from "@shared/grudgeUuid";
@@ -49,11 +56,11 @@ const abilityTemplates: Record<UnitClass, Ability[]> = {
   ],
 };
 
-const baseStats: Record<UnitClass, { hp: number; attack: number; defense: number; speed: number; movement: number; range: number }> = {
-  warrior: { hp: 120, attack: 28, defense: 22, speed: 12, movement: 3, range: 1 },
-  ranger: { hp: 80, attack: 25, defense: 12, speed: 16, movement: 4, range: 4 },
-  mage: { hp: 70, attack: 35, defense: 10, speed: 14, movement: 3, range: 3 },
-  worge: { hp: 100, attack: 30, defense: 15, speed: 18, movement: 5, range: 1 },
+const baseStats: Record<UnitClass, { hp: number; maxHp: number; attack: number; defense: number; speed: number; movement: number; range: number; mana: number; maxMana: number; blockChance: number; critChance: number; critFactor: number }> = {
+  warrior: { hp: 120, maxHp: 120, attack: 28, defense: 22, speed: 12, movement: 3, range: 1, mana: 40, maxMana: 40, blockChance: 0.08, critChance: 0.05, critFactor: 1.5 },
+  ranger:  { hp: 80,  maxHp: 80,  attack: 25, defense: 12, speed: 16, movement: 4, range: 4, mana: 50, maxMana: 50, blockChance: 0.04, critChance: 0.10, critFactor: 1.8 },
+  mage:    { hp: 70,  maxHp: 70,  attack: 35, defense: 10, speed: 14, movement: 3, range: 3, mana: 90, maxMana: 90, blockChance: 0.02, critChance: 0.08, critFactor: 2.0 },
+  worge:   { hp: 100, maxHp: 100, attack: 30, defense: 15, speed: 18, movement: 5, range: 1, mana: 60, maxMana: 60, blockChance: 0.06, critChance: 0.07, critFactor: 1.6 },
 };
 
 const namesByFaction: Record<Faction, string[]> = {
@@ -142,6 +149,36 @@ export interface IStorage {
   getSession(token: string): Promise<Session | undefined>;
   deleteSession(token: string): Promise<boolean>;
   deleteSessionsByAccount(accountId: string): Promise<boolean>;
+
+  // ── Ships ──────────────────────────────────────────────────
+  // Player-owned ship instances. `tierId` = SHIP_TIERS key.
+  createShip(data: InsertPersistedShip): Promise<PersistedShip>;
+  getShip(grudgeUuid: string): Promise<PersistedShip | undefined>;
+  getShipsByOwner(ownerId: string): Promise<PersistedShip[]>;
+  getActiveShipForOwner(ownerId: string): Promise<PersistedShip | undefined>;
+  updateShip(grudgeUuid: string, updates: Partial<PersistedShip>): Promise<PersistedShip | undefined>;
+  setActiveShip(ownerId: string, shipUuid: string): Promise<boolean>; // atomically clears other isActive flags
+  deleteShip(grudgeUuid: string): Promise<boolean>;
+
+  // ── Weapon instances ───────────────────────────────────────
+  createWeapon(data: InsertPersistedWeapon): Promise<PersistedWeapon>;
+  getWeapon(grudgeUuid: string): Promise<PersistedWeapon | undefined>;
+  getWeaponsByOwner(ownerId: string): Promise<PersistedWeapon[]>;
+  updateWeapon(grudgeUuid: string, updates: Partial<PersistedWeapon>): Promise<PersistedWeapon | undefined>;
+  deleteWeapon(grudgeUuid: string): Promise<boolean>;
+
+  // ── Character loadouts ─────────────────────────────────────
+  // (characterId, slot) is the logical key — equipping replaces the existing row.
+  equipWeapon(characterId: string, slot: string, weaponInstanceId: string | null, hotbarSlot?: number): Promise<CharacterLoadout>;
+  getLoadout(characterId: string): Promise<CharacterLoadout[]>;
+  unequipSlot(characterId: string, slot: string): Promise<boolean>;
+
+  // ── Flag designs ───────────────────────────────────────────
+  createFlagDesign(data: InsertFlagDesign): Promise<FlagDesign>;
+  getFlagDesign(grudgeUuid: string): Promise<FlagDesign | undefined>;
+  getFlagDesignsByOwner(ownerId: string): Promise<FlagDesign[]>;
+  getPublicFlagDesigns(limit?: number): Promise<FlagDesign[]>;
+  deleteFlagDesign(grudgeUuid: string): Promise<boolean>;
 }
 
 const XP_PER_LEVEL = 100;
@@ -233,7 +270,7 @@ export class MemStorage implements IStorage {
       class: unitClass,
       faction,
       level,
-      stats: { ...stats, maxHp: stats.hp },
+      stats: { ...stats },
       abilities: [...abilityTemplates[unitClass]],
       isEnemy,
       portraitIndex: Math.floor(Math.random() * 4),
@@ -794,6 +831,132 @@ export class MemStorage implements IStorage {
     }
     return toDelete.length > 0;
   }
+
+  // ─── Ships / Weapons / Loadouts / Flag Designs ───────────────
+  // In-memory implementations matching the new IStorage methods.
+  // These will be swapped for Drizzle/Postgres impls once the
+  // schema is pushed (see shared/schema.ts → playerShips et al.).
+  private ships:        Map<string, PersistedShip>     = new Map();
+  private weapons:      Map<string, PersistedWeapon>   = new Map();
+  private loadoutsById: Map<number, CharacterLoadout>  = new Map();
+  private loadoutSeq:   number                          = 1;
+  private flags:        Map<string, FlagDesign>         = new Map();
+
+  async createShip(data: InsertPersistedShip): Promise<PersistedShip> {
+    const now = new Date();
+    const ship: PersistedShip = {
+      grudgeUuid:   data.grudgeUuid,
+      ownerId:      data.ownerId,
+      tierId:       data.tierId,
+      name:         data.name,
+      hpHull:       data.hpHull,
+      hpHullMax:    data.hpHullMax,
+      rigOverride:  data.rigOverride ?? null,
+      flagDesignId: data.flagDesignId ?? null,
+      lastPos:      data.lastPos ?? null,
+      isActive:     data.isActive ?? false,
+      createdAt:    now,
+      updatedAt:    now,
+    };
+    this.ships.set(ship.grudgeUuid, ship);
+    return ship;
+  }
+  async getShip(grudgeUuid: string)               { return this.ships.get(grudgeUuid); }
+  async getShipsByOwner(ownerId: string)          { return Array.from(this.ships.values()).filter(s => s.ownerId === ownerId); }
+  async getActiveShipForOwner(ownerId: string)    { return Array.from(this.ships.values()).find(s => s.ownerId === ownerId && s.isActive); }
+  async updateShip(grudgeUuid: string, updates: Partial<PersistedShip>) {
+    const existing = this.ships.get(grudgeUuid);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates, updatedAt: new Date() };
+    this.ships.set(grudgeUuid, updated);
+    return updated;
+  }
+  async setActiveShip(ownerId: string, shipUuid: string): Promise<boolean> {
+    let found = false;
+    for (const ship of this.ships.values()) {
+      if (ship.ownerId !== ownerId) continue;
+      const shouldBeActive = ship.grudgeUuid === shipUuid;
+      if (ship.isActive !== shouldBeActive) {
+        this.ships.set(ship.grudgeUuid, { ...ship, isActive: shouldBeActive, updatedAt: new Date() });
+      }
+      if (shouldBeActive) found = true;
+    }
+    return found;
+  }
+  async deleteShip(grudgeUuid: string)            { return this.ships.delete(grudgeUuid); }
+
+  async createWeapon(data: InsertPersistedWeapon): Promise<PersistedWeapon> {
+    const weapon: PersistedWeapon = {
+      grudgeUuid:     data.grudgeUuid,
+      ownerId:        data.ownerId,
+      weaponDefId:    data.weaponDefId,
+      tier:           data.tier ?? 1,
+      quality:        data.quality ?? 'common',
+      customisations: data.customisations ?? null,
+      createdAt:      new Date(),
+    };
+    this.weapons.set(weapon.grudgeUuid, weapon);
+    return weapon;
+  }
+  async getWeapon(grudgeUuid: string)             { return this.weapons.get(grudgeUuid); }
+  async getWeaponsByOwner(ownerId: string)        { return Array.from(this.weapons.values()).filter(w => w.ownerId === ownerId); }
+  async updateWeapon(grudgeUuid: string, updates: Partial<PersistedWeapon>) {
+    const existing = this.weapons.get(grudgeUuid);
+    if (!existing) return undefined;
+    const updated = { ...existing, ...updates };
+    this.weapons.set(grudgeUuid, updated);
+    return updated;
+  }
+  async deleteWeapon(grudgeUuid: string)          { return this.weapons.delete(grudgeUuid); }
+
+  async equipWeapon(characterId: string, slot: string, weaponInstanceId: string | null, hotbarSlot?: number): Promise<CharacterLoadout> {
+    // Replace any existing row for (characterId, slot)
+    for (const [id, row] of this.loadoutsById.entries()) {
+      if (row.characterId === characterId && row.slot === slot) {
+        this.loadoutsById.delete(id);
+      }
+    }
+    const row: CharacterLoadout = {
+      id:               this.loadoutSeq++,
+      characterId,
+      slot,
+      weaponInstanceId: weaponInstanceId ?? null,
+      hotbarSlot:       hotbarSlot ?? null,
+      equippedAt:       new Date(),
+    };
+    this.loadoutsById.set(row.id, row);
+    return row;
+  }
+  async getLoadout(characterId: string)            { return Array.from(this.loadoutsById.values()).filter(r => r.characterId === characterId); }
+  async unequipSlot(characterId: string, slot: string): Promise<boolean> {
+    let removed = false;
+    for (const [id, row] of this.loadoutsById.entries()) {
+      if (row.characterId === characterId && row.slot === slot) {
+        this.loadoutsById.delete(id);
+        removed = true;
+      }
+    }
+    return removed;
+  }
+
+  async createFlagDesign(data: InsertFlagDesign): Promise<FlagDesign> {
+    const flag: FlagDesign = {
+      grudgeUuid: data.grudgeUuid,
+      ownerId:    data.ownerId,
+      name:       data.name,
+      canvasPng:  data.canvasPng,
+      width:      data.width ?? 256,
+      height:     data.height ?? 256,
+      isPublic:   data.isPublic ?? false,
+      createdAt:  new Date(),
+    };
+    this.flags.set(flag.grudgeUuid, flag);
+    return flag;
+  }
+  async getFlagDesign(grudgeUuid: string)          { return this.flags.get(grudgeUuid); }
+  async getFlagDesignsByOwner(ownerId: string)     { return Array.from(this.flags.values()).filter(f => f.ownerId === ownerId); }
+  async getPublicFlagDesigns(limit = 50)           { return Array.from(this.flags.values()).filter(f => f.isPublic).slice(0, limit); }
+  async deleteFlagDesign(grudgeUuid: string)       { return this.flags.delete(grudgeUuid); }
 }
 
 export const storage = new MemStorage();

@@ -11,6 +11,8 @@ import { CombatPreview } from "@/components/game/CombatPreview";
 import { VictoryDefeatScreen } from "@/components/game/VictoryDefeatScreen";
 import { useTheme } from "@/components/ThemeProvider";
 import { useBattleAnimations } from "@/hooks/useBattleAnimations";
+import { classDefaultWeapons } from "@/lib/spriteData";
+import { getWeaponEffectForType } from "@/lib/adminOverrides";
 import type { BattleState, Unit, Ability } from "@shared/schema";
 import { Home, Sun, Moon, Map } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -98,21 +100,28 @@ export default function BattlePage({
         const target = allUnits.find(u => u.position?.x === x && u.position?.y === y);
         if (target) {
           const damage = calculateDamage(selectedUnit, target, selectedAbility || undefined);
-          const isMagicClass = selectedUnit.class === "mage" || selectedUnit.class === "healer";
+          const isMagicClass = (selectedUnit.class as string) === "mage" || (selectedUnit.class as string) === "healer";
           const isHeal = selectedAbility?.type === "heal" || 
-            (selectedUnit.class === "healer" && !target.isEnemy);
+            ((selectedUnit.class as string) === "healer" && !target.isEnemy);
           
+          const attackerWeaponType = selectedUnit.equipment?.weapon?.weaponType
+            ?? classDefaultWeapons[selectedUnit.class];
+          const weaponFx = attackerWeaponType ? getWeaponEffectForType(attackerWeaponType) : undefined;
+
           if (isHeal) {
             await playHealAnimation(selectedUnit.id, target.id, damage);
           } else if (isMagicClass || selectedAbility) {
             const spellName = selectedAbility?.name?.toLowerCase() || "fireball";
-            const spellColor = selectedAbility?.type === "fire" ? "#ff4500" :
-                              selectedAbility?.type === "frost" ? "#00bfff" :
-                              selectedAbility?.type === "lightning" ? "#9370db" :
-                              "#ff4500";
+            const spellColor = weaponFx?.effectColor
+                              ?? ((selectedAbility?.type as string) === "fire" ? "#ff4500" :
+                                  (selectedAbility?.type as string) === "frost" ? "#00bfff" :
+                                  (selectedAbility?.type as string) === "lightning" ? "#9370db" :
+                                  "#ff4500");
             await playSpellAnimation(selectedUnit.id, target.id, spellName, damage, spellColor);
           } else {
-            await playAttackAnimation(selectedUnit.id, target.id, damage);
+            await playAttackAnimation(selectedUnit.id, target.id, damage, weaponFx
+              ? { color: weaponFx.effectColor, effectName: weaponFx.attackEffect }
+              : undefined);
           }
           
           const newHp = target.stats.hp - damage;

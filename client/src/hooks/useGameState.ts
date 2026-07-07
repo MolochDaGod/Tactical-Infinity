@@ -7,7 +7,7 @@ import {
   generateEnemyTeam 
 } from "@/lib/gameData";
 
-type GamePhase = "menu" | "roster" | "codex" | "barracks" | "islands" | "adminmap" | "admin" | "adminsprites" | "battle" | "victory" | "defeat" | "worldmap";
+type GamePhase = "menu" | "roster" | "codex" | "barracks" | "islands" | "adminmap" | "admin" | "adminsprites" | "adminassets" | "battle" | "battlegrounds" | "victory" | "defeat" | "worldmap" | "captain" | "grudgetest" | "shipeditor" | "intro" | "videogen" | "beachSpawn" | "chat" | "polygonjs" | "pixyfx" | "assetregistry" | "buildertest" | "turretdemo" | "playerarena" | "sailing" | "islandeditor" | "raceviewer" | "unitviewer" | "productionisland" | "equipment" | "classtree" | "islandlanding" | "islandexplore";
 
 interface GameState {
   phase: GamePhase;

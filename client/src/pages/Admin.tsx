@@ -14,7 +14,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Home, Save, Sword, Users, Wand2, Shield, Crosshair, Zap, Eye, Move, Moon, Sun, Image } from "lucide-react";
+import { Home, Save, Sword, Users, Wand2, Shield, Crosshair, Zap, Eye, Move, Moon, Sun, Image, Sparkles, MapPin, Layers, Mountain, Palette, Video, Hammer, FlaskConical, Ship as ShipIcon, Waves, Fish } from "lucide-react";
+import { ShipTester } from "@/components/admin/testers/ShipTester";
+import { OceanTester } from "@/components/admin/testers/OceanTester";
+import { FishingTester } from "@/components/admin/testers/FishingTester";
 import { useTheme } from "@/components/ThemeProvider";
 import { cn } from "@/lib/utils";
 
@@ -29,24 +32,15 @@ import {
   type SpriteDefinition 
 } from "@shared/gameDefinitions/sprites";
 
-interface SpriteAssignment {
-  raceId: string;
-  classId: string;
-  spriteId: string;
-  spritePath: string;
-}
-
-interface WeaponEffectConfig {
-  weaponId: string;
-  attackEffect: string;
-  effectColor: string;
-  animationType: "slash" | "thrust" | "swing" | "projectile" | "spell";
-  attackRange: number;
-  attackSpeed: number;
-  projectileSpeed: number;
-  impactEffect: string;
-  soundEffect: string;
-}
+import {
+  saveSpriteOverrides,
+  saveWeaponEffects,
+  loadSpriteOverrides,
+  loadWeaponEffects,
+  type SpriteAssignment,
+  type WeaponEffectConfig,
+} from "@/lib/adminOverrides";
+import { useToast } from "@/hooks/use-toast";
 
 const ALL_SPRITES: SpriteDefinition[] = [
   ...Object.values(CHARACTER_SPRITES),
@@ -54,8 +48,22 @@ const ALL_SPRITES: SpriteDefinition[] = [
   ...Object.values(EFFECT_SPRITES),
 ];
 
-const EFFECT_TYPES = ["slash", "explosion", "heal", "fire", "frost", "lightning", "poison", "shadow"];
-const ANIMATION_TYPES = ["slash", "thrust", "swing", "projectile", "spell"];
+const EFFECT_TYPES = [
+  "slash", "explosion", "heal", "fire", "frost", "lightning", "poison", "shadow",
+  "phase", "flash_step", "dash_trail", "teleport",
+  "spell_fire", "spell_ice", "spell_lightning", "spell_arcane", "spell_holy", "spell_shadow",
+  "aoe_fire", "aoe_ice", "aoe_poison", "channel_beam", "summon_portal"
+];
+
+const EFFECT_CATEGORIES = {
+  "Combat": ["slash", "explosion", "heal"],
+  "Elements": ["fire", "frost", "lightning", "poison", "shadow"],
+  "Movement": ["phase", "flash_step", "dash_trail", "teleport"],
+  "Spell Cast": ["spell_fire", "spell_ice", "spell_lightning", "spell_arcane", "spell_holy", "spell_shadow"],
+  "Area Effects": ["aoe_fire", "aoe_ice", "aoe_poison", "channel_beam", "summon_portal"],
+};
+
+const ANIMATION_TYPES = ["slash", "thrust", "swing", "projectile", "spell", "phase", "flash", "channel"];
 
 interface SpriteCanvasProps {
   spritePath: string;
@@ -170,27 +178,40 @@ function SpriteCanvas({ spritePath, spriteId, frameWidth = 64, frameHeight = 64,
   );
 }
 
-export default function Admin({ onBack, onViewSprites }: { onBack: () => void; onViewSprites?: () => void }) {
+export default function Admin({ onBack, onViewSprites, onViewAssets, onViewVideoGen, onViewPolygonJS, onViewBuilderTest, onViewTurretDemo, onViewIslandEditor, onViewPixyFx, onViewAssetRegistry, onViewRaceViewer }: { onBack: () => void; onViewSprites?: () => void; onViewAssets?: () => void; onViewVideoGen?: () => void; onViewPolygonJS?: () => void; onViewBuilderTest?: () => void; onViewTurretDemo?: () => void; onViewIslandEditor?: () => void; onViewPixyFx?: () => void; onViewAssetRegistry?: () => void; onViewRaceViewer?: () => void }) {
   const { theme, toggleTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState("sprites");
+  const { toast } = useToast();
+  const [activeTab, setActiveTab] = useState("hub");
   
   const [spriteAssignments, setSpriteAssignments] = useState<SpriteAssignment[]>(() => {
+    const overrides = loadSpriteOverrides();
     const assignments: SpriteAssignment[] = [];
     Object.keys(RACES).forEach(raceId => {
       Object.keys(CLASSES).forEach(classId => {
+        const saved = overrides[`${raceId}:${classId}`];
         assignments.push({
           raceId,
           classId,
           spriteId: classId,
-          spritePath: CHARACTER_SPRITES[classId]?.path || `/2dassets/characters/${classId}.png`,
+          spritePath: saved || CHARACTER_SPRITES[classId]?.path || `/2dassets/characters/${classId}.png`,
         });
       });
     });
     return assignments;
   });
 
+  // Only sprite entries the user actually edits get persisted, so clicking
+  // Save never overwrites live default sprite paths with the placeholder matrix.
+  const [editedSpriteKeys, setEditedSpriteKeys] = useState<Set<string>>(
+    () => new Set(Object.keys(loadSpriteOverrides()))
+  );
+  const [editedWeaponIds, setEditedWeaponIds] = useState<Set<string>>(
+    () => new Set(loadWeaponEffects().map(w => w.weaponId))
+  );
+
   const [weaponEffects, setWeaponEffects] = useState<WeaponEffectConfig[]>(() => {
-    return ALL_WEAPONS.map(weapon => ({
+    const savedById = new Map(loadWeaponEffects().map(w => [w.weaponId, w]));
+    return ALL_WEAPONS.map(weapon => savedById.get(weapon.id) ?? ({
       weaponId: weapon.id,
       attackEffect: weapon.type.includes("Staff") || weapon.type.includes("Tome") ? "explosion" : "slash",
       effectColor: weapon.type.includes("Fire") ? "#ff4500" : 
@@ -238,7 +259,11 @@ export default function Admin({ onBack, onViewSprites }: { onBack: () => void; o
     return ALL_WEAPONS.filter(w => w.type === selectedWeaponType);
   }, [selectedWeaponType]);
 
+  const markSpriteEdited = () =>
+    setEditedSpriteKeys(prev => new Set(prev).add(`${selectedRace}:${selectedClass}`));
+
   const updateSpriteAssignment = (spriteId: string) => {
+    markSpriteEdited();
     setSpriteAssignments(prev => prev.map(a => 
       a.raceId === selectedRace && a.classId === selectedClass
         ? { ...a, spriteId, spritePath: ALL_SPRITES.find(s => s.id === spriteId)?.path || a.spritePath }
@@ -247,6 +272,7 @@ export default function Admin({ onBack, onViewSprites }: { onBack: () => void; o
   };
 
   const updateSpritePath = (path: string) => {
+    markSpriteEdited();
     setSpriteAssignments(prev => prev.map(a => 
       a.raceId === selectedRace && a.classId === selectedClass
         ? { ...a, spritePath: path }
@@ -255,6 +281,7 @@ export default function Admin({ onBack, onViewSprites }: { onBack: () => void; o
   };
 
   const updateWeaponEffect = (field: keyof WeaponEffectConfig, value: string | number) => {
+    setEditedWeaponIds(prev => new Set(prev).add(selectedWeapon));
     setWeaponEffects(prev => prev.map(w => 
       w.weaponId === selectedWeapon
         ? { ...w, [field]: value }
@@ -263,10 +290,32 @@ export default function Admin({ onBack, onViewSprites }: { onBack: () => void; o
   };
 
   const handleSave = () => {
-    console.log("Sprite Assignments:", spriteAssignments);
-    console.log("Weapon Effects:", weaponEffects);
-    alert("Configuration saved to console (storage integration pending)");
+    // Persist ONLY entries the user edited — never the full default matrix, whose
+    // placeholder sprite paths would otherwise clobber valid live defaults.
+    const editedAssignments = spriteAssignments.filter(a =>
+      editedSpriteKeys.has(`${a.raceId}:${a.classId}`)
+    );
+    const editedWeapons = weaponEffects.filter(w => editedWeaponIds.has(w.weaponId));
+    saveSpriteOverrides(editedAssignments);
+    saveWeaponEffects(editedWeapons);
+    toast({
+      title: "Configuration saved",
+      description: `${editedAssignments.length} sprite override(s) and ${editedWeapons.length} weapon effect(s) are now live in-game.`,
+    });
   };
+
+  const DEV_TOOLS = [
+    { id: 'sprites', label: '2D Sprites', desc: 'Preview & animate sprite sheets', icon: Image, color: 'from-indigo-500/20 to-indigo-500/5', border: 'border-indigo-500/30', onClick: onViewSprites },
+    { id: '3d', label: '3D Asset Browser', desc: 'Browse weapons, harvestables, buildings', icon: Layers, color: 'from-sky-500/20 to-sky-500/5', border: 'border-sky-500/30', onClick: onViewAssets },
+    { id: 'race', label: 'Race Viewer', desc: 'All 6 Toon-RTS FBX race models', icon: Users, color: 'from-purple-500/20 to-purple-500/5', border: 'border-purple-500/30', onClick: onViewRaceViewer },
+    { id: 'island', label: 'Island Editor', desc: 'Terrain sculpting & object placement', icon: Mountain, color: 'from-emerald-500/20 to-emerald-500/5', border: 'border-emerald-500/30', onClick: onViewIslandEditor },
+    { id: 'registry', label: 'Asset Registry', desc: 'All tiered weapons & node templates', icon: Shield, color: 'from-amber-500/20 to-amber-500/5', border: 'border-amber-500/30', onClick: onViewAssetRegistry },
+    { id: 'polygonjs', label: 'PolygonJS FX', desc: 'GPU particle & procedural effects', icon: Sparkles, color: 'from-rose-500/20 to-rose-500/5', border: 'border-rose-500/30', onClick: onViewPolygonJS },
+    { id: 'pixy', label: 'Pixy.js FX', desc: 'Shader-based VFX lab', icon: Zap, color: 'from-yellow-500/20 to-yellow-500/5', border: 'border-yellow-500/30', onClick: onViewPixyFx },
+    { id: 'video', label: 'Video Generator', desc: 'AI-powered video content pipeline', icon: Video, color: 'from-pink-500/20 to-pink-500/5', border: 'border-pink-500/30', onClick: onViewVideoGen },
+    { id: 'builder', label: 'Builder Test', desc: 'Construction placement sandbox', icon: Hammer, color: 'from-orange-500/20 to-orange-500/5', border: 'border-orange-500/30', onClick: onViewBuilderTest },
+    { id: 'turret', label: 'Turret Demo', desc: 'Turret AI targeting & firing test', icon: Crosshair, color: 'from-red-500/20 to-red-500/5', border: 'border-red-500/30', onClick: onViewTurretDemo },
+  ];
 
   return (
     <div className="h-screen flex flex-col bg-background">
@@ -275,18 +324,13 @@ export default function Admin({ onBack, onViewSprites }: { onBack: () => void; o
           <Button variant="ghost" size="icon" onClick={onBack} data-testid="button-admin-back">
             <Home className="w-5 h-5" />
           </Button>
-          <h1 className="font-serif text-xl font-bold">Admin: Sprite & Weapon Editor</h1>
+          <h1 className="font-serif text-xl font-bold">Dev Tools & Lab</h1>
+          <Badge variant="outline" className="text-[10px] border-amber-500/40 text-amber-400">Admin</Badge>
         </div>
         <div className="flex items-center gap-2">
-          {onViewSprites && (
-            <Button variant="outline" onClick={onViewSprites} data-testid="button-view-2d-sprites">
-              <Image className="w-4 h-4 mr-2" />
-              2D Sprites
-            </Button>
-          )}
-          <Button onClick={handleSave} data-testid="button-save-config">
-            <Save className="w-4 h-4 mr-2" />
-            Save Configuration
+          <Button onClick={handleSave} data-testid="button-save-config" variant="outline" size="sm">
+            <Save className="w-4 h-4 mr-1" />
+            Save
           </Button>
           <Button variant="ghost" size="icon" onClick={toggleTheme} data-testid="button-theme-toggle">
             {theme === "dark" ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
@@ -297,6 +341,10 @@ export default function Admin({ onBack, onViewSprites }: { onBack: () => void; o
       <div className="flex-1 overflow-hidden p-4">
         <Tabs value={activeTab} onValueChange={setActiveTab} className="h-full flex flex-col">
           <TabsList className="mb-4">
+            <TabsTrigger value="hub" data-testid="tab-hub">
+              <FlaskConical className="w-4 h-4 mr-2" />
+              Dev Tools Hub
+            </TabsTrigger>
             <TabsTrigger value="sprites" data-testid="tab-sprites">
               <Users className="w-4 h-4 mr-2" />
               Character Sprites
@@ -305,7 +353,78 @@ export default function Admin({ onBack, onViewSprites }: { onBack: () => void; o
               <Sword className="w-4 h-4 mr-2" />
               Weapon Effects
             </TabsTrigger>
+            <TabsTrigger value="effects" data-testid="tab-effects">
+              <Sparkles className="w-4 h-4 mr-2" />
+              Effects Preview
+            </TabsTrigger>
+            <TabsTrigger value="ship" data-testid="tab-ship">
+              <ShipIcon className="w-4 h-4 mr-2" />
+              Ship Tester
+            </TabsTrigger>
+            <TabsTrigger value="ocean" data-testid="tab-ocean">
+              <Waves className="w-4 h-4 mr-2" />
+              Ocean Tester
+            </TabsTrigger>
+            <TabsTrigger value="fishing" data-testid="tab-fishing">
+              <Fish className="w-4 h-4 mr-2" />
+              Fishing Tester
+            </TabsTrigger>
           </TabsList>
+
+          <TabsContent value="hub" className="flex-1 overflow-auto">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-3 mb-6">
+              {DEV_TOOLS.filter(t => t.onClick).map(tool => (
+                <button key={tool.id}
+                  className={cn(
+                    "group relative flex flex-col items-center gap-2 p-4 rounded-xl border bg-gradient-to-br transition-all hover:scale-[1.03] hover:shadow-lg",
+                    tool.color, tool.border
+                  )}
+                  onClick={tool.onClick}
+                  data-testid={`devtool-${tool.id}`}>
+                  <tool.icon className="w-7 h-7 opacity-80 group-hover:opacity-100 transition-opacity" />
+                  <span className="text-sm font-semibold">{tool.label}</span>
+                  <span className="text-[10px] text-muted-foreground text-center leading-tight">{tool.desc}</span>
+                </button>
+              ))}
+              <button
+                className="group relative flex flex-col items-center gap-2 p-4 rounded-xl border bg-gradient-to-br from-amber-500/20 to-amber-500/5 border-amber-500/30 transition-all hover:scale-[1.03] hover:shadow-lg"
+                onClick={() => window.open('/roygbiv/', '_blank')}
+                data-testid="devtool-roygbiv">
+                <Palette className="w-7 h-7 opacity-80 group-hover:opacity-100 transition-opacity" />
+                <span className="text-sm font-semibold">ROYGBIV Editor</span>
+                <span className="text-[10px] text-muted-foreground text-center leading-tight">3D scene editor (new tab)</span>
+              </button>
+            </div>
+
+            <Separator className="mb-4" />
+            <h3 className="text-sm font-semibold mb-3">Quick Stats</h3>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <Card>
+                <CardContent className="p-3">
+                  <div className="text-2xl font-bold text-amber-400">{ALL_WEAPONS.length}</div>
+                  <div className="text-xs text-muted-foreground">Weapons Defined</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-3">
+                  <div className="text-2xl font-bold text-emerald-400">{Object.keys(RACES).length}</div>
+                  <div className="text-xs text-muted-foreground">Playable Races</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-3">
+                  <div className="text-2xl font-bold text-sky-400">{Object.keys(CLASSES).length}</div>
+                  <div className="text-xs text-muted-foreground">Unit Classes</div>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardContent className="p-3">
+                  <div className="text-2xl font-bold text-purple-400">{EFFECT_TYPES.length}</div>
+                  <div className="text-xs text-muted-foreground">Effect Types</div>
+                </CardContent>
+              </Card>
+            </div>
+          </TabsContent>
 
           <TabsContent value="sprites" className="flex-1 overflow-hidden">
             <div className="grid grid-cols-12 gap-4 h-full">
@@ -563,8 +682,15 @@ export default function Admin({ onBack, onViewSprites }: { onBack: () => void; o
                                 <SelectValue />
                               </SelectTrigger>
                               <SelectContent>
-                                {EFFECT_TYPES.map(effect => (
-                                  <SelectItem key={effect} value={effect}>{effect}</SelectItem>
+                                {Object.entries(EFFECT_CATEGORIES).map(([category, effects]) => (
+                                  <div key={category}>
+                                    <div className="px-2 py-1 text-xs font-semibold text-muted-foreground">{category}</div>
+                                    {effects.map(effect => (
+                                      <SelectItem key={effect} value={effect} className="pl-4 capitalize">
+                                        {effect.replace(/_/g, ' ')}
+                                      </SelectItem>
+                                    ))}
+                                  </div>
                                 ))}
                               </SelectContent>
                             </Select>
@@ -785,6 +911,259 @@ export default function Admin({ onBack, onViewSprites }: { onBack: () => void; o
                 </Card>
               </div>
             </div>
+          </TabsContent>
+
+          <TabsContent value="effects" className="flex-1 overflow-hidden">
+            <div className="grid grid-cols-12 gap-4 h-full">
+              <div className="col-span-3">
+                <Card className="h-full flex flex-col">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Effect Categories</CardTitle>
+                  </CardHeader>
+                  <CardContent className="flex-1 overflow-hidden">
+                    <ScrollArea className="h-full">
+                      <div className="space-y-4">
+                        {Object.entries(EFFECT_CATEGORIES).map(([category, effects]) => (
+                          <div key={category}>
+                            <h4 className="text-xs font-semibold text-muted-foreground mb-2">{category}</h4>
+                            <div className="grid grid-cols-2 gap-1">
+                              {effects.map(effect => (
+                                <Badge 
+                                  key={effect} 
+                                  variant="outline" 
+                                  className="cursor-pointer text-xs justify-start capitalize hover-elevate"
+                                  data-testid={`badge-effect-${effect}`}
+                                >
+                                  {effect.replace(/_/g, ' ')}
+                                </Badge>
+                              ))}
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </ScrollArea>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="col-span-6">
+                <Card className="h-full">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm flex items-center gap-2">
+                      <Sparkles className="w-4 h-4" />
+                      Effects Library
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="grid grid-cols-3 gap-3">
+                        <div className="p-3 rounded-lg bg-gradient-to-br from-orange-500/20 to-red-500/20 border border-orange-500/30">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-8 h-8 rounded-full bg-orange-500 flex items-center justify-center">
+                              <Sparkles className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">Fire Spells</p>
+                              <p className="text-xs text-muted-foreground">6 effects</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            <Badge variant="secondary" className="text-xs">Cast</Badge>
+                            <Badge variant="secondary" className="text-xs">Impact</Badge>
+                            <Badge variant="secondary" className="text-xs">AOE</Badge>
+                          </div>
+                        </div>
+
+                        <div className="p-3 rounded-lg bg-gradient-to-br from-blue-500/20 to-cyan-500/20 border border-blue-500/30">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center">
+                              <Sparkles className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">Ice Spells</p>
+                              <p className="text-xs text-muted-foreground">5 effects</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            <Badge variant="secondary" className="text-xs">Cast</Badge>
+                            <Badge variant="secondary" className="text-xs">Impact</Badge>
+                            <Badge variant="secondary" className="text-xs">Shatter</Badge>
+                          </div>
+                        </div>
+
+                        <div className="p-3 rounded-lg bg-gradient-to-br from-yellow-500/20 to-amber-500/20 border border-yellow-500/30">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-8 h-8 rounded-full bg-yellow-500 flex items-center justify-center">
+                              <Zap className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">Lightning</p>
+                              <p className="text-xs text-muted-foreground">4 effects</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            <Badge variant="secondary" className="text-xs">Cast</Badge>
+                            <Badge variant="secondary" className="text-xs">Strike</Badge>
+                            <Badge variant="secondary" className="text-xs">Chain</Badge>
+                          </div>
+                        </div>
+
+                        <div className="p-3 rounded-lg bg-gradient-to-br from-purple-500/20 to-violet-500/20 border border-purple-500/30">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-8 h-8 rounded-full bg-purple-500 flex items-center justify-center">
+                              <Wand2 className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">Arcane</p>
+                              <p className="text-xs text-muted-foreground">5 effects</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            <Badge variant="secondary" className="text-xs">Cast</Badge>
+                            <Badge variant="secondary" className="text-xs">Burst</Badge>
+                            <Badge variant="secondary" className="text-xs">Portal</Badge>
+                          </div>
+                        </div>
+
+                        <div className="p-3 rounded-lg bg-gradient-to-br from-cyan-500/20 to-teal-500/20 border border-cyan-500/30">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-8 h-8 rounded-full bg-cyan-500 flex items-center justify-center">
+                              <Move className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">Movement</p>
+                              <p className="text-xs text-muted-foreground">4 effects</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            <Badge variant="secondary" className="text-xs">Phase</Badge>
+                            <Badge variant="secondary" className="text-xs">Flash</Badge>
+                            <Badge variant="secondary" className="text-xs">Teleport</Badge>
+                          </div>
+                        </div>
+
+                        <div className="p-3 rounded-lg bg-gradient-to-br from-gray-500/20 to-slate-500/20 border border-gray-500/30">
+                          <div className="flex items-center gap-2 mb-2">
+                            <div className="w-8 h-8 rounded-full bg-gray-600 flex items-center justify-center">
+                              <Shield className="w-4 h-4 text-white" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-medium">Combat</p>
+                              <p className="text-xs text-muted-foreground">8 effects</p>
+                            </div>
+                          </div>
+                          <div className="flex flex-wrap gap-1">
+                            <Badge variant="secondary" className="text-xs">Hit</Badge>
+                            <Badge variant="secondary" className="text-xs">Slash</Badge>
+                            <Badge variant="secondary" className="text-xs">Blood</Badge>
+                          </div>
+                        </div>
+                      </div>
+
+                      <Separator />
+
+                      <div>
+                        <h4 className="text-sm font-semibold mb-3">Quick Effect Preview</h4>
+                        <div className="grid grid-cols-4 gap-2">
+                          {["phase", "flash_step", "teleport", "dash_trail"].map(effect => (
+                            <div 
+                              key={effect}
+                              className="p-2 rounded-lg border bg-card text-center cursor-pointer hover-elevate"
+                            >
+                              <div className="w-10 h-10 mx-auto rounded-full bg-gradient-to-br from-cyan-400 to-blue-600 flex items-center justify-center mb-1">
+                                <Sparkles className="w-5 h-5 text-white" />
+                              </div>
+                              <p className="text-xs capitalize">{effect.replace(/_/g, ' ')}</p>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <div className="col-span-3">
+                <Card className="h-full">
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm">Effect Parameters</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="p-3 rounded-lg bg-muted/50">
+                        <h4 className="text-xs font-semibold mb-2">Particle Settings</h4>
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Count:</span>
+                            <span>40 particles</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Size:</span>
+                            <span>0.08</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Duration:</span>
+                            <span>0.8s</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Spread:</span>
+                            <span>1.2</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-3 rounded-lg bg-muted/50">
+                        <h4 className="text-xs font-semibold mb-2">Color Settings</h4>
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 rounded-full bg-cyan-400" />
+                            <span className="text-xs">Primary: #00BFFF</span>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <div className="w-4 h-4 rounded-full bg-cyan-100" />
+                            <span className="text-xs">Secondary: #E0FFFF</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="p-3 rounded-lg bg-muted/50">
+                        <h4 className="text-xs font-semibold mb-2">Physics</h4>
+                        <div className="space-y-2 text-xs">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Gravity:</span>
+                            <span>0</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Velocity Y:</span>
+                            <span>0.5</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Shape:</span>
+                            <span>Box</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <Button className="w-full" variant="outline" data-testid="button-test-effect">
+                        <Eye className="w-4 h-4 mr-2" />
+                        Test in 3D Scene
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </TabsContent>
+
+          {/* ── Ship / Ocean / Fishing test tabs ────────────────────────── */}
+          <TabsContent value="ship" className="flex-1 overflow-hidden">
+            <ShipTester onLaunchSailing={() => onBack && onBack()} />
+          </TabsContent>
+          <TabsContent value="ocean" className="flex-1 overflow-hidden">
+            <OceanTester onLaunchSailing={() => onBack && onBack()} />
+          </TabsContent>
+          <TabsContent value="fishing" className="flex-1 overflow-hidden">
+            <FishingTester onLaunchSailing={() => onBack && onBack()} />
           </TabsContent>
         </Tabs>
       </div>

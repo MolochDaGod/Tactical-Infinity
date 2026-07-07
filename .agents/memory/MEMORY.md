@@ -1,0 +1,14 @@
+- [devDep pruning under NODE_ENV=production](devdep-prune-node-env.md) — packager npm installs wipe ALL devDeps here (ambient NODE_ENV=production); restore via detached `npm install --include=dev` with NODE_ENV=development.
+- [Phase navigation is URL-driven](phase-nav-url-driven.md) — `useGameState` is a local hook, not a global store; cross-component phase changes must go through the URL slug + popstate, not `history.back()`.
+- [Sail cloth-rig full-span](sail-rig-full-span.md) — full-span sail = 4 consistent edit sites (never redeclare crowsNestY); multi-mast sails MUST use their own rig anchors or they invert when furled.
+- [Sea creatures on top of islands](sea-creatures-over-islands.md) — ocean-floor getters return island terrain height over land; land-avoidance must cover ALL creatures + seabed clamp must cap at waterline.
+- [Stylized & landscape assets absent by design](stylized-landscape-assets-missing.md) — empty `public/models/stylized` + `public/textures/landscape` are expected; loaders fall back to procedural, don't chase the "asset unavailable" logs as a bug.
+- [World-map ship motion & sails](worldmap-ship-motion.md) — cosmetic swell floor must stay decoupled from weather-damage waveHeight; W-key sail cap (pos 2) must map to full deployment or top speed silently halves.
+- [Shared envMap disposal](shared-envmap-disposal.md) — `UnitCharacter.dispose()` must skip the `envMap` texture; it's a shared externally-owned PMREM map, disposing it breaks every other character + the scene.
+- [Gear/equipment loadout system](gear-loadout-system.md) — editor UI + every 3D consumer MUST share one localStorage character-id key; weapons attach to hand bones, armor toggles built-in submeshes.
+- [Sailing wind convention](sailing-wind-convention.md) — `wind.direction` is wind-FROM (bow into it = no-sail zone); downwind = `+π`; attach heading-relative visuals to un-flipped `shipGroup`.
+- [Live hosting topology](deployment-hosting.md) — prod is Railway (backend) + Vercel (frontend) + Cloudflare (DNS), NOT Replit; `.replit` autoscale is unused; split-origin CORS + Replit Object Storage won't work on Railway unmodified.
+- [Deploy can fail after a healthy build](deploy-nix-layer-integrity.md) — "nix layer integrity verification failed / corrupt nix store paths" is Replit infra, not your code; build succeeds, caching fails.
+- [WebGL viewer preview guard](webgl-viewer-preview-guard.md) — headless screenshot browser can't create a WebGL context; wrap renderer creation in try/catch + fallback so pages don't blank out.
+- [Sailing render path & player-boat spawn](sailing-render-path.md) — `sailing` phase renders WorldMapPage (OpenWaterSailing retired); player boat spawns procedurally via threeWorldMapManager.createPlayerShip. Canonical boat data = boatRegistry.ts.
+- [World-map ocean population](worldmap-population.md) — /world-map reads empty near spawn; populate AROUND the player, do not push fogFar/cameraFar out.

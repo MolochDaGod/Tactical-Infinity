@@ -8,4 +8,6 @@ export * from './dungeons';
 export * from './islands';
 export * from './items';
 export * from './sailing';
+export * from './boatRegistry';
+export * from './shipTiers';
 export * from './sprites';

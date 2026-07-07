@@ -10,12 +10,26 @@ import {
   type AccountRole,
 } from "@shared/schema";
 import { randomUUID } from "crypto";
+import * as meshyService from "./meshyService";
+import { parseAsepriteFile, getAllAsepriteData } from "./asepriteParser";
+import { registerChatRoutes } from "./replit_integrations/chat";
+import { mountOpenWorldRoutes } from "./openWorld";
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
-  
+
+  // ── Grudge Open World Server (in-process) ────────────────────────────────
+  // Replaces the previous Railway proxy. The world room and WS upgrade are
+  // mounted from server/openWorld.ts; routes here keep /api/openworld/* on
+  // the same Express app so CORS is a non-issue.
+  mountOpenWorldRoutes(app);
+
+  app.get("/api/health", (_req, res) => {
+    res.json({ ok: true, service: "tactical-infinity", ts: Date.now() });
+  });
+
   // Get starter roster
   app.get("/api/roster", (_req, res) => {
     const roster = storage.generateStarterRoster();
@@ -566,6 +580,493 @@ export async function registerRoutes(
     const entities = await storage.getEntitiesByType(req.params.entityType as any);
     res.json(entities);
   });
+
+  // ========== MESHY AI 3D GENERATION API ROUTES ==========
+
+  // Check if Meshy is configured
+  app.get("/api/meshy/status", (_req, res) => {
+    res.json({ 
+      configured: meshyService.isMeshyConfigured(),
+      message: meshyService.isMeshyConfigured() 
+        ? "Meshy API is configured and ready" 
+        : "MESHY_API_KEY not configured"
+    });
+  });
+
+  // Generate sail model (async - returns immediately with task ID)
+  app.post("/api/meshy/generate-sail", async (_req, res) => {
+    try {
+      if (!meshyService.isMeshyConfigured()) {
+        return res.status(400).json({ error: "Meshy API key not configured" });
+      }
+      
+      const taskId = await meshyService.createTextTo3DPreview({
+        prompt: 'medieval sailing ship sail, triangular canvas sail with wooden mast, nautical fabric texture, aged cloth material, rope rigging details',
+        artStyle: 'realistic',
+        negativePrompt: 'modern, plastic, low quality, blurry',
+        shouldRemesh: true
+      });
+      
+      res.json({
+        success: true,
+        taskId,
+        message: "Sail model generation started. Poll /api/meshy/task/:taskId for status."
+      });
+    } catch (error) {
+      console.error("Meshy sail generation error:", error);
+      res.status(500).json({ error: "Failed to start sail model generation" });
+    }
+  });
+
+  // Generate ship model (async - returns immediately with task ID)
+  app.post("/api/meshy/generate-ship", async (req, res) => {
+    try {
+      if (!meshyService.isMeshyConfigured()) {
+        return res.status(400).json({ error: "Meshy API key not configured" });
+      }
+      
+      const shipType = req.body.shipType || 'sloop';
+      const shipPrompts = meshyService.SHIP_MODEL_PROMPTS;
+      const shipPrompt = shipPrompts[shipType] || shipPrompts.sloop;
+      
+      const taskId = await meshyService.createTextTo3DPreview({
+        prompt: shipPrompt.prompt,
+        artStyle: 'realistic',
+        negativePrompt: shipPrompt.negativePrompt || 'modern, plastic, sails, low quality',
+        shouldRemesh: true
+      });
+      
+      res.json({
+        success: true,
+        taskId,
+        shipType,
+        message: `${shipType} ship model generation started. Poll /api/meshy/task/:taskId for status.`
+      });
+    } catch (error) {
+      console.error("Meshy ship generation error:", error);
+      res.status(500).json({ error: "Failed to start ship model generation" });
+    }
+  });
+  
+  // Get available ship types for generation
+  app.get("/api/meshy/ship-types", async (_req, res) => {
+    const shipTypes = Object.keys(meshyService.SHIP_MODEL_PROMPTS);
+    res.json({ shipTypes });
+  });
+
+  // Refine a completed preview task
+  app.post("/api/meshy/refine/:taskId", async (req, res) => {
+    try {
+      if (!meshyService.isMeshyConfigured()) {
+        return res.status(400).json({ error: "Meshy API key not configured" });
+      }
+      
+      const refineTaskId = await meshyService.refineModel(req.params.taskId, true);
+      res.json({
+        success: true,
+        taskId: refineTaskId,
+        message: "Refinement started. Poll /api/meshy/task/:taskId for status."
+      });
+    } catch (error) {
+      console.error("Meshy refine error:", error);
+      res.status(500).json({ error: "Failed to start refinement" });
+    }
+  });
+
+  // Generate custom 3D model
+  app.post("/api/meshy/generate", async (req, res) => {
+    try {
+      if (!meshyService.isMeshyConfigured()) {
+        return res.status(400).json({ error: "Meshy API key not configured" });
+      }
+      
+      const { prompt, artStyle, negativePrompt } = req.body;
+      
+      if (!prompt) {
+        return res.status(400).json({ error: "Prompt is required" });
+      }
+      
+      const taskId = await meshyService.createTextTo3DPreview({
+        prompt,
+        artStyle: artStyle || 'realistic',
+        negativePrompt
+      });
+      
+      res.json({
+        success: true,
+        taskId,
+        message: "3D model generation started. Poll /api/meshy/task/:taskId for status."
+      });
+    } catch (error) {
+      console.error("Meshy generation error:", error);
+      res.status(500).json({ error: "Failed to start model generation" });
+    }
+  });
+
+  // Get task status
+  app.get("/api/meshy/task/:taskId", async (req, res) => {
+    try {
+      if (!meshyService.isMeshyConfigured()) {
+        return res.status(400).json({ error: "Meshy API key not configured" });
+      }
+      
+      const task = await meshyService.getTaskStatus(req.params.taskId);
+      res.json(task);
+    } catch (error) {
+      console.error("Meshy task status error:", error);
+      res.status(500).json({ error: "Failed to get task status" });
+    }
+  });
+
+  // Character generation endpoints
+  app.get("/api/meshy/character-types", async (_req, res) => {
+    const races = Object.keys(meshyService.RACE_PROMPTS);
+    const classes = Object.keys(meshyService.CLASS_MODIFIERS);
+    const hairColors = Object.keys(meshyService.HAIR_MODIFIERS);
+    const builds = Object.keys(meshyService.BUILD_MODIFIERS);
+    res.json({ races, classes, hairColors, builds });
+  });
+
+  // Generate character by race (simple)
+  app.post("/api/meshy/generate-character", async (req, res) => {
+    try {
+      if (!meshyService.isMeshyConfigured()) {
+        return res.status(400).json({ error: "Meshy API key not configured" });
+      }
+      
+      const race = req.body.race || req.body.characterType || 'human';
+      const racePrompts = meshyService.RACE_PROMPTS;
+      const racePrompt = racePrompts[race.toLowerCase()] || racePrompts.human;
+      
+      // Generate T-pose character model
+      const taskId = await meshyService.createCharacterModel({
+        prompt: racePrompt.prompt,
+        artStyle: racePrompt.artStyle,
+        tPose: true,
+        heightMeters: racePrompt.heightMeters
+      });
+      
+      res.json({
+        success: true,
+        taskId,
+        race,
+        message: `${race} character generation started. Poll /api/meshy/task/:taskId for status, then use /api/meshy/rig/:taskId to auto-rig.`
+      });
+    } catch (error) {
+      console.error("Meshy character generation error:", error);
+      res.status(500).json({ error: "Failed to start character generation" });
+    }
+  });
+
+  // Generate custom character with full customization (name, race, class, hair, build)
+  app.post("/api/meshy/generate-custom-character", async (req, res) => {
+    try {
+      if (!meshyService.isMeshyConfigured()) {
+        return res.status(400).json({ error: "Meshy API key not configured" });
+      }
+      
+      const { name, race, characterClass, hairColor, build, additionalDetails } = req.body;
+      
+      if (!name || !race) {
+        return res.status(400).json({ error: "Name and race are required" });
+      }
+      
+      // Build custom prompt
+      const customPrompt = meshyService.buildCharacterPrompt({
+        name,
+        race,
+        characterClass,
+        hairColor,
+        build,
+        additionalDetails
+      });
+      
+      const raceConfig = meshyService.RACE_PROMPTS[race.toLowerCase()] || meshyService.RACE_PROMPTS.human;
+      
+      console.log(`Generating custom character "${name}" (${race} ${characterClass || 'adventurer'})`);
+      console.log(`Prompt: ${customPrompt}`);
+      
+      const taskId = await meshyService.createCharacterModel({
+        prompt: customPrompt,
+        artStyle: raceConfig.artStyle,
+        tPose: true,
+        heightMeters: raceConfig.heightMeters
+      });
+      
+      res.json({
+        success: true,
+        taskId,
+        character: { name, race, characterClass, hairColor, build },
+        prompt: customPrompt,
+        message: `Custom character "${name}" generation started. Poll /api/meshy/task/:taskId for status.`
+      });
+    } catch (error) {
+      console.error("Meshy custom character generation error:", error);
+      res.status(500).json({ error: "Failed to start custom character generation" });
+    }
+  });
+
+  // Generate just the captain face/head bust for quick unique model generation
+  app.post("/api/meshy/generate-captain-head", async (req, res) => {
+    try {
+      if (!meshyService.isMeshyConfigured()) {
+        return res.status(400).json({ error: "Meshy API key not configured" });
+      }
+
+      const { name, race, characterClass, hairColor } = req.body;
+      if (!name || !race) {
+        return res.status(400).json({ error: "Name and race are required" });
+      }
+
+      const headPrompt = meshyService.buildCaptainHeadPrompt({ name, race, characterClass, hairColor });
+
+      console.log(`Generating captain head for "${name}" (${race} ${characterClass || 'adventurer'})`);
+      console.log(`Head prompt: ${headPrompt}`);
+
+      const taskId = await meshyService.createTextTo3DPreview({
+        prompt: headPrompt,
+        artStyle: 'realistic',
+        negativePrompt: 'body, torso, arms, legs, feet, full body, background scenery, landscape',
+      });
+
+      res.json({
+        success: true,
+        taskId,
+        captain: { name, race, characterClass, hairColor },
+        prompt: headPrompt,
+        message: `Captain head generation started. Poll /api/meshy/task/${taskId} for status.`,
+      });
+    } catch (error) {
+      console.error("Captain head generation error:", error);
+      res.status(500).json({ error: "Failed to start captain head generation" });
+    }
+  });
+
+  // ── Avatar upload (used by Meshy retexture flow) ───────────────────────────
+  // Hardened: size cap, magic-byte validation, per-IP rate limit, TTL cleanup.
+  const AVATAR_MAX_BYTES = 3 * 1024 * 1024;     // 3MB after decode
+  const AVATAR_TTL_MS    = 24 * 60 * 60 * 1000; // 24h
+  const AVATAR_RATE_LIMIT = 20;                 // uploads per IP per hour
+  const AVATAR_RATE_WINDOW_MS = 60 * 60 * 1000;
+  const avatarRateMap = new Map<string, { count: number; resetAt: number }>();
+
+  function avatarMagicBytesOk(buf: Buffer, ext: string): boolean {
+    if (ext === 'png')  return buf.length > 8 && buf[0] === 0x89 && buf[1] === 0x50 && buf[2] === 0x4E && buf[3] === 0x47;
+    if (ext === 'jpeg') return buf.length > 3 && buf[0] === 0xFF && buf[1] === 0xD8 && buf[2] === 0xFF;
+    if (ext === 'webp') return buf.length > 12 && buf.slice(0, 4).toString('ascii') === 'RIFF' && buf.slice(8, 12).toString('ascii') === 'WEBP';
+    return false;
+  }
+
+  async function cleanupExpiredAvatars(dir: string): Promise<void> {
+    try {
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const now = Date.now();
+      const entries = await fs.readdir(dir);
+      await Promise.all(entries.map(async (e) => {
+        if (e === '.gitkeep' || !/\.(png|jpe?g|webp)$/i.test(e)) return;
+        try {
+          const full = path.join(dir, e);
+          const st = await fs.stat(full);
+          if (now - st.mtimeMs > AVATAR_TTL_MS) await fs.unlink(full);
+        } catch { /* ignore individual file errors */ }
+      }));
+    } catch { /* ignore */ }
+  }
+
+  app.post("/api/meshy/upload-avatar", async (req, res) => {
+    try {
+      // Per-IP rate limit (sliding hour window).
+      const ip = (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() || req.ip || 'unknown';
+      const now = Date.now();
+      const bucket = avatarRateMap.get(ip);
+      if (!bucket || bucket.resetAt < now) {
+        avatarRateMap.set(ip, { count: 1, resetAt: now + AVATAR_RATE_WINDOW_MS });
+      } else {
+        if (bucket.count >= AVATAR_RATE_LIMIT) {
+          return res.status(429).json({ error: "Rate limit exceeded. Try again later." });
+        }
+        bucket.count += 1;
+      }
+
+      const { dataUrl } = req.body as { dataUrl?: string };
+      if (!dataUrl || typeof dataUrl !== 'string') {
+        return res.status(400).json({ error: "dataUrl is required" });
+      }
+      // Length sanity check before allocating Buffer (base64 ≈ 4/3 of bytes).
+      if (dataUrl.length > Math.ceil(AVATAR_MAX_BYTES * 1.4) + 64) {
+        return res.status(413).json({ error: "Image exceeds 3MB limit" });
+      }
+      const m = /^data:image\/(png|jpeg|jpg|webp);base64,([A-Za-z0-9+/=]+)$/i.exec(dataUrl);
+      if (!m) return res.status(400).json({ error: "Invalid data URL — expected image/{png,jpeg,webp} base64" });
+      const ext = m[1].toLowerCase() === 'jpg' ? 'jpeg' : m[1].toLowerCase();
+      const buf = Buffer.from(m[2], 'base64');
+      if (buf.length === 0 || buf.length > AVATAR_MAX_BYTES) {
+        return res.status(413).json({ error: "Image exceeds 3MB limit" });
+      }
+      if (!avatarMagicBytesOk(buf, ext)) {
+        return res.status(400).json({ error: "Image content does not match declared format" });
+      }
+
+      const fs = await import('fs/promises');
+      const path = await import('path');
+      const { randomUUID } = await import('crypto');
+      const dir = path.resolve(import.meta.dirname, '..', 'public', 'avatars');
+      await fs.mkdir(dir, { recursive: true });
+      // Opportunistic cleanup of files older than TTL (best-effort, non-blocking).
+      void cleanupExpiredAvatars(dir);
+
+      const filename = `${randomUUID()}.${ext}`;
+      await fs.writeFile(path.join(dir, filename), buf);
+
+      const proto = (req.headers['x-forwarded-proto'] as string)?.split(',')[0] || req.protocol;
+      const host  = (req.headers['x-forwarded-host'] as string)?.split(',')[0] || req.get('host');
+      const publicUrl = `${proto}://${host}/avatars/${filename}`;
+      res.json({ success: true, url: publicUrl, filename, expiresInMs: AVATAR_TTL_MS });
+    } catch (error: any) {
+      console.error("Avatar upload error:", error);
+      res.status(500).json({ error: "Failed to upload avatar", details: error.message });
+    }
+  });
+
+  // Retexture an existing head model using a prompt + optional avatar image.
+  app.post("/api/meshy/retexture-head", async (req, res) => {
+    try {
+      if (!meshyService.isMeshyConfigured()) {
+        return res.status(400).json({ error: "Meshy API key not configured" });
+      }
+      const { modelUrl, objectPrompt, stylePrompt, textureImageUrl, race, characterClass, name } = req.body as {
+        modelUrl?: string; objectPrompt?: string; stylePrompt?: string;
+        textureImageUrl?: string; race?: string; characterClass?: string; name?: string;
+      };
+      if (!modelUrl) return res.status(400).json({ error: "modelUrl is required" });
+
+      const obj = objectPrompt
+        || `fantasy ${race || 'human'} ${characterClass || 'adventurer'} character head${name ? ` named ${name}` : ''}, head bust, face`;
+      const style = stylePrompt
+        || `match the provided portrait reference, painterly fantasy RPG game character art, detailed skin, expressive eyes, clean facial features`;
+
+      const taskId = await meshyService.createTextToTexture({
+        modelUrl,
+        objectPrompt: obj,
+        stylePrompt: style,
+        textureImageUrl,
+        artStyle: 'realistic',
+        enablePbr: true,
+      });
+      res.json({
+        success: true,
+        taskId,
+        message: `Retexture started. Poll /api/meshy/texture-task/${taskId} for status.`,
+      });
+    } catch (error: any) {
+      console.error("Meshy retexture error:", error);
+      res.status(500).json({ error: "Failed to start retexture", details: error.message });
+    }
+  });
+
+  app.get("/api/meshy/texture-task/:taskId", async (req, res) => {
+    try {
+      if (!meshyService.isMeshyConfigured()) {
+        return res.status(400).json({ error: "Meshy API key not configured" });
+      }
+      const task = await meshyService.getTextureTaskStatus(req.params.taskId);
+      res.json(task);
+    } catch (error: any) {
+      console.error("Texture task status error:", error);
+      res.status(500).json({ error: "Failed to get texture task status", details: error.message });
+    }
+  });
+
+  // Auto-rig a completed character model
+  app.post("/api/meshy/rig/:taskId", async (req, res) => {
+    try {
+      if (!meshyService.isMeshyConfigured()) {
+        return res.status(400).json({ error: "Meshy API key not configured" });
+      }
+      
+      const heightMeters = req.body.heightMeters || 1.7;
+      const riggingTaskId = await meshyService.rigCharacterByTaskId(req.params.taskId, heightMeters);
+      
+      res.json({
+        success: true,
+        taskId: riggingTaskId,
+        message: "Auto-rigging started. Poll /api/meshy/rigging-task/:taskId for status and animation URLs."
+      });
+    } catch (error) {
+      console.error("Meshy rigging error:", error);
+      res.status(500).json({ error: "Failed to start auto-rigging" });
+    }
+  });
+
+  // Get rigging task status (includes animation URLs when complete)
+  app.get("/api/meshy/rigging-task/:taskId", async (req, res) => {
+    try {
+      if (!meshyService.isMeshyConfigured()) {
+        return res.status(400).json({ error: "Meshy API key not configured" });
+      }
+      
+      const task = await meshyService.getRiggingTaskStatus(req.params.taskId);
+      res.json(task);
+    } catch (error) {
+      console.error("Meshy rigging task status error:", error);
+      res.status(500).json({ error: "Failed to get rigging task status" });
+    }
+  });
+
+  // Get all Aseprite animation data
+  app.get("/api/sprites/aseprite", (_req, res) => {
+    try {
+      const allData = getAllAsepriteData();
+      const result: Record<string, any> = {};
+      allData.forEach((value, key) => {
+        result[key] = value;
+      });
+      res.json(result);
+    } catch (error) {
+      console.error("Aseprite data error:", error);
+      res.status(500).json({ error: "Failed to get Aseprite data" });
+    }
+  });
+
+  // Get specific character Aseprite data
+  app.get("/api/sprites/aseprite/:character", (req, res) => {
+    try {
+      const filename = `${req.params.character}.aseprite`;
+      const data = parseAsepriteFile(filename);
+      if (!data) {
+        return res.status(404).json({ error: "Character not found" });
+      }
+      res.json(data);
+    } catch (error) {
+      console.error("Aseprite parse error:", error);
+      res.status(500).json({ error: "Failed to parse Aseprite file" });
+    }
+  });
+
+  // Admin: Save object edits
+  app.post("/api/admin/save-edits", (req, res) => {
+    try {
+      const { edits } = req.body;
+      if (!Array.isArray(edits)) {
+        return res.status(400).json({ error: "Invalid edits data" });
+      }
+      
+      // Store edits in memory (could persist to file/DB later)
+      console.log(`Admin: Saving ${edits.length} object edits`);
+      edits.forEach((edit: any) => {
+        console.log(`  - ${edit.name} (${edit.type}): pos(${edit.position?.x?.toFixed(2)}, ${edit.position?.y?.toFixed(2)}, ${edit.position?.z?.toFixed(2)})`);
+      });
+      
+      res.json({ success: true, savedCount: edits.length });
+    } catch (error) {
+      console.error("Admin save error:", error);
+      res.status(500).json({ error: "Failed to save edits" });
+    }
+  });
+
+  // ========== AI CHAT ROUTES ==========
+  registerChatRoutes(app);
 
   return httpServer;
 }

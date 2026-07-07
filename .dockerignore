@@ -1,0 +1,77 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# Docker / Replit deployment ignore.
+#
+# Heavy runtime assets live in Replit Object Storage and are streamed by
+# server/cdnFallback.ts (see replit.md → "Asset Pipeline"). At deploy time the
+# entire `public/` tree is stripped from the image — the running server creates
+# `public/avatars/` and `public/textures/ground/` on demand for the avatar
+# cache and Poly Haven sync.
+#
+# `node_modules/` is also stripped so the deploy build reinstalls only what
+# package.json declares (the dev tree contains many never-used packages from
+# earlier experiments — minecraft-data, phaser, cesium, babylon, etc).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Version control — biggest single win (~8.6 GB, includes Git LFS)
+.git/
+.gitattributes
+.gitignore
+
+# Local node_modules (~2.9 GB) — Replit deploy reinstalls from package.json
+node_modules/
+
+# Heavy assets (~2.4 GB) — streamed from Replit Object Storage in production
+public/
+
+# Agent / workspace tooling not needed at runtime (~140 MB)
+.local/
+.agents/
+.replit_db_*
+.upm/
+.breakpoints
+.config/
+.cache/
+.pythonlibs/
+generated-icon.png
+
+# Build & language-server caches
+node_modules/.cache/
+node_modules/.vite/
+.vite/
+*.tsbuildinfo
+.eslintcache
+
+# Editor cruft
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs & temp
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+tmp/
+.tmp/
+
+# Dev-only tools (~99 MB) — ROYGBIV editor side workflow
+tools/roygbiv/
+tools/inspect-dwarf.mjs
+
+# Source maps in production bundle (saves ~30% of bundle size)
+dist/public/assets/*.map
+
+# Docs (~36 KB, but no need at runtime)
+docs/
+
+# Build script source (already compiled into dist/)
+script/buildhammer/
+
+# Misc loose files
+screenshots/
+puter-sprite-app/
+CONSOLIDATION_NOTES.md
+CLOUDFLARE_DEPLOY.md

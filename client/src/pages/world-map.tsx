@@ -1,36 +1,84 @@
-import { useState } from "react";
 import { WorldMapScene } from "@/components/WorldMap/WorldMapScene";
+import { IslandExploreScene } from "@/components/game/IslandExploreScene";
+import { resolveLandedIsland } from "@/lib/worldMapData";
+import { getIslandFleetHandoff } from "@shared/grudgeFleetBridge";
+import { Footprints, Ship, Package, Flag, Store, ExternalLink } from "lucide-react";
 
-interface LandedIsland {
-  id: string;
-  name: string;
-  biome: string;
-  radius: number;
-  hasPort: boolean;
-  isOwned: boolean;
-  resources: string[];
+type WorldMapPhase = "worldmap" | "sailing" | "islandlanding" | "islandexplore";
+
+// URL slugs for the sailing/landing/explore steps. Landing on an island is a
+// real, shareable game step: the island id lives in the `?island=` query param
+// so back/forward + refresh + bookmarks all work.
+const SEA_SLUG = "/world-map";
+const LANDING_SLUG = "/island-landing";
+const EXPLORE_SLUG = "/island-explore";
+
+// Navigate by pushing the target URL and dispatching popstate — App.tsx's
+// popstate handler resolves the pathname against the page registry and drives
+// the phase machine. This keeps the URL (incl. the island query param) as the
+// single source of truth instead of local-only view state.
+function navigate(url: string) {
+  window.history.pushState({}, "", url);
+  window.dispatchEvent(new PopStateEvent("popstate"));
 }
 
-export default function WorldMapPage() {
-  const [landedIsland, setLandedIsland] = useState<LandedIsland | null>(null);
+function getIslandIdFromUrl(): string | undefined {
+  try {
+    return new URLSearchParams(window.location.search).get("island") || undefined;
+  } catch {
+    return undefined;
+  }
+}
 
-  const handleLandOnIsland = (islandId: string) => {
-    setLandedIsland({
-      id: islandId,
-      name: `Island ${islandId.split('-')[1]}`,
-      biome: 'tropical',
-      radius: 50,
-      hasPort: Math.random() > 0.5,
-      isOwned: false,
-      resources: ['wood', 'stone', 'fish']
-    });
+interface WorldMapPageProps {
+  phase: WorldMapPhase;
+  onBackToMenu?: () => void;
+}
+
+export default function WorldMapPage({ phase, onBackToMenu }: WorldMapPageProps) {
+  const islandId = getIslandIdFromUrl();
+  const landedIsland = resolveLandedIsland(islandId);
+
+  const handleLandOnIsland = (id: string) => {
+    navigate(`${LANDING_SLUG}?island=${encodeURIComponent(id)}`);
   };
 
   const handleReturnToSea = () => {
-    setLandedIsland(null);
+    navigate(SEA_SLUG);
   };
 
-  if (landedIsland) {
+  const handleExploreIsland = () => {
+    if (!landedIsland) return;
+    navigate(`${EXPLORE_SLUG}?island=${encodeURIComponent(landedIsland.id)}`);
+  };
+
+  const handleExitExplore = () => {
+    if (!landedIsland) return;
+    navigate(`${LANDING_SLUG}?island=${encodeURIComponent(landedIsland.id)}`);
+  };
+
+  // 3D on-foot exploration of a landed island.
+  if (phase === "islandexplore") {
+    if (!landedIsland) {
+      // Stale / invalid link — fall back to the sea.
+      handleReturnToSea();
+      return null;
+    }
+    return (
+      <IslandExploreScene
+        islandId={landedIsland.id}
+        islandName={landedIsland.name}
+        onExitIsland={handleExitExplore}
+      />
+    );
+  }
+
+  // Docked at an island — the port/actions menu.
+  if (phase === "islandlanding") {
+    if (!landedIsland) {
+      handleReturnToSea();
+      return null;
+    }
     return (
       <div className="w-full h-screen bg-background flex flex-col" data-testid="page-island-view">
         <div className="bg-card border-b p-4 flex items-center justify-between gap-4">
@@ -43,10 +91,11 @@ export default function WorldMapPage() {
           </div>
           <button
             onClick={handleReturnToSea}
-            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md transition-colors"
+            className="bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2 px-4 rounded-md transition-colors flex items-center gap-2"
             data-testid="button-return-to-sea"
           >
-            Return to Sea
+            <Ship className="w-4 h-4" />
+            Set Sail
           </button>
         </div>
         
@@ -77,7 +126,10 @@ export default function WorldMapPage() {
             </div>
 
             <div className="bg-card rounded-lg p-6 border" data-testid="panel-resources">
-              <h2 className="text-lg font-semibold mb-4">Available Resources</h2>
+              <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+                <Package className="w-5 h-5" />
+                Available Resources
+              </h2>
               <div className="flex flex-wrap gap-2">
                 {landedIsland.resources.map((resource, i) => (
                   <span
@@ -94,38 +146,73 @@ export default function WorldMapPage() {
               <h2 className="text-lg font-semibold mb-4">Actions</h2>
               <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
                 <button 
-                  className="bg-green-600 hover:bg-green-700 text-white py-2 px-4 rounded-md transition-colors text-sm"
-                  data-testid="button-deploy-harvesters"
+                  onClick={handleExploreIsland}
+                  className="bg-amber-600 hover:bg-amber-700 text-white py-3 px-4 rounded-md transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                  data-testid="button-explore-3d"
                 >
-                  Deploy Harvesters
+                  <Footprints className="w-4 h-4" />
+                  Explore Island (3D)
                 </button>
                 <button 
-                  className="bg-amber-600 hover:bg-amber-700 text-white py-2 px-4 rounded-md transition-colors text-sm"
-                  data-testid="button-explore"
+                  className="bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-md transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                  data-testid="button-deploy-harvesters"
                 >
-                  Explore Island
+                  <Package className="w-4 h-4" />
+                  Deploy Harvesters
                 </button>
                 {landedIsland.hasPort && (
                   <button 
-                    className="bg-blue-600 hover:bg-blue-700 text-white py-2 px-4 rounded-md transition-colors text-sm"
+                    className="bg-blue-600 hover:bg-blue-700 text-white py-3 px-4 rounded-md transition-colors text-sm font-medium flex items-center justify-center gap-2"
                     data-testid="button-trade"
                   >
+                    <Store className="w-4 h-4" />
                     Trade at Port
+                  </button>
+                )}
+                {getIslandFleetHandoff(landedIsland.id) && (
+                  <button
+                    onClick={() => {
+                      const handoff = getIslandFleetHandoff(landedIsland.id);
+                      if (handoff) window.open(handoff.url, '_blank', 'noopener,noreferrer');
+                    }}
+                    className="bg-amber-700 hover:bg-amber-800 text-white py-3 px-4 rounded-md transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                    data-testid="button-open-warlords"
+                  >
+                    <ExternalLink className="w-4 h-4" />
+                    Open in Grudge Warlords
                   </button>
                 )}
                 {!landedIsland.isOwned && (
                   <button 
-                    className="bg-purple-600 hover:bg-purple-700 text-white py-2 px-4 rounded-md transition-colors text-sm"
+                    className="bg-purple-600 hover:bg-purple-700 text-white py-3 px-4 rounded-md transition-colors text-sm font-medium flex items-center justify-center gap-2"
                     data-testid="button-claim"
                   >
+                    <Flag className="w-4 h-4" />
                     Claim Island
                   </button>
                 )}
               </div>
             </div>
 
-            <div className="bg-muted/50 rounded-lg p-4 text-center text-muted-foreground text-sm">
-              3D Harvesting mode coming soon - Deploy your units to gather resources!
+            <div className="bg-gradient-to-r from-blue-500/10 via-purple-500/10 to-blue-500/10 rounded-lg p-6 border border-blue-500/20">
+              <div className="flex items-start gap-4">
+                <div className="w-12 h-12 rounded-full bg-blue-500/20 flex items-center justify-center flex-shrink-0">
+                  <Footprints className="w-6 h-6 text-blue-400" />
+                </div>
+                <div>
+                  <h3 className="font-semibold text-lg mb-1">3D Island Exploration</h3>
+                  <p className="text-sm text-muted-foreground mb-3">
+                    Walk around the island in third-person view! Visit the cabin and step on the 
+                    blue glowing portal to enter the Fantasy Shop.
+                  </p>
+                  <ul className="text-xs text-muted-foreground space-y-1">
+                    <li>WASD - Move your character</li>
+                    <li>Shift - Run</li>
+                    <li>Right-click drag - Rotate camera</li>
+                    <li>Blue portal - Enter the shop</li>
+                  </ul>
+                </div>
+              </div>
             </div>
           </div>
         </div>
@@ -133,11 +220,21 @@ export default function WorldMapPage() {
     );
   }
 
+  // Default: open-water sailing on the world map.
   return (
     <div className="w-full h-screen" data-testid="page-world-map">
       <WorldMapScene 
         onLandOnIsland={handleLandOnIsland}
-        onBackToMenu={() => window.history.back()}
+        onBackToMenu={() => {
+          if (onBackToMenu) {
+            onBackToMenu();
+            return;
+          }
+          // Phase is URL-driven in App (popstate -> getPageBySlug). Navigate to
+          // the menu slug and dispatch popstate so App restores the menu phase
+          // reliably (history.back() is unsafe because phase sync uses replaceState).
+          navigate("/");
+        }}
       />
     </div>
   );

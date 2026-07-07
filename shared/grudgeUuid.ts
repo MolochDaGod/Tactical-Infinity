@@ -5,7 +5,12 @@
  */
 
 export interface GrudgeUuidMetadata {
-  entityType: 'character' | 'item' | 'crafted_item' | 'island' | 'recipe' | 'transaction' | 'session' | 'account' | 'building' | 'node';
+  entityType:
+    | 'character' | 'item' | 'crafted_item' | 'island' | 'recipe'
+    | 'transaction' | 'session' | 'account' | 'building' | 'node'
+    | 'ship'              // a player-owned ship instance (not the tier template)
+    | 'weapon_instance'   // a player-owned weapon copy (not the catalogue entry)
+    | 'flag_design';      // a saved Jolly Roger painting
   entityId: string;
   entityName: string;
   tier?: number;
@@ -23,16 +28,19 @@ export interface GrudgeUuidParsed {
 }
 
 const PREFIX_MAP: Record<GrudgeUuidMetadata['entityType'], string> = {
-  character: 'CHAR',
-  item: 'ITEM',
-  crafted_item: 'CRAF',
-  island: 'ISLE',
-  recipe: 'RECP',
-  transaction: 'TRAN',
-  session: 'SESS',
-  account: 'ACCT',
-  building: 'BLDG',
-  node: 'NODE',
+  character:        'CHAR',
+  item:             'ITEM',
+  crafted_item:     'CRAF',
+  island:           'ISLE',
+  recipe:           'RECP',
+  transaction:      'TRAN',
+  session:          'SESS',
+  account:          'ACCT',
+  building:         'BLDG',
+  node:             'NODE',
+  ship:             'SHIP',
+  weapon_instance:  'WPNI',
+  flag_design:      'FLAG',
 };
 
 const VALID_PREFIXES = Object.values(PREFIX_MAP);
