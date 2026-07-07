@@ -35,8 +35,11 @@ export type BoatId = 'raft' | 'skiff' | 'sloop' | 'brigantine' | 'galleon';
 
 export const BOAT_IDS: readonly BoatId[] = ['raft', 'skiff', 'sloop', 'brigantine', 'galleon'] as const;
 
-/** The boat every player gets when nothing else is specified. */
-export const DEFAULT_BOAT_ID: BoatId = 'sloop';
+/** Starter boat — players must build this on home island before sailing. */
+export const STARTER_BOAT_ID: BoatId = 'raft';
+
+/** Default spawn hull once progression is complete (raft first, then player choice). */
+export const DEFAULT_BOAT_ID: BoatId = 'raft';
 
 // Plain-data physics profile (mirrors ShipPhysicsConfig in
 // client/src/lib/shipPhysics.ts). Kept here so the ONE registry owns

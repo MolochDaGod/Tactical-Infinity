@@ -59,9 +59,17 @@ import {
   createTexturedOreMesh,
   createTexturedRockMesh,
 } from '@/lib/islandAssetLoader';
+import {
+  IslandStarterMission,
+  RAFT_RECIPE,
+  type MissionResources,
+} from '@/lib/islandStarterMission';
+import { StarterRaftPanel } from '@/components/game/StarterRaftPanel';
+import { isRaftBuilt, markRaftBuilt } from '@/lib/playerProgression';
 
 interface Props {
   onBack: () => void;
+  onSetSail?: () => void;
 }
 
 const PLAYER_SPEED = 12;
@@ -95,7 +103,7 @@ const HUNTABLE_ANIMALS: AnimalType[] = [
 ];
 const ANIMAL_ATTACK_RANGE = 4;
 
-export default function ProductionIsland({ onBack }: Props) {
+export default function ProductionIsland({ onBack, onSetSail }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -143,6 +151,15 @@ export default function ProductionIsland({ onBack }: Props) {
   const [skinningLevel, setSkinningLevel] = useState(1);
   const [huntToast, setHuntToast] = useState<string | null>(null);
   const huntToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const starterMissionRef = useRef<IslandStarterMission | null>(null);
+
+  const [raftBuilt, setRaftBuilt] = useState(() => isRaftBuilt());
+  const [missionResources, setMissionResources] = useState<MissionResources>({ wood: 0, hemp: 0, stone: 0 });
+  const canBuildRaft =
+    !raftBuilt &&
+    missionResources.wood >= RAFT_RECIPE.wood &&
+    missionResources.hemp >= RAFT_RECIPE.hemp &&
+    missionResources.stone >= RAFT_RECIPE.stone;
 
   const showHuntToast = useCallback((msg: string) => {
     setHuntToast(msg);
@@ -326,6 +343,20 @@ export default function ProductionIsland({ onBack }: Props) {
     nav.generate([terrain.mesh], bounds);
     navRef.current = nav;
 
+    if (!isRaftBuilt()) {
+      const mission = new IslandStarterMission(scene, bounds);
+      mission.onUpdate((r) => setMissionResources({ ...r }));
+      mission.onComplete(() => {
+        markRaftBuilt();
+        setRaftBuilt(true);
+        showHuntToast('Sailed raft built — head to the dock!');
+      });
+      mission.onNodeDepleted((id) => propCollidersRef.current.remove(id));
+      mission.setupInput();
+      starterMissionRef.current = mission;
+      propCollidersRef.current.registerMany(mission.getColliderSpecs());
+    }
+
     const ai = new YukaAISystem(scene);
     aiRef.current = ai;
     spawnWave(ai, terrain, 1);
@@ -415,7 +446,9 @@ export default function ProductionIsland({ onBack }: Props) {
     const handleKeyDown = (e: KeyboardEvent) => {
       keysRef.current.add(e.key.toLowerCase());
       if (e.key.toLowerCase() === 'f' && dockRef.current && isPlayerNearDock(playerPosRef.current, dockRef.current, 8)) {
-        onBack();
+        if (isRaftBuilt()) {
+          (onSetSail ?? onBack)();
+        }
       }
       if (e.key.toLowerCase() === 'b') {
         setBookOpen(prev => !prev);
@@ -548,8 +581,11 @@ export default function ProductionIsland({ onBack }: Props) {
         playerRef.current.position.copy(playerPosRef.current);
       }
 
+      starterMissionRef.current?.setPlayerPosition(playerPosRef.current);
+      starterMissionRef.current?.update(dt);
+
       if (dockRef.current) {
-        const near = isPlayerNearDock(playerPosRef.current, dockRef.current, 8);
+        const near = isPlayerNearDock(playerPosRef.current, dockRef.current, 8) && isRaftBuilt();
         setNearDock(near);
       }
 
@@ -675,6 +711,8 @@ export default function ProductionIsland({ onBack }: Props) {
       carcassManagerRef.current?.clearAllNodes();
       carcassManagerRef.current = null;
       harvestSystemRef.current = null;
+      starterMissionRef.current?.dispose();
+      starterMissionRef.current = null;
       if (huntToastTimer.current) clearTimeout(huntToastTimer.current);
       if (containerRef.current?.contains(renderer.domElement)) {
         containerRef.current.removeChild(renderer.domElement);
@@ -755,6 +793,25 @@ export default function ProductionIsland({ onBack }: Props) {
         />
       )}
 
+      {!raftBuilt && (
+        <StarterRaftPanel
+          resources={missionResources}
+          raftBuilt={false}
+          canBuild={canBuildRaft}
+          onBuild={() => starterMissionRef.current?.buildRaft()}
+        />
+      )}
+
+      {raftBuilt && !nearDock && (
+        <StarterRaftPanel
+          resources={missionResources}
+          raftBuilt
+          canBuild={false}
+          onBuild={() => {}}
+          onSetSail={onSetSail ?? onBack}
+        />
+      )}
+
       {nearDock && (
         <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none" data-testid="dock-prompt">
           <div className="bg-black/70 backdrop-blur-md rounded-xl px-6 py-4 border border-amber-500/40 shadow-lg shadow-amber-500/10 text-center animate-pulse">
@@ -765,7 +822,7 @@ export default function ProductionIsland({ onBack }: Props) {
             <div className="text-white/90 text-sm mb-2">Press <kbd className="px-1.5 py-0.5 bg-white/20 rounded text-amber-300 font-mono font-bold">F</kbd> to set sail</div>
             <div className="flex items-center justify-center gap-1 text-white/50 text-xs">
               <Ship className="w-3 h-3" />
-              <span>Return to the open seas</span>
+              <span>Launch your raft onto the world map</span>
             </div>
           </div>
         </div>

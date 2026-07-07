@@ -7,6 +7,9 @@ import { motion } from "framer-motion";
 
 interface MainMenuProps {
   battlesWon: number;
+  onPlayGame?: () => void;
+  playLabel?: string;
+  playHint?: string;
   onStartBattle: () => void;
   onViewRoster: () => void;
   onViewCodex: () => void;
@@ -14,10 +17,14 @@ interface MainMenuProps {
   onViewIslands?: () => void;
   onViewAdmin?: () => void;
   onViewWorldMap?: () => void;
+  onViewProductionIsland?: () => void;
 }
 
 export function MainMenu({
   battlesWon,
+  onPlayGame,
+  playLabel = 'Play',
+  playHint,
   onStartBattle,
   onViewRoster,
   onViewCodex,
@@ -25,6 +32,7 @@ export function MainMenu({
   onViewIslands,
   onViewAdmin,
   onViewWorldMap,
+  onViewProductionIsland,
 }: MainMenuProps) {
   const { theme, toggleTheme } = useTheme();
 
@@ -91,17 +99,36 @@ export function MainMenu({
           transition={{ duration: 0.6, delay: 0.2 }}
           className="w-full max-w-md space-y-4"
         >
+          {onPlayGame && (
+            <>
+              <Button
+                onClick={onPlayGame}
+                size="lg"
+                className="w-full h-14 text-lg font-serif relative overflow-hidden group bg-emerald-700 hover:bg-emerald-600"
+                data-testid="button-play-game"
+              >
+                <div className="absolute inset-0 bg-gradient-to-r from-emerald-600 via-teal-600 to-cyan-600 opacity-0 group-hover:opacity-100 transition-opacity" />
+                <span className="relative flex items-center gap-2">
+                  <Anchor className="w-5 h-5" />
+                  {playLabel}
+                </span>
+              </Button>
+              {playHint && (
+                <p className="text-center text-xs text-white/50 px-2 -mt-1">{playHint}</p>
+              )}
+            </>
+          )}
+
           <Button
             onClick={onStartBattle}
             size="lg"
-            className="w-full h-14 text-lg font-serif relative overflow-hidden group"
+            variant="secondary"
+            className="w-full h-12 text-base font-serif bg-white/10 hover:bg-white/20 text-white border-white/20"
             data-testid="button-start-battle"
           >
-            <div className="absolute inset-0 bg-gradient-to-r from-primary via-primary to-amber-500 opacity-0 group-hover:opacity-100 transition-opacity" />
-            <span className="relative flex items-center gap-2">
-              <Play className="w-5 h-5" />
-              Start Battle
-              <Sparkles className="w-4 h-4 opacity-0 group-hover:opacity-100 transition-opacity" />
+            <span className="flex items-center gap-2">
+              <Swords className="w-5 h-5" />
+              Tactical Battle
             </span>
           </Button>
 
@@ -155,11 +182,24 @@ export function MainMenu({
             )}
           </div>
 
+          {onViewProductionIsland && (
+            <Button
+              onClick={onViewProductionIsland}
+              variant="secondary"
+              size="lg"
+              className="w-full h-11 font-serif bg-white/10 hover:bg-white/20 text-white border-white/20"
+              data-testid="button-home-island"
+            >
+              <Castle className="w-5 h-5 mr-2" />
+              Home Island
+            </Button>
+          )}
+
           {onViewWorldMap && (
             <Button
               onClick={onViewWorldMap}
               size="lg"
-              className="w-full h-14 text-lg font-serif relative overflow-hidden group bg-blue-600 hover:bg-blue-700"
+              className="w-full h-12 text-lg font-serif relative overflow-hidden group bg-blue-600 hover:bg-blue-700"
               data-testid="button-view-worldmap"
             >
               <div className="absolute inset-0 bg-gradient-to-r from-blue-600 via-blue-500 to-cyan-500 opacity-0 group-hover:opacity-100 transition-opacity" />

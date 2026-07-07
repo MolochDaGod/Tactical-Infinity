@@ -1,5 +1,6 @@
 import type { Race, WeaponStyle } from "@/data/toonRTSAssets";
 import { type BoatId, resolveBoatId, DEFAULT_BOAT_ID } from "@shared/gameDefinitions/boatRegistry";
+import { isRaftBuilt, resolveActiveBoatId } from "@/lib/playerProgression";
 
 export type ClassKey = "mage" | "warrior" | "ranger" | "worge";
 
@@ -20,8 +21,10 @@ export interface CaptainBuild {
  * Never returns an unknown id, so the sailing scene always has a real boat.
  */
 export function resolvePlayerBoatId(): BoatId {
+  if (!isRaftBuilt()) return 'raft';
   const build = loadCaptainBuild();
-  return resolveBoatId(build?.boatId ?? DEFAULT_BOAT_ID);
+  if (build?.boatId) return resolveBoatId(build.boatId);
+  return resolveActiveBoatId() ?? DEFAULT_BOAT_ID;
 }
 
 const STORAGE_KEY = "gw-captain-build";

@@ -58,6 +58,15 @@ export class PropColliderSystem {
     this.colliders.set(id, { id, cx, cz, radius, yMin, yMax });
   }
 
+  /** Bulk-register upright cylinders (e.g. harvest-node specs from IslandStarterMission). */
+  registerMany(
+    specs: ReadonlyArray<{ id: string; x: number; z: number; radius: number; yBase: number; height: number }>,
+  ): void {
+    for (const s of specs) {
+      this.add(s.id, s.x, s.z, s.radius, s.yBase, s.yBase + s.height);
+    }
+  }
+
   /**
    * Derive a cylinder collider from an object's world-space bounding box.
    * Returns false when the object is too small to be worth colliding with.

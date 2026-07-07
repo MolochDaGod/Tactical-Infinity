@@ -7,6 +7,13 @@ import { ThemeProvider } from "@/components/ThemeProvider";
 import { PuterAuthProvider } from "@/contexts/PuterAuthContext";
 import { useGameState } from "@/hooks/useGameState";
 import { getPageBySlug, getPageByPhase, printSiteMap } from "@/lib/pageRegistry";
+import {
+  resolvePlayPhase,
+  getPlayButtonLabel,
+  getPlayButtonHint,
+  onCaptainCreated,
+} from "@/lib/gameStartFlow";
+import { canSailWorldMap } from "@/lib/playerProgression";
 import LoadingScreen from "@/components/LoadingScreen";
 
 // ── Code-split: every page is its own chunk loaded on demand ────────────────
@@ -47,6 +54,11 @@ const PageFallback = () => <LoadingScreen />;
 
 function GameApp() {
   const game = useGameState();
+
+  const handlePlayGame = () => game.setPhase(resolvePlayPhase() as any);
+  const handleWorldMap = () => {
+    game.setPhase((canSailWorldMap() ? "worldmap" : "productionisland") as any);
+  };
 
   // ── URL ↔ phase sync ────────────────────────────────────────────────────
   // Source of truth = phase machine. We mirror it into the URL bar (so every
@@ -120,9 +132,11 @@ function GameApp() {
           ? lastGameplayPhaseRef.current
           : "menu";
         game.setPhase(back as any);
-      } else {
+      } else if (canSailWorldMap()) {
         lastGameplayPhaseRef.current = game.phase;
         game.setPhase("worldmap");
+      } else {
+        game.setPhase("productionisland");
       }
     };
     window.addEventListener("keydown", onKey);
@@ -157,29 +171,28 @@ function GameApp() {
     return (
       <Home
         battlesWon={game.battlesWon}
+        onPlayGame={handlePlayGame}
+        playLabel={getPlayButtonLabel()}
+        playHint={getPlayButtonHint()}
         onStartBattle={() => game.startBattle("normal")}
         onViewRoster={() => game.setPhase("roster")}
         onViewCodex={() => game.setPhase("codex")}
         onViewBarracks={() => game.setPhase("barracks")}
         onViewIslands={() => game.setPhase("islands")}
         onViewAdmin={() => game.setPhase("admin")}
-        onViewWorldMap={() => game.setPhase("worldmap")}
-        onViewCaptain={() => game.setPhase("captain")}
-        onViewGrudgeTest={() => game.setPhase("grudgetest")}
-        onViewShipEditor={() => game.setPhase("shipeditor")}
-        onTestIntro={() => game.setPhase("intro")}
-        onViewChat={() => game.setPhase("chat")}
-        onViewPlayerArena={() => game.setPhase("playerarena")}
-        onViewSailing={() => game.setPhase("worldmap")}
+        onViewWorldMap={canSailWorldMap() ? handleWorldMap : undefined}
         onViewProductionIsland={() => game.setPhase("productionisland")}
-        onViewEquipment={() => game.setPhase("equipment")}
-        onViewClassTree={() => game.setPhase("classtree")}
       />
     );
   }
 
   if (game.phase === "productionisland") {
-    return <ProductionIsland onBack={() => game.setPhase("worldmap")} />;
+    return (
+      <ProductionIsland
+        onBack={() => game.setPhase(canSailWorldMap() ? "worldmap" : "menu")}
+        onSetSail={() => game.setPhase("worldmap")}
+      />
+    );
   }
 
   if (game.phase === "equipment") {
@@ -282,7 +295,7 @@ function GameApp() {
               characterClass: captainData.characterClass,
             }));
           } catch { /* ignore storage errors */ }
-          game.setPhase("worldmap");
+          game.setPhase(onCaptainCreated() as any);
         }}
       />
     );
@@ -340,6 +353,14 @@ function GameApp() {
   }
 
   if (game.phase === "worldmap") {
+    if (!canSailWorldMap()) {
+      return (
+        <ProductionIsland
+          onBack={() => game.setPhase("menu")}
+          onSetSail={() => game.setPhase("worldmap")}
+        />
+      );
+    }
     return (
       <div className="h-screen flex flex-col bg-background relative">
         <WorldMapPage phase={game.phase} onBackToMenu={() => game.setPhase("menu")} />
@@ -442,6 +463,14 @@ function GameApp() {
 
   if (game.phase === "sailing") {
     // Open Water Sailing page retired — sailing now happens directly on the World Map.
+    if (!canSailWorldMap()) {
+      return (
+        <ProductionIsland
+          onBack={() => game.setPhase("menu")}
+          onSetSail={() => game.setPhase("worldmap")}
+        />
+      );
+    }
     return (
       <div className="h-screen flex flex-col bg-background relative">
         <WorldMapPage phase={game.phase} onBackToMenu={() => game.setPhase("menu")} />
@@ -506,22 +535,17 @@ function GameApp() {
   return (
     <Home
       battlesWon={game.battlesWon}
+      onPlayGame={handlePlayGame}
+      playLabel={getPlayButtonLabel()}
+      playHint={getPlayButtonHint()}
       onStartBattle={() => game.startBattle("normal")}
       onViewRoster={() => game.setPhase("roster")}
       onViewCodex={() => game.setPhase("codex")}
       onViewBarracks={() => game.setPhase("barracks")}
       onViewIslands={() => game.setPhase("islands")}
       onViewAdmin={() => game.setPhase("admin")}
-      onViewWorldMap={() => game.setPhase("worldmap")}
-      onViewCaptain={() => game.setPhase("captain")}
-      onViewGrudgeTest={() => game.setPhase("grudgetest")}
-      onViewShipEditor={() => game.setPhase("shipeditor")}
-      onTestIntro={() => game.setPhase("intro")}
-      onViewChat={() => game.setPhase("chat")}
-      onViewPlayerArena={() => game.setPhase("playerarena")}
-      onViewSailing={() => game.setPhase("worldmap")}
+      onViewWorldMap={canSailWorldMap() ? handleWorldMap : undefined}
       onViewProductionIsland={() => game.setPhase("productionisland")}
-      onViewEquipment={() => game.setPhase("equipment")}
     />
   );
 }

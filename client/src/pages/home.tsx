@@ -2,6 +2,9 @@ import { MainMenu } from "@/components/game/MainMenu";
 
 interface HomeProps {
   battlesWon: number;
+  onPlayGame?: () => void;
+  playLabel?: string;
+  playHint?: string;
   onStartBattle: () => void;
   onViewRoster: () => void;
   onViewCodex: () => void;
@@ -21,10 +24,26 @@ interface HomeProps {
   onViewClassTree?: () => void;
 }
 
-export default function Home({ battlesWon, onStartBattle, onViewRoster, onViewCodex, onViewBarracks, onViewIslands, onViewAdmin, onViewWorldMap, onViewCaptain, onViewGrudgeTest, onViewShipEditor, onTestIntro, onViewChat, onViewPlayerArena, onViewSailing, onViewProductionIsland, onViewEquipment, onViewClassTree }: HomeProps) {
+export default function Home({
+  battlesWon,
+  onPlayGame,
+  playLabel,
+  playHint,
+  onStartBattle,
+  onViewRoster,
+  onViewCodex,
+  onViewBarracks,
+  onViewIslands,
+  onViewAdmin,
+  onViewWorldMap,
+  onViewProductionIsland,
+}: HomeProps) {
   return (
     <MainMenu
       battlesWon={battlesWon}
+      onPlayGame={onPlayGame}
+      playLabel={playLabel}
+      playHint={playHint}
       onStartBattle={onStartBattle}
       onViewRoster={onViewRoster}
       onViewCodex={onViewCodex}
@@ -32,16 +51,7 @@ export default function Home({ battlesWon, onStartBattle, onViewRoster, onViewCo
       onViewIslands={onViewIslands}
       onViewAdmin={onViewAdmin}
       onViewWorldMap={onViewWorldMap}
-      onViewCaptain={onViewCaptain}
-      onViewGrudgeTest={onViewGrudgeTest}
-      onViewShipEditor={onViewShipEditor}
-      onTestIntro={onTestIntro}
-      onViewChat={onViewChat}
-      onViewPlayerArena={onViewPlayerArena}
-      onViewSailing={onViewSailing}
       onViewProductionIsland={onViewProductionIsland}
-      onViewEquipment={onViewEquipment}
-      onViewClassTree={onViewClassTree}
     />
   );
 }
