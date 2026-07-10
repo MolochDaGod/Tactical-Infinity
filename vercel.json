@@ -9,15 +9,25 @@
       "NODE_VERSION": "22",
       "VITE_USE_ASSETS_CDN": "true",
       "VITE_ASSETS_CDN_URL": "https://assets.grudge-studio.com",
-      "VITE_WARLORDS_URL": "https://grudgewarlords.com"
+      "VITE_OBJECTSTORE_URL": "https://objectstore.grudge-studio.com",
+      "VITE_WARLORDS_URL": "https://grudgewarlords.com",
+      "VITE_APP_ORIGIN": "https://water.grudge-studio.com"
     }
   },
   "rewrites": [
     { "source": "/auth/callback", "destination": "/index.html" },
 
+    { "source": "/login", "destination": "https://id.grudge-studio.com/login" },
+
+    { "source": "/api/auth/grudge-bridge", "destination": "https://grudge-api-production-0d46.up.railway.app/api/auth/grudge-bridge" },
+    { "source": "/api/auth/guest", "destination": "https://grudge-api-production-0d46.up.railway.app/api/auth/guest" },
+    { "source": "/api/auth/popup-token", "destination": "https://grudge-api-production-0d46.up.railway.app/api/auth/popup-token" },
+    { "source": "/api/auth/puter", "destination": "https://grudge-api-production-0d46.up.railway.app/api/auth/puter" },
+    { "source": "/api/auth/session/:path*", "destination": "https://grudge-api-production-0d46.up.railway.app/api/auth/session/:path*" },
     { "source": "/api/auth/:path*", "destination": "https://id.grudge-studio.com/api/auth/:path*" },
     { "source": "/auth/:path*", "destination": "https://id.grudge-studio.com/auth/:path*" },
-    { "source": "/login", "destination": "https://id.grudge-studio.com/login" },
+
+    { "source": "/api/health", "destination": "https://grudge-api-production-0d46.up.railway.app/api/health" },
 
     { "source": "/api/assets/:path*", "destination": "https://assets.grudge-studio.com/:path*" },
     { "source": "/models/:path*", "destination": "https://assets.grudge-studio.com/models/:path*" },
@@ -47,7 +57,7 @@
     { "source": "/api/meshy/:path*", "destination": "https://api.tactical-infinity.up.railway.app/api/meshy/:path*" },
     { "source": "/api/roster", "destination": "https://api.tactical-infinity.up.railway.app/api/roster" },
     { "source": "/api/harvest/:path*", "destination": "https://api.tactical-infinity.up.railway.app/api/harvest/:path*" },
-    { "source": "/api/(.*)", "destination": "https://api.tactical-infinity.up.railway.app/api/$1" },
+    { "source": "/api/(.*)", "destination": "https://grudge-api-production-0d46.up.railway.app/api/$1" },
 
     { "source": "/(.*)", "destination": "/index.html" }
   ],

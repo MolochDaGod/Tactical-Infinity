@@ -1,15 +1,30 @@
 import type { CannonSkillId } from '@shared/gameDefinitions/sailing';
+import { GRUDGE_FLEET } from '@shared/grudgeFleetBridge';
 
-const DEFAULT_BASE_URL      = 'https://molochdagod.github.io/ObjectStore';
-const DEFAULT_ID_URL        = 'https://id.grudge-studio.com';
-const DEFAULT_GAME_URL      = 'https://api.grudge-studio.com';
-const DEFAULT_ACCOUNT_URL   = 'https://account.grudge-studio.com';
+/**
+ * Fleet SSOT defaults (see shared/grudgeFleetBridge.ts).
+ * Dead hosts intentionally removed: api.grudge-studio.com, github.io/ObjectStore.
+ * ObjectStore catalogs → objectstore.grudge-studio.com
+ * Game state → same-origin /api (Vercel rewrites) or Railway
+ * Auth gateway → id.grudge-studio.com
+ */
+const DEFAULT_BASE_URL =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_OBJECTSTORE_URL) ||
+  GRUDGE_FLEET.objectStore.replace(/\/api\/v1\/?$/, '');
+const DEFAULT_ID_URL = GRUDGE_FLEET.auth;
+/** Same-origin /api in browser so water.grudge-studio.com rewrites apply. */
+const DEFAULT_GAME_URL =
+  (typeof window !== 'undefined' ? `${window.location.origin}/api` : null) ||
+  `${GRUDGE_FLEET.gameData}/api`;
+const DEFAULT_ACCOUNT_URL =
+  (typeof window !== 'undefined' ? `${window.location.origin}/api` : null) ||
+  `${GRUDGE_FLEET.gameData}/api`;
 const DEFAULT_LAUNCHER_URL  = 'https://launcher.grudge-studio.com';
-const DEFAULT_WS_URL        = 'https://ws.grudge-studio.com';
-const DEFAULT_ASSETS_API_URL = 'https://assets-api.grudge-studio.com';
-const DEFAULT_ASSETS_CDN_URL = 'https://assets.grudge-studio.com';
-const DEFAULT_AI_URL        = 'https://ai.grudge-studio.com';
-const DEFAULT_STATUS_URL    = 'https://status.grudge-studio.com';
+const DEFAULT_WS_URL        = GRUDGE_FLEET.tacticalApi.replace(/^https/, 'wss');
+const DEFAULT_ASSETS_API_URL = GRUDGE_FLEET.assetsCdn;
+const DEFAULT_ASSETS_CDN_URL = GRUDGE_FLEET.assetsCdn;
+const DEFAULT_AI_URL        = GRUDGE_FLEET.ai;
+const DEFAULT_STATUS_URL    = GRUDGE_FLEET.infoHub;
 
 export const TIER_COLORS: Record<number, { name: string; hex: string; label: string }> = {
   1: { name: 'Bronze',  hex: '#8b7355', label: 'Common' },
@@ -673,18 +688,22 @@ export class GrudgeSDK {
 
   getDatabaseInfo() {
     return {
-      provider: 'Self-hosted VPS (Docker + Coolify)',
-      database: 'MySQL 8.0',
-      cache: 'Redis 7',
-      vps: '74.208.155.229',
-      schemas: {
-        users: ['users', 'sessions', 'character_wallets'],
-        game: ['characters', 'gold_transactions', 'crafting_recipes', 'crafting_queue', 'combat_log', 'island_state', 'missions', 'crews', 'crew_members'],
-      },
+      provider: 'Grudge Studio fleet',
+      database: 'Railway Postgres (game state SSOT) + ObjectStore D1/R2 catalogs',
+      cache: 'edge / browser',
+      publicOrigin: GRUDGE_FLEET.tacticalClient,
       services: {
-        identity: DEFAULT_ID_URL, gameApi: DEFAULT_GAME_URL, accountApi: DEFAULT_ACCOUNT_URL,
-        launcherApi: DEFAULT_LAUNCHER_URL, wsService: DEFAULT_WS_URL, assetService: DEFAULT_ASSETS_API_URL,
-        assetsCdn: DEFAULT_ASSETS_CDN_URL, status: DEFAULT_STATUS_URL,
+        identity: DEFAULT_ID_URL,
+        gameApi: DEFAULT_GAME_URL,
+        accountApi: DEFAULT_ACCOUNT_URL,
+        objectStore: DEFAULT_BASE_URL,
+        launcherApi: DEFAULT_LAUNCHER_URL,
+        wsService: DEFAULT_WS_URL,
+        assetService: DEFAULT_ASSETS_API_URL,
+        assetsCdn: DEFAULT_ASSETS_CDN_URL,
+        ai: DEFAULT_AI_URL,
+        status: DEFAULT_STATUS_URL,
+        tacticalApi: GRUDGE_FLEET.tacticalApi,
       },
     };
   }

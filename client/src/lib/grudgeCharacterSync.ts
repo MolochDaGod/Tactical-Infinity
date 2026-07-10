@@ -222,19 +222,23 @@ function cleanSsoParams(keys: string[]): void {
   window.history.replaceState(null, '', url);
 }
 
+/**
+ * Consume fleet SSO return params.
+ * Canonical return: id.grudge-studio.com → https://water.grudge-studio.com/auth/callback?sso_token=…
+ * Previously skipped when on /auth/callback — that blocked login completion.
+ */
 export async function pickupSsoFromUrl(): Promise<boolean> {
   const params = new URLSearchParams(window.location.search);
-  const onAuthCallback = window.location.pathname.replace(/\/$/, '') === '/auth/callback';
 
   const launchToken = params.get('grudge_token');
-  if (launchToken && !onAuthCallback) {
+  if (launchToken) {
     const ok = await bridgeGrudgeLaunchToken(launchToken);
     if (ok) cleanSsoParams(['grudge_token']);
     return ok;
   }
 
   const ssoToken = params.get('sso_token') || params.get('token');
-  if (ssoToken && !onAuthCallback) {
+  if (ssoToken) {
     setAuthToken(ssoToken, {
       grudgeId: params.get('grudge_id') || params.get('grudgeId') || undefined,
       username: params.get('grudge_username') || params.get('username') || undefined,

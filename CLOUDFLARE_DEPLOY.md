@@ -8,7 +8,7 @@ Tethical is a **React SPA + Express API** application. For Cloudflare deployment
 |-------|---------|----------------|
 | **Frontend** | Cloudflare Pages | React SPA static files (`dist/public/`) |
 | **API** | Cloudflare Workers | Express backend (`dist/index.cjs`) converted to Worker |
-| **Game Data** | ObjectStore API | Static JSON from `molochdagod.github.io/ObjectStore` (external, no auth) |
+| **Game Data** | ObjectStore API | Canonical JSON from `objectstore.grudge-studio.com/api/v1` (proxied as `/api/objectstore`) |
 | **Assets** | Cloudflare R2 / Pages | 3D models, textures, sprite sheets |
 | **Auth/Storage** | Puter.js | Client-side auth and KV storage (runs in browser, no server needed) |
 
@@ -50,7 +50,7 @@ Set these in Cloudflare Pages dashboard → Settings → Environment Variables:
 | Variable | Value | Notes |
 |----------|-------|-------|
 | `NODE_VERSION` | `20` | For build step |
-| `VITE_OBJECTSTORE_URL` | `https://molochdagod.github.io/ObjectStore/api/v1` | Game data API (already hardcoded, optional override) |
+| `VITE_OBJECTSTORE_URL` | `https://objectstore.grudge-studio.com` | Catalog root (paths append `/api/v1/*.json`) |
 
 ### 4. SPA Routing
 

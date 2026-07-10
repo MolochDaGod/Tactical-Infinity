@@ -5,23 +5,33 @@
 
 /** Canonical fleet URLs — mirrors GrudgeBuilder `shared/fleet/manifest.ts`. */
 export const GRUDGE_FLEET = {
-  /** Grudge ID auth gateway */
+  /** Grudge ID auth gateway — full-page login only at /login?redirect_uri= */
   auth: 'https://id.grudge-studio.com',
-  /** Game state SSOT (characters, island, wallet, inventory) */
+  /** Game state SSOT (characters, island, wallet, inventory) — Railway Postgres */
   gameData: 'https://grudge-api-production-0d46.up.railway.app',
-  /** Legacy alias — prefer gameData */
+  /** Legacy alias — prefer gameData. NEVER api.grudge-studio.com (dead). */
   gameApi: 'https://grudge-api-production-0d46.up.railway.app',
   assetsCdn: 'https://assets.grudge-studio.com',
+  /** JSON catalogs — NEVER github.io/ObjectStore (legacy static). */
   objectStore: 'https://objectstore.grudge-studio.com/api/v1',
   infoHub: 'https://info.grudge-studio.com',
   ai: 'https://ai.grudge-studio.com',
   client: 'https://client.grudge-studio.com',
   warlords: 'https://grudgewarlords.com',
-  /** Tactical-Infinity-specific APIs (battles, meshy) */
+  /** Tactical-Infinity-specific APIs (battles, meshy, harvest) */
   tacticalApi: 'https://api.tactical-infinity.up.railway.app',
-  /** Production Tactical-Infinity SPA (Vercel + Cloudflare DNS) */
+  /** Production Tactical-Infinity SPA (Vercel project tactical-infinity + CF DNS) */
   tacticalClient: 'https://water.grudge-studio.com',
 } as const;
+
+/** Build fleet SSO login URL for this origin (water / vercel / localhost). */
+export function buildFleetSsoLoginUrl(returnOrigin?: string): string {
+  const origin =
+    returnOrigin ||
+    (typeof window !== 'undefined' ? window.location.origin : GRUDGE_FLEET.tacticalClient);
+  const redirectUri = `${origin.replace(/\/$/, '')}/auth/callback`;
+  return `${GRUDGE_FLEET.auth}/login?redirect_uri=${encodeURIComponent(redirectUri)}`;
+}
 
 /** Same-origin API paths when deployed on Vercel (rewrites handle routing). */
 export const FLEET_API_PATHS = {
