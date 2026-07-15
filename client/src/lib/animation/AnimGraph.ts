@@ -11,6 +11,7 @@ import * as THREE from "three";
 import type { BaseSemanticRole } from "./baseCharacterClips";
 import { baseLibraryKey } from "./baseCharacterClips";
 import { getClip } from "./SharedClipLibrary";
+import { createRootLock, type RootLockHandle } from "./rootLock";
 
 export type AnimGraphState =
   | "idle"
@@ -37,10 +38,17 @@ export const ANIM_FADE = {
 
 export interface AnimGraphOptions {
   mixer: THREE.AnimationMixer;
+  /**
+   * Skeleton root for rootLock (hips local XYZ frozen after mixer.update).
+   * When omitted, only stripRootMotion at load protects against teleports.
+   */
+  skeletonRoot?: THREE.Object3D;
   /** Resolve semantic role → clip (default: SharedClipLibrary base/*). */
   resolveClip?: (role: BaseSemanticRole) => THREE.AnimationClip | null;
   /** Called when a one-shot finishes (roll/attack/cast shoot). */
   onOneShotEnd?: (state: AnimGraphState) => void;
+  /** Enable root lock (default true when skeletonRoot provided). */
+  rootLock?: boolean;
 }
 
 function defaultResolve(role: BaseSemanticRole): THREE.AnimationClip | null {
@@ -62,6 +70,7 @@ export class AnimGraph {
   readonly mixer: THREE.AnimationMixer;
   private resolveClip: (role: BaseSemanticRole) => THREE.AnimationClip | null;
   private onOneShotEnd?: (state: AnimGraphState) => void;
+  private rootLockHandle: RootLockHandle | null = null;
 
   private full: THREE.AnimationAction | null = null;
   private fullKey: string | null = null;
@@ -78,16 +87,20 @@ export class AnimGraph {
     this.mixer = opts.mixer;
     this.resolveClip = opts.resolveClip ?? defaultResolve;
     this.onOneShotEnd = opts.onOneShotEnd;
+    if (opts.skeletonRoot && opts.rootLock !== false) {
+      this.rootLockHandle = createRootLock(opts.skeletonRoot);
+    }
   }
 
   get currentState(): AnimGraphState {
     return this.state;
   }
 
-  /** Per-frame: advance mixer + expire one-shots back to loco intent. */
+  /** Per-frame: advance mixer, re-lock hips XYZ, expire one-shots → loco. */
   update(dt: number, locoSpeed = 0, sprinting = false): void {
     this.time += dt;
     this.mixer.update(dt);
+    this.rootLockHandle?.apply();
 
     if (this.oneShotUntil > 0 && this.time >= this.oneShotUntil) {
       const finished = this.state;

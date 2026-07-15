@@ -15,7 +15,15 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { registerClip, getClip, listClips } from '@/lib/animation';
+import {
+  registerClip,
+  getClip,
+  listClips,
+  loadBaseCharacterPack,
+  createRootLock,
+  AnimGraph,
+  type RootLockHandle,
+} from '@/lib/animation';
 import { ANIM_BANK_PATH } from '@/data/factionUnits';
 import { resolveGrudgeAssetUrl, GLB_ATTACH_PATTERNS } from '@/lib/grudgeAssetConfig';
 import { applyLoadout3D, disposeLoadout3D, findHandBone, findHeadBone, type Rig3D } from '@/lib/gear/rig3d';
@@ -90,6 +98,15 @@ export interface UnitLoadOptions {
    * are touched — shared bank clips are never mutated.
    */
   stripRootMotion?: boolean;
+  /**
+   * Also load Layer A base character pack (`base/*` semantic roles). Default true.
+   */
+  includeBasePack?: boolean;
+  /**
+   * Freeze hips local XYZ after mixer.update (controller owns world XYZ).
+   * Default true.
+   */
+  rootLock?: boolean;
 }
 
 /**
@@ -121,6 +138,8 @@ export class UnitCharacter {
   private actions = new Map<string, THREE.AnimationAction>();
   private clipByKey = new Map<string, THREE.AnimationClip>();
   private current: THREE.AnimationAction | null = null;
+  private rootLockHandle: RootLockHandle | null = null;
+  private animGraph: AnimGraph | null = null;
 
   private rightHand: THREE.Bone | null = null;
   private leftHand: THREE.Bone | null = null;
@@ -143,16 +162,25 @@ export class UnitCharacter {
     clips: ClipInfo[],
     clipByKey: Map<string, THREE.AnimationClip>,
     fitScale: number,
+    rootLockHandle: RootLockHandle | null = null,
   ) {
     this.object = object;
     this.mixer = mixer;
     this.clips = clips;
     this.clipByKey = clipByKey;
     this.fitScale = fitScale;
+    this.rootLockHandle = rootLockHandle;
   }
 
   static async load(path: string, opts: UnitLoadOptions = {}): Promise<UnitCharacter> {
-    const { targetHeight = 1.8, includeBank = true, envMap = null, stripRootMotion = false } = opts;
+    const {
+      targetHeight = 1.8,
+      includeBank = true,
+      includeBasePack = true,
+      envMap = null,
+      stripRootMotion = false,
+      rootLock = true,
+    } = opts;
 
     const gltf = await gltfLoader.loadAsync(resolveGrudgeAssetUrl(path));
     const root = gltf.scene as THREE.Group;
@@ -220,7 +248,43 @@ export class UnitCharacter {
       }
     }
 
-    return new UnitCharacter(root, mixer, clips, clipByKey, fitScale);
+    // Layer A base pack — semantic base/* roles (loco/roll/attack/cast).
+    if (includeBasePack) {
+      await loadBaseCharacterPack();
+      for (const key of listClips().filter((k) => k.startsWith('base/'))) {
+        if (clipByKey.has(key)) continue;
+        const clip = getClip(key);
+        if (!clip) continue;
+        clipByKey.set(key, clip);
+        const label = key.slice('base/'.length);
+        clips.push({ key, label, source: 'bank', category: 'base' });
+      }
+    }
+
+    const lock = rootLock ? createRootLock(root) : null;
+    return new UnitCharacter(root, mixer, clips, clipByKey, fitScale, lock);
+  }
+
+  /**
+   * Attach a semantic AnimGraph (base/* roles). When driving with the graph,
+   * call `graph.update(dt, speed, sprint)` each frame (it advances the mixer).
+   */
+  createAnimGraph(): AnimGraph {
+    if (this.animGraph) return this.animGraph;
+    this.animGraph = new AnimGraph({
+      mixer: this.mixer,
+      skeletonRoot: this.object,
+      rootLock: !!this.rootLockHandle,
+      resolveClip: (role) => {
+        const key = `base/${role}`;
+        return this.clipByKey.get(key) ?? getClip(key);
+      },
+    });
+    return this.animGraph;
+  }
+
+  get graph(): AnimGraph | null {
+    return this.animGraph;
   }
 
   /** Lazily build (and cache) the AnimationAction for a clip key. */
@@ -273,7 +337,11 @@ export class UnitCharacter {
   }
 
   update(dt: number): void {
-    this.mixer.update(dt);
+    // When AnimGraph is driving, call graph.update() instead — it owns mixer + rootLock.
+    if (!this.animGraph) {
+      this.mixer.update(dt);
+      this.rootLockHandle?.apply();
+    }
     // Re-apply the static right-hand offset AFTER the mixer, since the mixer
     // rewrites the bone quaternion from the clip every frame.
     if (this.rightHandOffset) {

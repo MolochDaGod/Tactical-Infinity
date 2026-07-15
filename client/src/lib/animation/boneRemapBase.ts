@@ -70,22 +70,9 @@ export function boneMapFor(target: BakeTarget): Record<string, string> {
 }
 
 /**
- * Rewrite track names on a clip using a static bone map (leaf only).
- * Returns a NEW clip. Unmatched bones are dropped (fingers etc.).
+ * Pure track-name rewrite: clone tracks whose leaf bone maps to a target name.
+ * Unmatched bones (fingers, helpers) are dropped.
  */
-export function remapClipBoneNames(
-  clip: import("three").AnimationClip,
-  map: Record<string, string>,
-): import("three").AnimationClip {
-  // Lazy import type only — implementation uses runtime THREE if available.
-  const THREE = (globalThis as unknown as { THREE?: typeof import("three") }).THREE;
-  // When called from browser modules, import three normally via caller.
-  // This function is re-exported from remapClipTracks below for browser use.
-  void THREE;
-  return clip; // placeholder replaced by remapClipTracks in BaseClipPack
-}
-
-/** Pure track-name rewrite for browser (takes THREE from import site). */
 export function remapTracks(
   tracks: { name: string; clone: () => { name: string } }[],
   map: Record<string, string>,
@@ -98,7 +85,7 @@ export function remapTracks(
     const prop = track.name.slice(dot);
     const slash = Math.max(bonePath.lastIndexOf("/"), bonePath.lastIndexOf("|"));
     const leaf = slash >= 0 ? bonePath.slice(slash + 1) : bonePath;
-    const target = map[leaf] ?? map[leaf.replace(/^DEF-/, "DEF-")];
+    const target = map[leaf];
     if (!target) continue;
     const cloned = track.clone();
     cloned.name = target + prop;

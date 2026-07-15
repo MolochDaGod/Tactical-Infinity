@@ -185,4 +185,40 @@ export function bakeAllBaseRoles(target: BakeTarget): Map<string, THREE.Animatio
   return out;
 }
 
+/**
+ * Resolve order for production skills / loco:
+ *   weaponPack[role] ?? classPack[role] ?? base/* ?? idle
+ *
+ * Pass optional pack Maps keyed by semantic role or library key.
+ */
+export function resolveRoleClip(
+  role: BaseSemanticRole,
+  packs?: {
+    weapon?: Map<string, THREE.AnimationClip> | Record<string, THREE.AnimationClip | null | undefined>;
+    classPack?: Map<string, THREE.AnimationClip> | Record<string, THREE.AnimationClip | null | undefined>;
+  },
+): THREE.AnimationClip | null {
+  const tryGet = (
+    src: Map<string, THREE.AnimationClip> | Record<string, THREE.AnimationClip | null | undefined> | undefined,
+    key: string,
+  ): THREE.AnimationClip | null => {
+    if (!src) return null;
+    if (src instanceof Map) return src.get(key) ?? null;
+    return src[key] ?? null;
+  };
+
+  const keys = [role, baseLibraryKey(role), `base/${role}`];
+  for (const k of keys) {
+    const w = tryGet(packs?.weapon, k);
+    if (w) return w;
+  }
+  for (const k of keys) {
+    const c = tryGet(packs?.classPack, k);
+    if (c) return c;
+  }
+  const base = getBaseClip(role);
+  if (base) return base;
+  return getBaseClip("idle");
+}
+
 export { DEF_TO_MIXAMO, DEF_TO_BIP001, UPPER_BODY };

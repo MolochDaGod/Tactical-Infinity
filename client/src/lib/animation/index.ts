@@ -38,6 +38,12 @@ export {
 } from './clipUtils';
 
 export {
+  createRootLock,
+  lockHorizontalRootClip,
+  type RootLockHandle,
+} from './rootLock';
+
+export {
   BASE_CHARACTER_GLB,
   BASE_GLB_CLIPS,
   BASE_ROLE_DEFS,
@@ -57,6 +63,7 @@ export {
   bakeBaseRole,
   bakeAllBaseRoles,
   remapClipBones,
+  resolveRoleClip,
   UPPER_BODY,
 } from './BaseClipPack';
 
