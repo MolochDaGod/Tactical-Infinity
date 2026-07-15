@@ -36,3 +36,42 @@ export {
   filterClipToNormalizedBones,
   cloneClipWithName,
 } from './clipUtils';
+
+export {
+  BASE_CHARACTER_GLB,
+  BASE_GLB_CLIPS,
+  BASE_ROLE_DEFS,
+  baseLibraryKey,
+  roleFromGlbName,
+  type BaseSemanticRole,
+  type BaseRoleDef,
+  type BaseGlbClipKey,
+} from './baseCharacterClips';
+
+export {
+  loadBaseCharacterPack,
+  isBasePackLoaded,
+  getBaseClip,
+  hasBaseClip,
+  retargetBaseRole,
+  bakeBaseRole,
+  bakeAllBaseRoles,
+  remapClipBones,
+  UPPER_BODY,
+} from './BaseClipPack';
+
+export {
+  AnimGraph,
+  ANIM_FADE,
+  locoStateFromSpeed,
+  type AnimGraphState,
+  type CastPhase,
+  type AnimGraphOptions,
+} from './AnimGraph';
+
+export {
+  DEF_TO_MIXAMO,
+  DEF_TO_BIP001,
+  boneMapFor,
+  type BakeTarget,
+} from './boneRemapBase';
