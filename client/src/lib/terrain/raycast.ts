@@ -56,7 +56,9 @@ export interface AttachBVHOptions {
    *  - AVERAGE: middle ground.
    */
   strategy?: 'SAH' | 'CENTER' | 'AVERAGE';
-  /** Max triangles per leaf. Default 10. Raise for cheaper build. */
+  /** Target triangles per leaf (three-mesh-bvh `targetLeafSize`). Default 10. */
+  targetLeafSize?: number;
+  /** @deprecated Use `targetLeafSize`. */
   maxLeafSize?: number;
 }
 
@@ -87,7 +89,7 @@ export function attachBVH(mesh: THREE.Mesh, opts: AttachBVHOptions = {}): void {
   }
   geom.computeBoundsTree?.({
     strategy: STRATEGY_MAP[opts.strategy ?? 'SAH'],
-    maxLeafSize: opts.maxLeafSize ?? 10,
+    targetLeafSize: opts.targetLeafSize ?? opts.maxLeafSize ?? 10,
   });
 }
 

@@ -75,13 +75,19 @@ export interface IslandConfig {
   terrainPacks: { sand: string; ground: string; cliff: string };
 }
 
-const DEFAULT_WORLD = 1024;
-const DEFAULT_AREA  = Math.PI * (256 * 0.4) ** 2;
+/**
+ * Open-world island footprint — scaled ~2.5× so a 2 m captain + 2.75 m
+ * doorways read as human-scale on a large map (not a toy diorama).
+ * See `metricSizing.ISLAND_MAP_SCALE` / `DOORWAY_HEIGHT_M`.
+ */
+const DEFAULT_WORLD = 2560;
+/** Approximate land disk for density math (~0.22 × world side as radius). */
+const DEFAULT_AREA  = Math.PI * (DEFAULT_WORLD * 0.22) ** 2;
 
 export const ISLAND_CONFIGS: Record<IslandBiomePreset, IslandConfig> = {
   tropical: {
     id: 'tropical', label: 'Tropical Paradise',
-    worldSize: DEFAULT_WORLD, area: DEFAULT_AREA, maxHeight: 26, waterDepth: 20,
+    worldSize: DEFAULT_WORLD, area: DEFAULT_AREA, maxHeight: 55, waterDepth: 35,
     // palm from tropical pack (STYLIZED.tropical) + vegetation trees — CDN SSOT
     trees:   { species: ['palm','common_1','common_2','common_3','twisted_1'], density: 0.18, min: 40, max: 200 },
     rocks:   { species: ['rock_1','rock_2','rock_3','cliff_rock'],                 density: 0.06, min: 12, max: 60 },
@@ -94,7 +100,7 @@ export const ISLAND_CONFIGS: Record<IslandBiomePreset, IslandConfig> = {
   },
   temperate: {
     id: 'temperate', label: 'Temperate Highlands',
-    worldSize: DEFAULT_WORLD, area: DEFAULT_AREA, maxHeight: 36, waterDepth: 20,
+    worldSize: DEFAULT_WORLD, area: DEFAULT_AREA, maxHeight: 75, waterDepth: 35,
     trees:   { species: ['common_1','common_2','pine_1','pine_2','pine_3','dead_1'], density: 0.22, min: 50, max: 220 },
     rocks:   { species: ['rock_1','rock_2','rock_3','cliff_rock','boulder_rock'],    density: 0.10, min: 16, max: 80 },
     plants:  { species: ['fern','bush','bush_flowers','plant_1','grass_tall','mushroom','hemp','periwinkle'], density: 0.22, min: 60, max: 260 },
@@ -106,7 +112,7 @@ export const ISLAND_CONFIGS: Record<IslandBiomePreset, IslandConfig> = {
   },
   volcanic: {
     id: 'volcanic', label: 'Volcanic Wastes',
-    worldSize: DEFAULT_WORLD, area: DEFAULT_AREA, maxHeight: 48, waterDepth: 20,
+    worldSize: DEFAULT_WORLD, area: DEFAULT_AREA, maxHeight: 110, waterDepth: 40,
     trees:   { species: ['dead_1','twisted_1','twisted_2'],                         density: 0.05, min: 10, max: 50 },
     rocks:   { species: ['rock_1','rock_2','rock_3','cliff_rock','boulder_rock'],   density: 0.18, min: 30, max: 120 },
     plants:  { species: ['mushroom','grass_short'],                                 density: 0.04, min: 8, max: 40 },
@@ -118,7 +124,7 @@ export const ISLAND_CONFIGS: Record<IslandBiomePreset, IslandConfig> = {
   },
   arctic: {
     id: 'arctic', label: 'Frozen Expanse',
-    worldSize: DEFAULT_WORLD, area: DEFAULT_AREA, maxHeight: 40, waterDepth: 20,
+    worldSize: DEFAULT_WORLD, area: DEFAULT_AREA, maxHeight: 85, waterDepth: 40,
     trees:   { species: ['pine_1','pine_2','pine_3','dead_1'],                      density: 0.12, min: 25, max: 120 },
     rocks:   { species: ['rock_1','rock_2','rock_3','cliff_rock'],                  density: 0.10, min: 18, max: 80 },
     plants:  { species: ['grass_short','clover'],                                   density: 0.06, min: 10, max: 60 },
@@ -130,7 +136,7 @@ export const ISLAND_CONFIGS: Record<IslandBiomePreset, IslandConfig> = {
   },
   desert: {
     id: 'desert', label: 'Scorched Sands',
-    worldSize: DEFAULT_WORLD, area: DEFAULT_AREA, maxHeight: 22, waterDepth: 20,
+    worldSize: DEFAULT_WORLD, area: DEFAULT_AREA, maxHeight: 48, waterDepth: 30,
     trees:   { species: ['twisted_1','twisted_2','dead_1'],                         density: 0.04, min: 8, max: 30 },
     rocks:   { species: ['rock_1','rock_2','rock_3','cliff_rock','boulder_rock'],   density: 0.12, min: 20, max: 90 },
     plants:  { species: ['grass_short','bush','hemp'],                              density: 0.05, min: 8, max: 40 },

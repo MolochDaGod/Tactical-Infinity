@@ -1,6 +1,10 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
+import { loadSurvivalKitNode } from '@/lib/survivalKitAssets';
+import { loadNoteOfArmsNode } from '@/lib/noteOfArmsAssets';
+import { normalizeToMetres } from '@/lib/modelNormalize';
+import { resolveWarlordsUrl } from '@/lib/warlordsAssetCatalog';
 
 export type PlaceableBuildingType = 
   | 'wall'
@@ -14,6 +18,22 @@ export type PlaceableBuildingType =
   | 'storage_chest'
   | 'farming_plot'
   | 'fence'
+  /** Survival kit — camp tent stages + profession stations */
+  | 'tent_stage_1'
+  | 'tent_stage_2'
+  | 'tent_stage_3'
+  | 'cooking_bench'
+  | 'grind_wheel'
+  | 'anvil'
+  | 'stone_quarry'
+  | 'rts_town_center'
+  | 'rts_barracks'
+  | 'rts_archery'
+  | 'rts_farm'
+  | 'rts_wheat_field'
+  | 'rts_temple'
+  /** note_of_arms Chain_V* — buildable chain link / connection tool */
+  | 'chain'
   | 'window_thin_flat'
   | 'window_thin_round'
   | 'window_wide_flat'
@@ -67,6 +87,18 @@ export interface PlaceableBuildingDefinition {
   rotatable: boolean;
   placementOffset?: { x: number; y: number; z: number };
   modelUrl?: string;
+  /**
+   * Node name inside free_survival_asset_kit.glb (RootNode child).
+   * When set, loader isolates that mesh group only — never the whole pack.
+   */
+  survivalKitNode?: string;
+  /**
+   * Node name inside note_of_arms_environment_assets_set_1.glb.
+   * Isolate only — never place the whole multipack.
+   */
+  noteOfArmsNode?: string;
+  /** Target height in metres when normalizing kit meshes */
+  kitTargetHeightM?: number;
   fallbackGeometry?: 'box' | 'cylinder' | 'plane';
   fallbackColor?: number;
   scale?: number;
@@ -117,6 +149,8 @@ export const placeableBuildingDefinitions: Record<PlaceableBuildingType, Placeab
     cost: { wood: 8 },
     cellSize: { width: 4, height: 4 },
     rotatable: false,
+    survivalKitNode: 'floor',
+    kitTargetHeightM: 0.15,
     fallbackGeometry: 'plane',
     fallbackColor: 0xDEB887,
     scale: 1.0
@@ -137,12 +171,13 @@ export const placeableBuildingDefinitions: Record<PlaceableBuildingType, Placeab
   workbench: {
     type: 'workbench',
     name: 'Workbench',
-    description: 'Craft basic items and tools',
+    description: 'Craft table with hammer and paper note (survival kit)',
     category: 'production',
     cost: { wood: 20, stone: 5 },
     cellSize: { width: 2, height: 2 },
     rotatable: true,
-    modelUrl: '/models/buildings/Workbench_1768389550051.glb',
+    survivalKitNode: 'workbench',
+    kitTargetHeightM: 1.2,
     fallbackGeometry: 'box',
     fallbackColor: 0xCD853F,
     scale: 1.0
@@ -155,6 +190,8 @@ export const placeableBuildingDefinitions: Record<PlaceableBuildingType, Placeab
     cost: { wood: 15, stone: 30, ore: 10 },
     cellSize: { width: 3, height: 3 },
     rotatable: true,
+    survivalKitNode: 'workbenchAnvil',
+    kitTargetHeightM: 1.25,
     fallbackGeometry: 'box',
     fallbackColor: 0x8B0000,
     scale: 1.0
@@ -174,11 +211,13 @@ export const placeableBuildingDefinitions: Record<PlaceableBuildingType, Placeab
   campfire: {
     type: 'campfire',
     name: 'Campfire',
-    description: 'Provides warmth and allows cooking',
+    description: 'Fireplace — ring rocks, wood, cook bucket',
     category: 'production',
     cost: { wood: 5, stone: 3 },
     cellSize: { width: 1, height: 1 },
     rotatable: false,
+    survivalKitNode: 'campfire',
+    kitTargetHeightM: 0.9,
     fallbackGeometry: 'cylinder',
     fallbackColor: 0xFF4500,
     scale: 0.5
@@ -191,6 +230,8 @@ export const placeableBuildingDefinitions: Record<PlaceableBuildingType, Placeab
     cost: { wood: 15 },
     cellSize: { width: 1, height: 1 },
     rotatable: true,
+    survivalKitNode: 'chest',
+    kitTargetHeightM: 0.85,
     fallbackGeometry: 'box',
     fallbackColor: 0x8B4513,
     scale: 0.6
@@ -215,9 +256,208 @@ export const placeableBuildingDefinitions: Record<PlaceableBuildingType, Placeab
     cost: { wood: 3 },
     cellSize: { width: 2, height: 1 },
     rotatable: true,
+    survivalKitNode: 'fence',
+    kitTargetHeightM: 1.1,
     fallbackGeometry: 'box',
     fallbackColor: 0xA0522D,
     scale: 0.5
+  },
+  tent_stage_1: {
+    type: 'tent_stage_1',
+    name: 'Tent Frame',
+    description: 'Camp stage 1 — half tent / poles',
+    category: 'structure',
+    cost: { wood: 8, fiber: 4 },
+    cellSize: { width: 2, height: 2 },
+    rotatable: true,
+    survivalKitNode: 'tentHalf',
+    kitTargetHeightM: 2.2,
+    fallbackGeometry: 'box',
+    fallbackColor: 0xC4A574,
+    scale: 1.0
+  },
+  tent_stage_2: {
+    type: 'tent_stage_2',
+    name: 'Closed Tent',
+    description: 'Camp stage 2 — fully closed tent',
+    category: 'structure',
+    cost: { wood: 12, fiber: 8 },
+    cellSize: { width: 2, height: 2 },
+    rotatable: true,
+    survivalKitNode: 'tentClosed',
+    kitTargetHeightM: 2.4,
+    fallbackGeometry: 'box',
+    fallbackColor: 0xB8956A,
+    scale: 1.0
+  },
+  tent_stage_3: {
+    type: 'tent_stage_3',
+    name: 'Camp Tent',
+    description: 'Camp stage 3 — open camp tent',
+    category: 'structure',
+    cost: { wood: 16, fiber: 12 },
+    cellSize: { width: 2, height: 2 },
+    rotatable: true,
+    survivalKitNode: 'tent',
+    kitTargetHeightM: 2.5,
+    fallbackGeometry: 'box',
+    fallbackColor: 0xA08050,
+    scale: 1.0
+  },
+  cooking_bench: {
+    type: 'cooking_bench',
+    name: 'Cooking Bench',
+    description: 'Outdoor cooking / prep stand',
+    category: 'production',
+    cost: { wood: 14, stone: 4 },
+    cellSize: { width: 2, height: 1 },
+    rotatable: true,
+    survivalKitNode: 'fishingStand',
+    kitTargetHeightM: 1.4,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x8B6914,
+    scale: 1.0
+  },
+  grind_wheel: {
+    type: 'grind_wheel',
+    name: 'Sharpening Wheel',
+    description: 'Miner grind / sharpen station',
+    category: 'production',
+    cost: { wood: 18, stone: 12, ore: 4 },
+    cellSize: { width: 2, height: 2 },
+    rotatable: true,
+    survivalKitNode: 'workbenchGrind',
+    kitTargetHeightM: 1.3,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x6B6B6B,
+    scale: 1.0
+  },
+  anvil: {
+    type: 'anvil',
+    name: 'Anvil',
+    description: 'Engineer anvil station',
+    category: 'production',
+    cost: { wood: 10, stone: 20, ore: 15 },
+    cellSize: { width: 2, height: 2 },
+    rotatable: true,
+    survivalKitNode: 'workbenchAnvil',
+    kitTargetHeightM: 1.2,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x4A4A4A,
+    scale: 1.0
+  },
+  stone_quarry: {
+    type: 'stone_quarry',
+    name: 'Stone Quarry',
+    description: 'Ultimate Fantasy RTS Mine.fbx — miner-only stone harvest (4s enter)',
+    category: 'production',
+    cost: { wood: 25, stone: 40 },
+    cellSize: { width: 3, height: 3 },
+    rotatable: true,
+    modelUrl: resolveWarlordsUrl('models/rts/ultimate-fantasy/fbx/Mine.fbx'),
+    kitTargetHeightM: 5,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x6B6B6B,
+    scale: 1.0
+  },
+  rts_town_center: {
+    type: 'rts_town_center',
+    name: 'Town Center',
+    description: 'UF RTS TownCenter — trains workers / basic infantry',
+    category: 'structure',
+    cost: { wood: 80, stone: 40 },
+    cellSize: { width: 4, height: 4 },
+    rotatable: true,
+    modelUrl: resolveWarlordsUrl('models/rts/ultimate-fantasy/fbx/TownCenter_FirstAge_Level1.fbx'),
+    kitTargetHeightM: 8,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x8B7355,
+    scale: 1.0
+  },
+  rts_barracks: {
+    type: 'rts_barracks',
+    name: 'Barracks',
+    description: 'UF RTS Barracks — deploys melee units',
+    category: 'defense',
+    cost: { wood: 50, stone: 25 },
+    cellSize: { width: 3, height: 3 },
+    rotatable: true,
+    modelUrl: resolveWarlordsUrl('models/rts/ultimate-fantasy/fbx/Barracks_FirstAge_Level1.fbx'),
+    kitTargetHeightM: 5.5,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x7A5C3A,
+    scale: 1.0
+  },
+  rts_archery: {
+    type: 'rts_archery',
+    name: 'Archery Range',
+    description: 'UF RTS Archery — deploys archer units',
+    category: 'defense',
+    cost: { wood: 45, stone: 20 },
+    cellSize: { width: 3, height: 3 },
+    rotatable: true,
+    modelUrl: resolveWarlordsUrl('models/rts/ultimate-fantasy/fbx/Archery_FirstAge_Level1.fbx'),
+    kitTargetHeightM: 5.5,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x5C7A3A,
+    scale: 1.0
+  },
+  rts_farm: {
+    type: 'rts_farm',
+    name: 'Farm',
+    description: 'UF RTS Farm — raises Llama / Pig / Sheep (feed wheat)',
+    category: 'farming',
+    cost: { wood: 30 },
+    cellSize: { width: 3, height: 3 },
+    rotatable: true,
+    modelUrl: resolveWarlordsUrl('models/rts/ultimate-fantasy/fbx/Farm_FirstAge_Level1.fbx'),
+    kitTargetHeightM: 3.5,
+    fallbackGeometry: 'plane',
+    fallbackColor: 0x8B8B3A,
+    scale: 1.0
+  },
+  rts_wheat_field: {
+    type: 'rts_wheat_field',
+    name: 'Wheat Field',
+    description: 'UF RTS Farm wheat crop — harvest wheat to feed livestock',
+    category: 'farming',
+    cost: { wood: 15 },
+    cellSize: { width: 3, height: 3 },
+    rotatable: true,
+    modelUrl: resolveWarlordsUrl('models/rts/ultimate-fantasy/fbx/Farm_FirstAge_Level1_Wheat.fbx'),
+    kitTargetHeightM: 2.2,
+    fallbackGeometry: 'plane',
+    fallbackColor: 0xC9B84A,
+    scale: 1.0
+  },
+  chain: {
+    type: 'chain',
+    name: 'Chain',
+    description: 'Buildable chain link (note_of_arms) — connections, barriers, shipyard',
+    category: 'structure',
+    cost: { ore: 8, stone: 2 },
+    cellSize: { width: 1, height: 1 },
+    rotatable: true,
+    noteOfArmsNode: 'Chain_V3',
+    /** Rest length metres after multipack isolate + normalize */
+    kitTargetHeightM: 1.0,
+    fallbackGeometry: 'cylinder',
+    fallbackColor: 0x6B6B70,
+    // No definition.scale — normalize only (avoids double-scale)
+  },
+  rts_temple: {
+    type: 'rts_temple',
+    name: 'Temple',
+    description: 'UF RTS Temple — support / priest units',
+    category: 'structure',
+    cost: { wood: 40, stone: 35 },
+    cellSize: { width: 3, height: 3 },
+    rotatable: true,
+    modelUrl: resolveWarlordsUrl('models/rts/ultimate-fantasy/fbx/Temple_FirstAge_Level1.fbx'),
+    kitTargetHeightM: 7,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x9A8A70,
+    scale: 1.0
   },
   window_thin_flat: {
     type: 'window_thin_flat',
@@ -686,6 +926,44 @@ export class BuildableObjectsRegistry {
       return fallbackGroup;
     }
     
+    // Survival kit multi-mesh pack — isolate one RootNode child only
+    if (definition.survivalKitNode) {
+      const loadPromise = loadSurvivalKitNode(
+        definition.survivalKitNode,
+        definition.kitTargetHeightM ?? 1.5,
+      ).then((mesh) => {
+        if (mesh.children.length === 0) {
+          const fallback = this.createFallbackMesh(definition);
+          this.loadedMeshes.set(type, fallback);
+          return fallback.clone();
+        }
+        this.setupMeshProperties(mesh);
+        this.loadedMeshes.set(type, mesh);
+        return mesh.clone();
+      });
+      this.loadingPromises.set(type, loadPromise);
+      return loadPromise;
+    }
+
+    // note_of_arms multipack — isolate Chain_V* / props only
+    if (definition.noteOfArmsNode) {
+      const loadPromise = loadNoteOfArmsNode(
+        definition.noteOfArmsNode,
+        definition.kitTargetHeightM ?? 1.0,
+      ).then((mesh) => {
+        if (mesh.children.length === 0) {
+          const fallback = this.createFallbackMesh(definition);
+          this.loadedMeshes.set(type, fallback);
+          return fallback.clone();
+        }
+        this.setupMeshProperties(mesh);
+        this.loadedMeshes.set(type, mesh);
+        return mesh.clone();
+      });
+      this.loadingPromises.set(type, loadPromise);
+      return loadPromise;
+    }
+
     if (definition.modelUrl) {
       const isFBX = definition.modelUrl.toLowerCase().endsWith('.fbx');
       
@@ -695,8 +973,18 @@ export class BuildableObjectsRegistry {
             definition.modelUrl!,
             (fbx) => {
               const mesh = new THREE.Group();
+              mesh.name = `build_${type}`;
               mesh.add(fbx);
-              if (definition.scale) {
+              // UF RTS / craftpix FBX are cm-scale — always fit height to metres
+              if (definition.kitTargetHeightM && definition.kitTargetHeightM > 0) {
+                normalizeToMetres(mesh, {
+                  targetSizeM: definition.kitTargetHeightM,
+                  axis: 'height',
+                  ground: true,
+                  centerXZ: true,
+                });
+              } else if (definition.scale) {
+                // Legacy absolute scale only when no target height (avoid double-scale)
                 mesh.scale.setScalar(definition.scale);
               }
               this.setupMeshProperties(mesh);
@@ -715,8 +1003,17 @@ export class BuildableObjectsRegistry {
           this.gltfLoader.load(
             definition.modelUrl!,
             (gltf) => {
-              const mesh = gltf.scene;
-              if (definition.scale) {
+              const mesh = new THREE.Group();
+              mesh.name = `build_${type}`;
+              mesh.add(gltf.scene);
+              if (definition.kitTargetHeightM && definition.kitTargetHeightM > 0) {
+                normalizeToMetres(mesh, {
+                  targetSizeM: definition.kitTargetHeightM,
+                  axis: 'height',
+                  ground: true,
+                  centerXZ: true,
+                });
+              } else if (definition.scale) {
                 mesh.scale.setScalar(definition.scale);
               }
               this.setupMeshProperties(mesh);

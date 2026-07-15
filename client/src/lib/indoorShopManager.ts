@@ -29,7 +29,8 @@ export class IndoorShopManager {
   private isDisposed: boolean = false;
   
   private readonly MOVE_SPEED = 5;
-  private readonly ROOM_SIZE = { width: 12, depth: 10, height: 5 };
+  // Ceiling clears 2.75 m doorway architecture with headroom.
+  private readonly ROOM_SIZE = { width: 14, depth: 12, height: 3.6 };
   
   constructor(config: IndoorShopConfig) {
     this.config = config;

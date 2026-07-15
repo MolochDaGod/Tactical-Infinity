@@ -131,14 +131,16 @@ export interface IslandScene {
  */
 function findPlayerSpawn(hm: IslandHeightmap, world: number): THREE.Vector3 {
   const half = world * 0.35;
-  const samples = 24;
+  const samples = 28;
   let best: { x: number; y: number; z: number; score: number } | null = null;
+  // Comfortable walk band scales with larger map peaks (was hard-capped at 12 m).
+  const maxSpawnY = Math.max(14, hm.bounds?.max ? Math.min(hm.bounds.max * 0.35, 28) : 18);
   for (let i = 0; i < samples; i++) {
     for (let j = 0; j < samples; j++) {
       const x = -half + (i / (samples - 1)) * 2 * half;
       const z = -half + (j / (samples - 1)) * 2 * half;
       const y = hm.getHeightAt(x, z);
-      if (y < 2 || y > 12) continue;
+      if (y < 2 || y > maxSpawnY) continue;
       const eps = 2;
       const slope = Math.hypot(
         (hm.getHeightAt(x + eps, z) - hm.getHeightAt(x - eps, z)) / (2 * eps),

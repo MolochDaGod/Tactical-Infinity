@@ -199,13 +199,17 @@ function makeCrystal(): THREE.Group {
   return g;
 }
 function makeHouse(): THREE.Group {
+  // Doorway clear height = 2.75 m (metricSizing.DOORWAY_HEIGHT_M).
+  const DOOR_H = 2.75;
+  const DOOR_W = 1.15;
+  const WALL_H = 3.2;
   const g = new THREE.Group();
-  const walls = new THREE.Mesh(new THREE.BoxGeometry(4, 3, 4), MATS.sand);
-  walls.position.y = 1.5; g.add(walls);
-  const roof = new THREE.Mesh(new THREE.ConeGeometry(3.2, 2.5, 4), MATS.red);
-  roof.position.y = 4.25; roof.rotation.y = Math.PI / 4; g.add(roof);
-  const door = new THREE.Mesh(new THREE.BoxGeometry(0.8, 1.4, 0.1), MATS.brown);
-  door.position.set(0, 0.7, 2.05); g.add(door);
+  const walls = new THREE.Mesh(new THREE.BoxGeometry(5.5, WALL_H, 5.5), MATS.sand);
+  walls.position.y = WALL_H * 0.5; g.add(walls);
+  const roof = new THREE.Mesh(new THREE.ConeGeometry(4.2, 2.8, 4), MATS.red);
+  roof.position.y = WALL_H + 1.2; roof.rotation.y = Math.PI / 4; g.add(roof);
+  const door = new THREE.Mesh(new THREE.BoxGeometry(DOOR_W, DOOR_H, 0.12), MATS.brown);
+  door.position.set(0, DOOR_H * 0.5, 2.8); g.add(door);
   return g;
 }
 function makeTower(): THREE.Group {

@@ -11,6 +11,11 @@ import { type BuildingType, getBuildingModelPath, glbBuildingConfigs, isGlbBuild
 import type { HarvestResult, ResourceNode } from './harvestingProfessions';
 import { PropColliderSystem } from './PropColliderSystem';
 import type { Race, UnitClass } from '@shared/schema';
+import {
+  DOORWAY_WIDTH_M,
+  WALL_STOREY_HEIGHT_M,
+  createDoorwayMesh,
+} from './islandsCanonical/metricSizing';
 
 export interface IslandExploreConfig {
   container: HTMLElement;
@@ -1126,27 +1131,32 @@ export class IslandExploreManager {
   
   private async createCabin(): Promise<void> {
     const cabin = new THREE.Group();
-    
-    const wallsGeometry = new THREE.BoxGeometry(8, 4, 6);
+    // Architecture SSOT: doorway clear height 2.75 m, walls ~3.2 m storey.
+    const wallH = WALL_STOREY_HEIGHT_M;
+    const wallsGeometry = new THREE.BoxGeometry(10, wallH, 7.5);
     const wallsMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 });
     const walls = new THREE.Mesh(wallsGeometry, wallsMaterial);
-    walls.position.y = 2;
+    walls.position.y = wallH * 0.5;
     walls.castShadow = true;
     walls.receiveShadow = true;
     cabin.add(walls);
     
-    const roofGeometry = new THREE.ConeGeometry(6, 3, 4);
+    const roofGeometry = new THREE.ConeGeometry(7.5, 3.5, 4);
     const roofMaterial = new THREE.MeshStandardMaterial({ color: 0x654321 });
     const roof = new THREE.Mesh(roofGeometry, roofMaterial);
-    roof.position.y = 5.5;
+    roof.position.y = wallH + 1.6;
     roof.rotation.y = Math.PI / 4;
     roof.castShadow = true;
     cabin.add(roof);
     
-    const doorFrameGeometry = new THREE.BoxGeometry(1.5, 3, 0.2);
-    const doorFrameMaterial = new THREE.MeshStandardMaterial({ color: 0x2d1810 });
-    const doorFrame = new THREE.Mesh(doorFrameGeometry, doorFrameMaterial);
-    doorFrame.position.set(0, 1.5, 3.1);
+    // 2.75 m clear doorway (not a short prop door).
+    const doorFrame = createDoorwayMesh(0x2d1810, {
+      widthM: DOORWAY_WIDTH_M,
+      thicknessM: 0.15,
+    });
+    doorFrame.position.x = 0;
+    doorFrame.position.z = 3.85;
+    // createDoorwayMesh already places y at DOORWAY_HEIGHT_M / 2 (2.75 m clear)
     cabin.add(doorFrame);
     
     const cabinX = 0;

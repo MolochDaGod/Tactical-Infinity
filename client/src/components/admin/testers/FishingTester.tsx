@@ -42,22 +42,16 @@ const RARITY_COLOR: Record<FishEntry["rarity"], string> = {
   legendary: "#f59e0b",
 };
 
-// Ids match the LIVE FishManager species names exactly so published weights map
-// straight onto the real spawn path. These are the species FishManager loads
-// and spawns, so weight changes here are observable in the sailing scene.
+// Ids match LIVE FishManager Quaternius species names (CDN fauna/fish).
+const CDN_FISH = "https://assets.grudge-studio.com/models/fauna/fish";
 const DEFAULT_FISH: FishEntry[] = [
-  { id: "Clownfish",     name: "Clownfish",     modelPath: "/fish/Clownfish.glb",      rarity: "common",    weight: 30, baseXP: 4,   biome: "coastal"  },
-  { id: "BlueTang",      name: "Blue Tang",     modelPath: "/fish/Blue Tang.glb",      rarity: "common",    weight: 28, baseXP: 5,   biome: "tropical" },
-  { id: "YellowTang",    name: "Yellow Tang",   modelPath: "/fish/Yellow Tang.glb",    rarity: "common",    weight: 26, baseXP: 5,   biome: "tropical" },
-  { id: "Koi",           name: "Koi",           modelPath: "/fish/Koi.glb",            rarity: "uncommon",  weight: 18, baseXP: 12,  biome: "coastal"  },
-  { id: "Tuna",          name: "Tuna",          modelPath: "/fish/Tuna.glb",           rarity: "uncommon",  weight: 22, baseXP: 18,  biome: "coastal"  },
-  { id: "Shark",         name: "Shark",         modelPath: "/fish/Shark.glb",          rarity: "rare",      weight: 8,  baseXP: 90,  biome: "deep"     },
-  { id: "Goldfish",      name: "Goldfish",      modelPath: "/fish/Goldfish.glb",       rarity: "common",    weight: 30, baseXP: 3,   biome: "coastal"  },
-  { id: "Tetra",         name: "Tetra",         modelPath: "/fish/Tetra.glb",          rarity: "common",    weight: 30, baseXP: 3,   biome: "tropical" },
-  { id: "ButterflyFish", name: "Butterfly Fish",modelPath: "/fish/Butterfly Fish.glb", rarity: "uncommon",  weight: 16, baseXP: 14,  biome: "tropical" },
-  { id: "Piranha",       name: "Piranha",       modelPath: "/fish/Piranha.glb",        rarity: "rare",      weight: 10, baseXP: 45,  biome: "deep"     },
-  { id: "Anglerfish",    name: "Anglerfish",    modelPath: "/fish/Anglerfish.glb",     rarity: "legendary", weight: 4,  baseXP: 180, biome: "deep"     },
-  { id: "Lionfish",      name: "Lionfish",      modelPath: "/fish/Lionfish.glb",       rarity: "rare",      weight: 9,  baseXP: 55,  biome: "tropical" },
+  { id: "ReefFishA", name: "Reef Fish A", modelPath: `${CDN_FISH}/Fish1.fbx`,     rarity: "common",    weight: 30, baseXP: 8,   biome: "coastal"  },
+  { id: "ReefFishB", name: "Reef Fish B", modelPath: `${CDN_FISH}/Fish2.fbx`,     rarity: "common",    weight: 28, baseXP: 10,  biome: "tropical" },
+  { id: "ReefFishC", name: "Reef Fish C", modelPath: `${CDN_FISH}/Fish3.fbx`,     rarity: "common",    weight: 26, baseXP: 8,   biome: "coastal"  },
+  { id: "Dolphin",   name: "Dolphin",     modelPath: `${CDN_FISH}/Dolphin.fbx`,   rarity: "rare",      weight: 10, baseXP: 40,  biome: "coastal"  },
+  { id: "Shark",     name: "Shark",       modelPath: `${CDN_FISH}/Shark.fbx`,     rarity: "rare",      weight: 8,  baseXP: 55,  biome: "deep"     },
+  { id: "MantaRay",  name: "Manta Ray",   modelPath: `${CDN_FISH}/Manta-ray.fbx`,  rarity: "rare",    weight: 7,  baseXP: 50,  biome: "deep"     },
+  { id: "Whale",     name: "Whale",       modelPath: `${CDN_FISH}/Whale.fbx`,     rarity: "legendary", weight: 3,  baseXP: 100, biome: "deep"     },
 ];
 
 const BIOMES = ["tropical", "arctic", "deep", "coastal"] as const;

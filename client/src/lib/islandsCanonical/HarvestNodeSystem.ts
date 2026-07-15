@@ -3,7 +3,7 @@
  *
  * Each node is a real GLB mesh (a crystal-cluster scan for gem/mythril/gold
  * veins; a chunky boulder scan for stone/iron/copper), metric-normalized to
- * 1–3 m and tinted per ore type. Nodes have:
+ * ~0.4–1.05 m (always under the 2 m captain / 2.75 m doorway) and tinted per ore. Nodes have:
  *   • HP — chip away with each `mine()` hit
  *   • chip stages — the visual shrinks as HP drops so a node visibly depletes
  *   • drops — small glowing loot motes float up + fade when a node is emptied
@@ -16,7 +16,7 @@ import * as THREE from 'three';
 import type { IslandHeightmap } from './IslandHeightmap';
 import type { HarvestSpecies } from './IslandConfig';
 import { HARVEST_ASSETS, loadAsset, createTexturedOreMesh } from '@/lib/islandAssetLoader';
-import { normalizeToMetricSize, METRIC_TARGETS } from './metricSizing';
+import { normalizeToMetricSize, METRIC_TARGETS, PLAYER_HEIGHT_M, DOORWAY_HEIGHT_M } from './metricSizing';
 
 /** Per-ore visual tint (clusters glow faintly with this colour too). */
 const ORE_TINT: Record<HarvestSpecies, number> = {
@@ -112,12 +112,18 @@ export class HarvestNodeSystem {
       loadAsset(HARVEST_ASSETS.crystal),
       loadAsset(HARVEST_ASSETS.boulder),
     ]);
-    const [mn, mx] = METRIC_TARGETS.crystal; // nodes span 1–3 m
+    // Harvestables stay under player + doorway clearance (never dwarf architecture).
+    const crystalRange = METRIC_TARGETS.crystal;
+    const oreRange = METRIC_TARGETS.harvest;
+    const hardCap = Math.min(PLAYER_HEIGHT_M * 0.55, DOORWAY_HEIGHT_M * 0.4);
 
     for (const p of placements) {
       const fam = familyFor(p.type);
       const candidate = fam === 'crystal' ? crystalProto : boulderProto;
       const proto = hasRenderableMesh(candidate) ? candidate : null;
+      const range = fam === 'crystal' ? crystalRange : oreRange;
+      const mx = Math.min(range[1], hardCap);
+      const mn = Math.min(range[0], mx * 0.85);
       const targetM = mn + rng() * (mx - mn);
       let visual: THREE.Object3D;
 
@@ -137,7 +143,7 @@ export class HarvestNodeSystem {
           if ('roughness' in mat) mat.roughness = fam === 'crystal' ? 0.35 : 0.9;
           if (fam === 'crystal') {
             mat.emissive = new THREE.Color(ORE_TINT[p.type]);
-            mat.emissiveIntensity = 0.3;
+            mat.emissiveIntensity = 0.22;
           }
           m.material = mat;
           this.ownedMats.push(mat);
@@ -145,9 +151,9 @@ export class HarvestNodeSystem {
         normalizeToMetricSize(clone, targetM, fam === 'crystal' ? 'y' : 'max');
         visual = clone;
       } else {
-        // GLB failed to load — fall back to the procedural ore cluster.
+        // GLB failed — procedural ore under doorway height.
         const fallbackType = p.type === 'crystal' ? 'mythril' : p.type;
-        const g = createTexturedOreMesh(fallbackType, 1.4 + rng() * 0.8);
+        const g = createTexturedOreMesh(fallbackType, 0.5 + rng() * 0.4);
         g.traverse((c) => {
           const m = c as THREE.Mesh;
           if (m.isMesh) {

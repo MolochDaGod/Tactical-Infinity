@@ -170,8 +170,21 @@ export class CharacterBuilder {
 
   /** Load mesh, texture, animations and the initial weapon set. */
   async load(): Promise<this> {
-    const modelPath = resolveGrudgeAssetUrl(RACE_MODELS[this.race].character);
-    const texturePath = resolveGrudgeAssetUrl(RACE_TEXTURES[this.race].standard);
+    // Absolute https grudge6 paths must not be re-rooted; relative webp stays same-origin.
+    const rawModel = RACE_MODELS[this.race].character;
+    const modelPath = /^https?:\/\//i.test(rawModel) ? rawModel : resolveGrudgeAssetUrl(rawModel);
+    const rawTex = RACE_TEXTURES[this.race].standard;
+    // Canonical high-quality atlases live on R2 (assets.grudge-studio.com).
+    // Cache-bust query busts old edge HTML fake-200s cached for some keys.
+    let texturePath: string;
+    if (/textures\/grudge6\//i.test(rawTex)) {
+      const rel = rawTex.startsWith('http')
+        ? rawTex.replace(/^https?:\/\/[^/]+/i, '')
+        : (rawTex.startsWith('/') ? rawTex : `/${rawTex}`);
+      texturePath = `https://assets.grudge-studio.com${rel}?v=20260710r2`;
+    } else {
+      texturePath = /^https?:\/\//i.test(rawTex) ? rawTex : resolveGrudgeAssetUrl(rawTex);
+    }
 
     const fbx = await new Promise<THREE.Group>((resolve, reject) => {
       this.fbxLoader.load(modelPath, (g) => resolve(g as THREE.Group), undefined, reject);
@@ -398,19 +411,24 @@ export class CharacterBuilder {
   }
 
   private loadTexture(texturePath: string): void {
-    this.tgaLoader.load(
-      texturePath,
-      (texture) => {
-        if (this.disposed || !this.fbx) { texture.dispose(); return; }
-        texture.flipY = false;
-        texture.colorSpace = THREE.SRGBColorSpace;
-        if (this.bodyTexture && this.bodyTexture !== texture) this.bodyTexture.dispose();
-        this.bodyTexture = texture;
-        this.applyBodyMaterial(this.fbx, texture);
-      },
-      undefined,
-      (err) => console.warn(`[CharacterBuilder] TGA load failed for ${this.race} (${texturePath}):`, err),
-    );
+    const apply = (texture: THREE.Texture) => {
+      if (this.disposed || !this.fbx) { texture.dispose(); return; }
+      // webp/png from stage: flipY true; TGA atlas often flipY false
+      texture.flipY = !/\.tga($|\?)/i.test(texturePath);
+      texture.colorSpace = THREE.SRGBColorSpace;
+      if (this.bodyTexture && this.bodyTexture !== texture) this.bodyTexture.dispose();
+      this.bodyTexture = texture;
+      this.applyBodyMaterial(this.fbx, texture);
+    };
+    const onErr = (err: unknown) =>
+      console.warn(`[CharacterBuilder] texture load failed for ${this.race} (${texturePath}):`, err);
+
+    if (/\.tga($|\?)/i.test(texturePath)) {
+      this.tgaLoader.load(texturePath, apply, undefined, onErr);
+    } else {
+      // Warlords staged webp under /textures/grudge6/**
+      new THREE.TextureLoader().load(texturePath, apply, undefined, onErr);
+    }
   }
 
   private applyWeaponMaterial(wpn: THREE.Object3D): void {

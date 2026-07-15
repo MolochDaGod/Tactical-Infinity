@@ -633,13 +633,56 @@ export class ThreeWorldMapManager {
       this.oceanFloorManager.createFloorMesh();
     }
     
-    // Initialize fish with island awareness
+    // Initialize Quaternius ocean fish (depth -2…-15 m, catchable + harpoonable)
     if (this.fishManager) {
       this.fishManager.setIslandPositions(
         islandPositions.map(i => i.position)
       );
       await this.fishManager.initialize();
     }
+  }
+
+  /** Open-world fish under the boat (Quaternius CDN pack). */
+  getFishManager(): FishManager | null {
+    return this.fishManager;
+  }
+
+  /**
+   * Rod catch: nearest catchable fish within radius of player/ship.
+   * Returns XP payload or null.
+   */
+  tryCatchFishNear(pos: THREE.Vector3, radius = 12): {
+    speciesName: string;
+    catchXp: number;
+  } | null {
+    if (!this.fishManager) return null;
+    const targets = this.fishManager.getCatchableNear(pos, radius);
+    if (!targets.length) return null;
+    // Prefer closest
+    targets.sort(
+      (a, b) => a.mesh.position.distanceToSquared(pos) - b.mesh.position.distanceToSquared(pos),
+    );
+    const hit = this.fishManager.harvestFish(targets[0]!.id);
+    if (!hit) return null;
+    return { speciesName: hit.speciesName, catchXp: hit.catchXp };
+  }
+
+  /**
+   * Harpoon: nearest harpoonable fish within range (larger apex predators included).
+   */
+  tryHarpoonFishNear(pos: THREE.Vector3, radius = 40): {
+    speciesName: string;
+    catchXp: number;
+  } | null {
+    if (!this.fishManager) return null;
+    const targets = this.fishManager.getHarpoonableNear(pos, radius);
+    if (!targets.length) return null;
+    targets.sort(
+      (a, b) => a.mesh.position.distanceToSquared(pos) - b.mesh.position.distanceToSquared(pos),
+    );
+    const hit = this.fishManager.harvestFish(targets[0]!.id);
+    if (!hit) return null;
+    return { speciesName: hit.speciesName, catchXp: hit.catchXp };
   }
   
   private createSeaLife() {

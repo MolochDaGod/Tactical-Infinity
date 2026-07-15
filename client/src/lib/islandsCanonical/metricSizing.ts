@@ -1,22 +1,38 @@
 /**
  * metricSizing — normalize loaded assets to real-world metres.
  *
- * Source GLB/FBX packs ship at wildly different intrinsic scales (some are
- * authored in centimetres, some in arbitrary blender units). Rather than
- * hand-tuning a magic `scale` per asset, we measure the world-space bounding
- * box and rescale uniformly so a chosen axis matches a target size in metres.
+ * Canonical /islands world: **1 unit = 1 metre**.
  *
- * The canonical /islands world treats 1 unit = 1 metre and the player
- * character is ~2 m tall, so every scattered prop and animal is sized
- * RELATIVE to that:
- *   • trees      2–4 m
- *   • boulders   1–5 m
- *   • crystals   1–3 m
- *   • plants     0.3–1.2 m
- *   • flowers    0.15–0.5 m
- *   • animals    species-specific (rabbit 0.4 m … bear 2.4 m)
+ * Architecture SSOT (human-scale):
+ *   • Player captain height     ≈ 2.00 m
+ *   • Doorway clear height        = 2.75 m  (walk-through clearance)
+ *   • Exterior wall storey height ≈ 3.20 m  (door + lintel + header)
+ *
+ * The open-world map is sized so terrain, trees, and structures feel large
+ * relative to the 2 m captain — not toy-scale.
  */
 import * as THREE from 'three';
+
+/** Captain / player reference height (metres). */
+export const PLAYER_HEIGHT_M = 2.0;
+
+/**
+ * Clear doorway height (metres). All cabin/shop/build doors must match this
+ * so a 2 m character walks through with headroom.
+ */
+export const DOORWAY_HEIGHT_M = 2.75;
+
+/** Typical door leaf width (metres). */
+export const DOORWAY_WIDTH_M = 1.15;
+
+/** Exterior wall storey height: door + lintel + plate. */
+export const WALL_STOREY_HEIGHT_M = 3.2;
+
+/**
+ * Horizontal world scale multiplier vs the original ~1 km islands.
+ * Applied via `IslandConfig.worldSize` (not a runtime mesh scale).
+ */
+export const ISLAND_MAP_SCALE = 2.5;
 
 const _box = new THREE.Box3();
 const _size = new THREE.Vector3();
@@ -30,9 +46,8 @@ export function measureSize(obj: THREE.Object3D): THREE.Vector3 {
 
 /**
  * Uniformly rescale `obj` so its chosen axis equals `targetMeters`.
- *   axis 'y'   → match height (default; correct for trees, animals, plants)
- *   axis 'max' → match the largest dimension (good for chunky boulders)
- * Returns the scale factor applied (1 if the object had no measurable size).
+ *   axis 'y'   → match height (trees, animals, plants, doors)
+ *   axis 'max' → match largest dimension (chunky boulders)
  */
 export function normalizeToMetricSize(
   obj: THREE.Object3D,
@@ -50,32 +65,38 @@ export function normalizeToMetricSize(
   return factor;
 }
 
-/** Metric target ranges (metres) per scatter category. */
+/**
+ * Metric target ranges (metres) per scatter category.
+ * Trees are real forest scale; harvestables stay below doorway/player height.
+ */
 export const METRIC_TARGETS = {
-  tree:    [2.0, 4.0] as [number, number],
-  boulder: [1.0, 5.0] as [number, number],
-  crystal: [1.0, 3.0] as [number, number],
-  plant:   [0.3, 1.2] as [number, number],
-  flower:  [0.15, 0.5] as [number, number],
-  scrap:   [0.6, 1.4] as [number, number],
+  /** Mature forest canopy — overhead vs 2 m captain / 2.75 m doors. */
+  tree:    [8.0, 18.0] as [number, number],
+  /** Scenery rocks — mostly under door height. */
+  boulder: [0.5, 2.0] as [number, number],
+  /** Crystal harvest clusters — chest height max. */
+  crystal: [0.4, 1.0] as [number, number],
+  /** Ore / stone harvest nodes — knee to waist. */
+  harvest: [0.45, 1.05] as [number, number],
+  plant:   [0.25, 1.0] as [number, number],
+  flower:  [0.12, 0.4] as [number, number],
+  scrap:   [0.35, 0.9] as [number, number],
 } as const;
 
 export type MetricCategory = keyof typeof METRIC_TARGETS;
 
-/** Animal heights in metres, sized relative to the ~2 m player character. */
+/** Animal heights (metres) relative to ~2 m player. */
 export const ANIMAL_SIZE_M = {
   rabbit: 0.4,
   fox:    0.6,
   boar:   1.0,
   wolf:   1.1,
-  deer:   1.8,
-  bear:   2.4,
+  deer:   1.7,
+  bear:   2.2,
 } as const;
 
 /**
- * Given a metric [min,max] range, normalize the prototype to the range
- * midpoint and return the jitter `scaleRange` to feed instancing so the final
- * placed sizes span the requested metric band.
+ * Normalize prototype to range midpoint; return scale jitter for instancing.
  */
 export function metricRangeToScaleJitter(
   proto: THREE.Object3D,
@@ -85,4 +106,24 @@ export function metricRangeToScaleJitter(
   const mid = (range[0] + range[1]) * 0.5;
   normalizeToMetricSize(proto, mid, axis);
   return [range[0] / mid, range[1] / mid];
+}
+
+/** Build a door slab mesh at the canonical 2.75 m clear height. */
+export function createDoorwayMesh(
+  color = 0x2d1810,
+  opts?: { widthM?: number; thicknessM?: number },
+): THREE.Mesh {
+  const w = opts?.widthM ?? DOORWAY_WIDTH_M;
+  const t = opts?.thicknessM ?? 0.12;
+  const mesh = new THREE.Mesh(
+    new THREE.BoxGeometry(w, DOORWAY_HEIGHT_M, t),
+    new THREE.MeshStandardMaterial({ color, roughness: 0.85, metalness: 0.05 }),
+  );
+  // Pivot at ground: center of box is halfway up the door.
+  mesh.position.y = DOORWAY_HEIGHT_M * 0.5;
+  mesh.castShadow = true;
+  mesh.receiveShadow = true;
+  mesh.name = 'doorway';
+  mesh.userData.doorwayHeightM = DOORWAY_HEIGHT_M;
+  return mesh;
 }

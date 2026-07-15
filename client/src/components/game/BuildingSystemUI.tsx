@@ -44,7 +44,8 @@ export interface BuildingType {
   name: string;
   description: string;
   cost: Partial<PlayerResources>;
-  size: { width: number; depth: number };
+  /** Footprint cells; optional heightM for doorways (clear opening = 2.75 m). */
+  size: { width: number; depth: number; heightM?: number };
 }
 
 const BUILDING_CATEGORIES: BuildingCategory[] = [
@@ -65,7 +66,7 @@ const BUILDING_CATEGORIES: BuildingCategory[] = [
       { id: 'wall_wood', name: 'Wood Wall', description: 'Basic wooden wall', cost: { wood: 8 }, size: { width: 2, depth: 1 } },
       { id: 'wall_stone', name: 'Stone Wall', description: 'Strong stone wall', cost: { stone: 12 }, size: { width: 2, depth: 1 } },
       { id: 'wall_window', name: 'Window Wall', description: 'Wall with window', cost: { wood: 6, stone: 4 }, size: { width: 2, depth: 1 } },
-      { id: 'doorway', name: 'Doorway', description: 'Wall with door frame', cost: { wood: 10 }, size: { width: 2, depth: 1 } },
+      { id: 'doorway', name: 'Doorway', description: 'Wall with 2.75 m clear door frame', cost: { wood: 10 }, size: { width: 2, depth: 1, heightM: 2.75 } },
     ]
   },
   {

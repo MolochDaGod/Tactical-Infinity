@@ -1,13 +1,16 @@
 /**
- * Toon RTS Character Asset Manifest
- * 
+ * Toon RTS / grudge6 Character Asset Manifest
+ *
  * Maps 6 races across 3 factions with their models, equipment, armor, and animations.
- * 
+ * Character meshes: grudge6 CDN FBX (Warlords SSOT). Equipment still Toon_RTS when real.
+ *
  * Factions:
  * - Crusade: Human (WesternKingdoms/WK) + Barbarian (Barbarians/BRB)
  * - Fabled: Dwarf (Dwarves/DWF) + Elf (Elves/ELF)
  * - Legion: Orc (Orcs/ORC) + Undead (Undead/UD)
  */
+
+import { GRUDGE6_RACE_FBX, GRUDGE6_TEX_REL } from '@/lib/warlordsNatureCDN';
 
 export type Faction = 'crusade' | 'fabled' | 'legion';
 export type Race = 'human' | 'barbarian' | 'dwarf' | 'elf' | 'orc' | 'undead';
@@ -40,7 +43,7 @@ export const FACTION_RACES: Record<Faction, Race[]> = {
 
 const BASE_PATH = '/toon_rts/Toon_RTS';
 
-// Model paths for each race
+// Model paths for each race — grudge6 races/* FBX (real on assets CDN)
 export interface RaceModels {
   character: string;      // Main character model (customizable)
   cavalry: string;        // Mounted unit model
@@ -48,27 +51,27 @@ export interface RaceModels {
 
 export const RACE_MODELS: Record<Race, RaceModels> = {
   human: {
-    character: `${BASE_PATH}/WesternKingdoms/models/WK_Characters_customizable.FBX`,
+    character: GRUDGE6_RACE_FBX.human,
     cavalry: `${BASE_PATH}/WesternKingdoms/models/WK_Cavalry_customizable.FBX`,
   },
   barbarian: {
-    character: `${BASE_PATH}/Barbarians/models/BRB_Characters_customizable.FBX`,
+    character: GRUDGE6_RACE_FBX.barbarian,
     cavalry: `${BASE_PATH}/Barbarians/models/BRB_Cavalry_customizable.FBX`,
   },
   dwarf: {
-    character: `${BASE_PATH}/Dwarves/models/DWF_Characters_customizable.FBX`,
+    character: GRUDGE6_RACE_FBX.dwarf,
     cavalry: `${BASE_PATH}/Dwarves/models/DWF_Cavalry_customizable.FBX`,
   },
   elf: {
-    character: `${BASE_PATH}/Elves/models/ELF_Characters_customizable.FBX`,
+    character: GRUDGE6_RACE_FBX.elf,
     cavalry: `${BASE_PATH}/Elves/models/ELF_Cavalry_customizable.FBX`,
   },
   orc: {
-    character: `${BASE_PATH}/Orcs/models/ORC_Characters_Customizable.FBX`,
+    character: GRUDGE6_RACE_FBX.orc,
     cavalry: `${BASE_PATH}/Orcs/models/ORC_Cavalry_Customizable.FBX`,
   },
   undead: {
-    character: `${BASE_PATH}/Undead/models/UD_Characters_customizable.FBX`,
+    character: GRUDGE6_RACE_FBX.undead,
     cavalry: `${BASE_PATH}/Undead/models/UD_Cavalry_customizable.FBX`,
   },
 };
@@ -166,7 +169,8 @@ export interface RaceTextures {
 
 export const RACE_TEXTURES: Record<Race, RaceTextures> = {
   human: {
-    standard: `${BASE_PATH}/WesternKingdoms/models/Materials/textures/WK_Standard_Units.tga`,
+    // Staged webp under public/textures/grudge6 (R2 texture keys currently HTML).
+    standard: GRUDGE6_TEX_REL.human,
     colors: {
       black: `${BASE_PATH}/WesternKingdoms/models/Materials/Colors/textures/WK_StandardUnits_black.tga`,
       blue: `${BASE_PATH}/WesternKingdoms/models/Materials/Colors/textures/WK_StandardUnits_blue.tga`,
@@ -177,19 +181,19 @@ export const RACE_TEXTURES: Record<Race, RaceTextures> = {
     },
   },
   barbarian: {
-    standard: `${BASE_PATH}/Barbarians/models/Materials/BRB_StandardUnits_texture.tga`,
+    standard: GRUDGE6_TEX_REL.barbarian,
     colors: {
       brown: `${BASE_PATH}/Barbarians/models/Materials/Color/textures/BRB_Standard_Units_brown.tga`,
     },
   },
   dwarf: {
-    standard: `${BASE_PATH}/Dwarves/models/Materials/DWF_Standard_Units.tga`,
+    standard: GRUDGE6_TEX_REL.dwarf,
     colors: {
       brown: `${BASE_PATH}/Dwarves/models/Materials/Colors/Textures/DWF_Units_Brown.tga`,
     },
   },
   elf: {
-    standard: `${BASE_PATH}/Elves/models/Materials/ELF_DarkElves_Texture.tga`,
+    standard: GRUDGE6_TEX_REL.elf,
     colors: {
       blue: `${BASE_PATH}/Elves/models/Materials/Color/DarkElves/textures/ELF_DarkElves_Blue.tga`,
       green: `${BASE_PATH}/Elves/models/Materials/Color/DarkElves/textures/ELF_DarkElves_Green.tga`,
@@ -197,13 +201,13 @@ export const RACE_TEXTURES: Record<Race, RaceTextures> = {
     },
   },
   orc: {
-    standard: `${BASE_PATH}/Orcs/models/Materials/textures/ORC_StandardUnits.tga`,
+    standard: GRUDGE6_TEX_REL.orc,
     colors: {
       brown: `${BASE_PATH}/Orcs/models/Materials/color/textures/ORC_StandardUnits_brown.tga`,
     },
   },
   undead: {
-    standard: `${BASE_PATH}/Undead/models/Materials/UD_Standard_Units.tga`,
+    standard: GRUDGE6_TEX_REL.undead,
     colors: {
       brown: `${BASE_PATH}/Undead/models/Materials/Colors/textures/UD_Standard_Units_brown.tga`,
     },

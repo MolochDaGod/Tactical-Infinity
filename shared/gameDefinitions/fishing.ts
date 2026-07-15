@@ -272,6 +272,91 @@ export const FISH_BEHAVIORS: Record<string, FishBehavior> = {
       deepSeaLure: 0.65,
     },
   },
+  // ── Quaternius open-world ocean pack (FishManager primary) ────────────────
+  ReefFishA: {
+    name: 'ReefFishA',
+    skittishness: 'curious',
+    fleeDistance: 10,
+    fleeSpeed: 6,
+    approachSpeed: 4,
+    curiosityRadius: 22,
+    schoolingTightness: 0.92,
+    animationSpeedMultiplier: 1.15,
+    lurePreferences: {
+      shinyLure: 0.85, wormBait: 0.7, glowingLure: 0.5, insectLure: 0.6,
+      crustaceanBait: 0.5, fishHeadBait: 0.2, magicLure: 0.4, deepSeaLure: 0.1,
+    },
+  },
+  ReefFishB: {
+    name: 'ReefFishB',
+    skittishness: 'bold',
+    fleeDistance: 8,
+    fleeSpeed: 5.5,
+    approachSpeed: 4.2,
+    curiosityRadius: 24,
+    schoolingTightness: 0.9,
+    animationSpeedMultiplier: 1.1,
+    lurePreferences: {
+      shinyLure: 0.8, wormBait: 0.75, glowingLure: 0.55, insectLure: 0.65,
+      crustaceanBait: 0.45, fishHeadBait: 0.2, magicLure: 0.45, deepSeaLure: 0.1,
+    },
+  },
+  ReefFishC: {
+    name: 'ReefFishC',
+    skittishness: 'curious',
+    fleeDistance: 9,
+    fleeSpeed: 6.5,
+    approachSpeed: 4.5,
+    curiosityRadius: 20,
+    schoolingTightness: 0.95,
+    animationSpeedMultiplier: 1.2,
+    lurePreferences: {
+      shinyLure: 0.9, wormBait: 0.65, glowingLure: 0.5, insectLure: 0.55,
+      crustaceanBait: 0.4, fishHeadBait: 0.15, magicLure: 0.4, deepSeaLure: 0.1,
+    },
+  },
+  Dolphin: {
+    name: 'Dolphin',
+    skittishness: 'curious',
+    fleeDistance: 18,
+    fleeSpeed: 12,
+    approachSpeed: 6,
+    curiosityRadius: 35,
+    schoolingTightness: 0.55,
+    animationSpeedMultiplier: 1.0,
+    lurePreferences: {
+      shinyLure: 0.4, wormBait: 0.2, glowingLure: 0.5, insectLure: 0.2,
+      crustaceanBait: 0.6, fishHeadBait: 0.7, magicLure: 0.5, deepSeaLure: 0.4,
+    },
+  },
+  MantaRay: {
+    name: 'MantaRay',
+    skittishness: 'timid',
+    fleeDistance: 22,
+    fleeSpeed: 8,
+    approachSpeed: 3,
+    curiosityRadius: 18,
+    schoolingTightness: 0.25,
+    animationSpeedMultiplier: 0.75,
+    lurePreferences: {
+      shinyLure: 0.3, wormBait: 0.15, glowingLure: 0.7, insectLure: 0.1,
+      crustaceanBait: 0.5, fishHeadBait: 0.4, magicLure: 0.55, deepSeaLure: 0.8,
+    },
+  },
+  Whale: {
+    name: 'Whale',
+    skittishness: 'bold',
+    fleeDistance: 30,
+    fleeSpeed: 5,
+    approachSpeed: 2,
+    curiosityRadius: 40,
+    schoolingTightness: 0.15,
+    animationSpeedMultiplier: 0.5,
+    lurePreferences: {
+      shinyLure: 0.2, wormBait: 0.1, glowingLure: 0.6, insectLure: 0.05,
+      crustaceanBait: 0.3, fishHeadBait: 0.5, magicLure: 0.45, deepSeaLure: 0.95,
+    },
+  },
 };
 
 export const LURE_TYPES: Record<string, LureDefinition> = {
@@ -282,7 +367,7 @@ export const LURE_TYPES: Record<string, LureDefinition> = {
     tier: 1,
     durability: 5,
     attractionRadius: 15,
-    effectiveFish: ['Koi', 'Goldfish', 'Tetra'],
+    effectiveFish: ['Koi', 'Goldfish', 'Tetra', 'ReefFishA', 'ReefFishB', 'ReefFishC'],
     craftingMaterials: [{ material: 'worm', quantity: 3 }],
   },
   shinyLure: {
@@ -332,7 +417,7 @@ export const LURE_TYPES: Record<string, LureDefinition> = {
     tier: 4,
     durability: 8,
     attractionRadius: 40,
-    effectiveFish: ['Shark', 'Piranha', 'Tuna', 'Anglerfish'],
+    effectiveFish: ['Shark', 'Piranha', 'Tuna', 'Anglerfish', 'Dolphin', 'MantaRay', 'Whale'],
     craftingMaterials: [{ material: 'fishHead', quantity: 1 }, { material: 'fishOil', quantity: 2 }],
   },
   magicLure: {
@@ -352,7 +437,7 @@ export const LURE_TYPES: Record<string, LureDefinition> = {
     tier: 5,
     durability: 40,
     attractionRadius: 50,
-    effectiveFish: ['Shark', 'Anglerfish', 'Tuna'],
+    effectiveFish: ['Shark', 'Anglerfish', 'Tuna', 'MantaRay', 'Whale', 'Dolphin'],
     craftingMaterials: [{ material: 'voidShard', quantity: 1 }, { material: 'deepSeaScale', quantity: 3 }],
   },
 };

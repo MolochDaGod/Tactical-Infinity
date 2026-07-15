@@ -403,7 +403,7 @@ function metricJitter(
   return jitter;
 }
 
-/** Tree convenience wrapper — 2–4 m tall by height. */
+/** Tree convenience wrapper — 8–18 m forest canopy vs 2 m captain / 2.75 m doors. */
 function treeJitter(protos: (THREE.Group | null)[]): [number, number] {
   return metricJitter(protos, METRIC_TARGETS.tree, 'y');
 }

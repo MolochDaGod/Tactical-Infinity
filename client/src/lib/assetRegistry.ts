@@ -32,27 +32,20 @@ export interface Asset3D {
 
 export const ASSET_REGISTRY: Asset3D[] = [
   {
-    id: 'racalvin_gruda',
-    name: "Rac'al'vin Gruda",
+    id: 'grudge6_human_wk',
+    name: 'Western Kingdoms Warlord (grudge6)',
     category: 'character',
-    sourcePath: '/models/characters/RacalvinDaWarrior/Meshy_AI_Orc_Warlord_Render_1220104017_texture_fbx.fbx',
-    textures: [],
-    animations: [
-      { name: 'Idle', path: '/models/characters/RacalvinDaWarrior/sword and shield idle.fbx', loop: true },
-      { name: 'Walk', path: '/models/characters/RacalvinDaWarrior/sword and shield walk.fbx', loop: true },
-      { name: 'Run', path: '/models/characters/RacalvinDaWarrior/sword and shield run.fbx', loop: true },
-      { name: 'Attack', path: '/models/characters/RacalvinDaWarrior/sword and shield attack.fbx', loop: false },
-      { name: 'Slash', path: '/models/characters/RacalvinDaWarrior/sword and shield slash.fbx', loop: false },
-      { name: 'Block', path: '/models/characters/RacalvinDaWarrior/sword and shield block.fbx', loop: false },
-      { name: 'Death', path: '/models/characters/RacalvinDaWarrior/sword and shield death.fbx', loop: false },
-      { name: 'Draw Sword', path: '/models/characters/RacalvinDaWarrior/draw sword 1.fbx', loop: false },
+    sourcePath: 'https://assets.grudge-studio.com/models/grudge6/races/WK_Characters.fbx',
+    textures: [
+      { name: 'body', path: '/textures/grudge6/western-kingdoms/WK_Standard_Units.webp', type: 'diffuse' },
     ],
+    animations: [],
     hasSkeleton: true,
     skeletonType: 'humanoid',
-    scale: 1,
-    tags: ['hero', 'test_hero', 'orc', 'warrior', 'legion', 'player'],
-    license: 'Meshy AI',
-    converted: false
+    scale: 0.012,
+    tags: ['hero', 'human', 'warrior', 'crusade', 'player', 'warlords', 'grudge6'],
+    license: 'Grudge Studio Warlords',
+    converted: true
   },
   {
     id: 'tentacle',
@@ -82,15 +75,42 @@ export const ASSET_REGISTRY: Asset3D[] = [
   },
   {
     id: 'shark',
-    name: 'Shark',
+    name: 'Shark (Quaternius ocean)',
     category: 'creature',
-    sourcePath: '/models/sea_creatures/shark.glb',
-    glbPath: '/models/sea_creatures/shark.glb',
+    // Warlords SSOT — not legacy local /models/sea_creatures (avoids path conflict)
+    sourcePath: 'https://assets.grudge-studio.com/models/fauna/fish/Shark.fbx',
     textures: [],
     animations: [],
-    hasSkeleton: false,
+    hasSkeleton: true,
+    skeletonType: 'custom',
+    scale: 1, // metre-normalize at load (bodyLengthM ~3.2) — do not use raw FBX scale
+    tags: ['sea_creature', 'shark', 'fish', 'harpoon', 'warlords', 'quaternius'],
+    converted: true
+  },
+  {
+    id: 'reef_fish_a',
+    name: 'Reef Fish A',
+    category: 'creature',
+    sourcePath: 'https://assets.grudge-studio.com/models/fauna/fish/Fish1.fbx',
+    textures: [],
+    animations: [],
+    hasSkeleton: true,
+    skeletonType: 'custom',
     scale: 1,
-    tags: ['sea_creature', 'shark', 'enemy', 'fish'],
+    tags: ['fish', 'catchable', 'warlords', 'quaternius'],
+    converted: true
+  },
+  {
+    id: 'farm_llama',
+    name: 'Llama',
+    category: 'creature',
+    sourcePath: 'https://assets.grudge-studio.com/models/fauna/farm/Llama.fbx',
+    textures: [],
+    animations: [],
+    hasSkeleton: true,
+    skeletonType: 'quadruped',
+    scale: 1,
+    tags: ['farm', 'livestock', 'warlords'],
     converted: true
   },
   {
@@ -126,19 +146,18 @@ export const ASSET_REGISTRY: Asset3D[] = [
     converted: true
   },
   {
-    id: 'meshy_character',
-    name: 'Meshy Character',
+    id: 'grudge6_orc',
+    name: 'Orc Warlord (grudge6)',
     category: 'character',
-    sourcePath: '/models/characters/meshy_character.glb',
-    glbPath: '/models/characters/meshy_character.glb',
-    textures: [],
-    animations: [
-      { name: 'All Animations', path: '/models/characters/meshy_animations.glb', loop: true }
+    sourcePath: 'https://assets.grudge-studio.com/models/grudge6/races/ORC_Characters.fbx',
+    textures: [
+      { name: 'body', path: '/textures/grudge6/orcs/ORC_StandardUnits.webp', type: 'diffuse' },
     ],
+    animations: [],
     hasSkeleton: true,
     skeletonType: 'humanoid',
-    scale: 1,
-    tags: ['character', 'meshy', 'player'],
+    scale: 0.012,
+    tags: ['character', 'orc', 'player', 'warlords', 'grudge6'],
     converted: true
   },
   {

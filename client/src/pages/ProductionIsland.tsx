@@ -57,9 +57,19 @@ import {
   loadRandomFlower,
   loadRandomPlant,
   loadRandomRock,
+  loadRandomOre,
   createTexturedOreMesh,
   createTexturedRockMesh,
 } from '@/lib/islandAssetLoader';
+import {
+  loadMineEntrance,
+  loadUfQuarry,
+  tryEnterMine,
+  rollMineBag,
+  rollQuarryBag,
+  MINE_ENTER_MS,
+  type ActiveMine,
+} from '@/lib/mineHarvest';
 import {
   IslandStarterMission,
   RAFT_RECIPE,
@@ -220,7 +230,11 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
             model = createTexturedRockMesh(vis.scale);
           }
         } else if (kind === 'ore') {
-          model = createTexturedOreMesh(type, vis.scale);
+          try {
+            model = await loadRandomOre(type);
+          } catch {
+            model = createTexturedOreMesh(type, vis.scale);
+          }
         } else if (kind === 'flower') {
           model = await loadRandomFlower();
         } else {
@@ -426,6 +440,55 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
 
     spawnResourceNodes(scene, terrain);
 
+    // ── Mines: craftpix multi-profession dig + UF stone quarry (miner only) ──
+    const mines: ActiveMine[] = [];
+    (async () => {
+      const angles = [0.4, 2.1, 4.0];
+      for (let i = 0; i < 2; i++) {
+        const a = angles[i]! + Math.random() * 0.3;
+        const r = 55 + i * 25;
+        const x = Math.cos(a) * r;
+        const z = Math.sin(a) * r;
+        const y = terrain.getHeightAt(x, z);
+        const mesh = await loadMineEntrance(i, 4.2);
+        if (!mesh.children.length) continue;
+        mesh.position.set(x, y, z);
+        mesh.rotation.y = a + Math.PI;
+        mesh.userData.mineEntrance = true;
+        mesh.userData.quarryStoneOnly = false;
+        scene.add(mesh);
+        mines.push({
+          id: `mine-${i}`,
+          group: mesh,
+          pos: new THREE.Vector3(x, y, z),
+          busyUntil: 0,
+        });
+      }
+      // Ultimate Fantasy RTS stone quarry (miner-only)
+      {
+        const a = 3.4;
+        const r = 70;
+        const x = Math.cos(a) * r;
+        const z = Math.sin(a) * r;
+        const y = terrain.getHeightAt(x, z);
+        const mesh = await loadUfQuarry(5);
+        if (mesh.children.length) {
+          mesh.position.set(x, y, z);
+          mesh.rotation.y = a + Math.PI;
+          mesh.userData.mineEntrance = true;
+          mesh.userData.quarryStoneOnly = true;
+          scene.add(mesh);
+          mines.push({
+            id: 'quarry-uf',
+            group: mesh,
+            pos: new THREE.Vector3(x, y, z),
+            busyUntil: 0,
+          });
+        }
+      }
+      (window as unknown as { __wgMines?: ActiveMine[] }).__wgMines = mines;
+    })();
+
     // ── Huntable & skinnable animals ────────────────────────────────────────
     // ResourceNodeManager owns the carcasses; IslandAnimalManager spawns the
     // real animated glTF fauna, seats them on terrain, and spawns a carcass on
@@ -469,6 +532,35 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
       }
       if (e.key.toLowerCase() === 'b') {
         setBookOpen(prev => !prev);
+      }
+      // E near mine → enter 4s dig, exit with multi-profession bag
+      if (e.key.toLowerCase() === 'e') {
+        const list = (window as unknown as { __wgMines?: ActiveMine[] }).__wgMines || [];
+        const mine = tryEnterMine(playerPosRef.current, list, performance.now());
+        if (mine && playerRef.current) {
+          const player = playerRef.current;
+          const stoneOnly = !!mine.group.userData.quarryStoneOnly;
+          mine.busyUntil = performance.now() + MINE_ENTER_MS + 500;
+          player.visible = false;
+          showHuntToast(stoneOnly ? 'Quarrying stone…' : 'Mining…');
+          setTimeout(() => {
+            player.visible = true;
+            const bag = stoneOnly ? rollQuarryBag() : rollMineBag();
+            const summary = bag
+              .slice(0, 6)
+              .map((x) => `${x.amount}× ${x.name}`)
+              .join(', ');
+            showHuntToast(
+              stoneOnly
+                ? `Quarry bag (miner): ${summary}`
+                : `Bag: ${summary}${bag.length > 6 ? '…' : ''}`,
+            );
+            try {
+              const inv = JSON.parse(localStorage.getItem('wg-mine-bag') || '[]');
+              localStorage.setItem('wg-mine-bag', JSON.stringify([...inv, ...bag].slice(-200)));
+            } catch { /* ignore */ }
+          }, MINE_ENTER_MS);
+        }
       }
     };
     const handleKeyUp = (e: KeyboardEvent) => keysRef.current.delete(e.key.toLowerCase());

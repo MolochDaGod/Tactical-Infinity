@@ -13,6 +13,7 @@ import {
   setPreviewMaterial,
   cloneMeshMaterials
 } from './gridSystem';
+import { FarmLivestockManager, FARM_LIVESTOCK } from './farmLivestock';
 
 export type BuildingMode = 'none' | 'build' | 'delete';
 
@@ -41,10 +42,11 @@ export interface BuildingSystemConfig {
 }
 
 const DEFAULT_CONFIG: BuildingSystemConfig = {
+  // 2 m grid cells; storey height clears 2.75 m doorways (+ lintel/plate).
   gridSize: 2.0,
-  gridExtent: 50,
+  gridExtent: 80,
   groundLevel: 0,
-  levelHeight: 4.0,
+  levelHeight: 3.2,
   maxLevels: 5
 };
 
@@ -507,9 +509,42 @@ export class IslandBuildingSystem {
     this.placedBuildings.set(buildingId, placedBuilding);
     buildableObjectsRegistry.registerPlacedBuilding(placedBuilding);
 
+    // UF Farm: auto-seed livestock pens (Llama / Pig / Sheep) for raise loop
+    if (this.selectedBuildingType === 'rts_farm') {
+      void this.seedFarmLivestock(buildingId, position);
+    }
+
     this.onBuildingPlaced?.(placedBuilding);
 
     this.playPlacementAnimation(mesh);
+  }
+
+  private livestockManager: FarmLivestockManager | null = null;
+
+  /** Lazy-init farm animals manager for raise-at-farm gameplay. */
+  getFarmLivestockManager(): FarmLivestockManager {
+    if (!this.livestockManager) {
+      this.livestockManager = new FarmLivestockManager(this.scene);
+    }
+    return this.livestockManager;
+  }
+
+  private async seedFarmLivestock(farmBuildingId: string, farmPos: THREE.Vector3): Promise<void> {
+    try {
+      const mgr = this.getFarmLivestockManager();
+      const offsets = [
+        new THREE.Vector3(2.5, 0, 1.5),
+        new THREE.Vector3(-2.0, 0, 2.0),
+        new THREE.Vector3(0.5, 0, -2.5),
+      ];
+      for (let i = 0; i < FARM_LIVESTOCK.length; i++) {
+        const def = FARM_LIVESTOCK[i]!;
+        const pos = farmPos.clone().add(offsets[i] ?? new THREE.Vector3(i * 2, 0, 0));
+        await mgr.spawn(def.id, pos, farmBuildingId, Math.random() * Math.PI * 2);
+      }
+    } catch (e) {
+      console.warn('[IslandBuild] farm livestock seed failed', e);
+    }
   }
 
   private attemptDeleteBuilding(): void {
@@ -619,9 +654,12 @@ export class IslandBuildingSystem {
   }
 
   update(deltaTime: number): void {
+    this.livestockManager?.update(deltaTime);
   }
 
   dispose(): void {
+    this.livestockManager?.dispose();
+    this.livestockManager = null;
     if (this.boundHandleKeyDown) {
       window.removeEventListener('keydown', this.boundHandleKeyDown);
     }

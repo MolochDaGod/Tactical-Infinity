@@ -187,14 +187,15 @@ export default function Islands() {
     const scene = new THREE.Scene();
     sceneRef.current = scene;
 
-    const camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.5, 8000);
+    // Far plane covers ~2.5 km map + sky dome margin.
+    const camera = new THREE.PerspectiveCamera(55, container.clientWidth / container.clientHeight, 0.5, 14000);
     cameraRef.current = camera;
 
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
-    controls.minDistance = 30;
-    controls.maxDistance = 1200;
+    controls.minDistance = 40;
+    controls.maxDistance = 2800;
     controls.maxPolarAngle = Math.PI * 0.49;
     controls.minPolarAngle = Math.PI * 0.08;
     controlsRef.current = controls;
@@ -226,17 +227,21 @@ export default function Islands() {
       console.log(`[Islands] Shader backdrop active: ${SKY_SHADERS[initialShaderId].label}`);
     }
 
-    camera.position.set(400, 180, 400);
-    camera.lookAt(0, 5, 0);
-    controls.target.set(0, 5, 0);
+    // Larger map (~2.5 km) — orbit starts farther so the island reads at scale.
+    camera.position.set(900, 420, 900);
+    camera.lookAt(0, 8, 0);
+    controls.target.set(0, 8, 0);
+    controls.minDistance = 40;
+    controls.maxDistance = 2800;
     controls.update();
 
     // Build a third-person follow rig — used when walk-mode is enabled.
     // We use FollowCamera directly (the legacy ThirdPersonCamera wrapper uses
     // CommonJS `require()` which fails in Vite/ESM browser bundles).
+    // 2 m captain + 2.75 m doorways — camera sits slightly above eye height.
     tpCamRef.current = new FollowCamera(camera, {
-      distance: 7,
-      lookAtHeight: 1.4,
+      distance: 8,
+      lookAtHeight: 1.55,
       smoothness: 0.18,
       inputMode: 'right-drag',
     });

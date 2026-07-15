@@ -48,6 +48,10 @@ async function loadPackScene(url: string): Promise<THREE.Group | null> {
 /**
  * Isolate one named mesh (or first Mesh) from a multi-mesh Warlords pack.
  * Never returns the whole pack scene.
+ *
+ * Do NOT force a max-dimension target here. Flat flowers have huge XZ and
+ * tiny Y — max-dim normalize + later height normalize balloons them past
+ * the player. `metricSizing` owns real-world metres (trees 8–18 m, doors 2.75 m).
  */
 export async function loadIsolatedMesh(
   packUrl: string,
@@ -60,11 +64,19 @@ export async function loadIsolatedMesh(
 
   const want = meshNames[Math.floor(Math.random() * Math.max(1, meshNames.length))];
   let source: THREE.Object3D | null = null;
+  // Prefer Mesh hits so we don't grab a multi-prop parent group.
   if (want) {
     scene.traverse((o) => {
       if (source) return;
+      if (!(o as THREE.Mesh).isMesh) return;
       if (o.name === want || o.name.includes(want)) source = o;
     });
+    if (!source) {
+      scene.traverse((o) => {
+        if (source) return;
+        if (o.name === want || o.name.includes(want)) source = o;
+      });
+    }
   }
   if (!source) {
     scene.traverse((o) => {
@@ -75,7 +87,6 @@ export async function loadIsolatedMesh(
   if (!source) return out;
 
   const cloned = source.clone(true);
-  // Detach world transform from pack hierarchy
   cloned.position.set(0, 0, 0);
   cloned.rotation.set(0, 0, 0);
   cloned.scale.set(1, 1, 1);
@@ -94,16 +105,10 @@ export async function loadIsolatedMesh(
     }
   });
 
-  // Normalize to ~2–4 m height for trees/rocks
-  const box = new THREE.Box3().setFromObject(cloned);
-  const size = new THREE.Vector3();
-  box.getSize(size);
-  const maxDim = Math.max(size.x, size.y, size.z, 0.001);
-  const target = 3.5 * scale;
-  const s = target / maxDim;
-  cloned.scale.setScalar(s);
+  if (scale !== 1) cloned.scale.multiplyScalar(scale);
+
   const box2 = new THREE.Box3().setFromObject(cloned);
-  cloned.position.y = -box2.min.y;
+  if (isFinite(box2.min.y)) cloned.position.y = -box2.min.y;
   out.add(cloned);
   out.userData.meshName = (source as THREE.Object3D).name;
   out.userData.packUrl = packUrl;
@@ -223,6 +228,9 @@ export const NATURE_PLANTS: Record<string, IslandAssetConfig> = {
   grass_short:  { url: STYLIZED.foliage, type: 'gltf', scale: 1.0 },
   grass_tall:   { url: STYLIZED.foliage, type: 'gltf', scale: 1.0 },
   mushroom:     { url: STYLIZED.foliage, type: 'gltf', scale: 1.0 },
+  hemp:         { url: STYLIZED.foliage, type: 'gltf', scale: 1.0 },
+  periwinkle:   { url: STYLIZED.flowers, type: 'gltf', scale: 1.0 },
+  celandine:    { url: STYLIZED.flowers, type: 'gltf', scale: 1.0 },
 };
 
 export const NATURE_FLOWERS: Record<string, IslandAssetConfig> = {
@@ -480,6 +488,20 @@ let _preloaded = false;
 export async function preloadIslandAssets(): Promise<void> {
   if (_preloaded) return;
   _preloaded = true;
+
+  // Best-effort: index D1 asset_registry so loaders know what's seeded
+  try {
+    const { hydrateWarlordsFromD1, getWarlordsCatalogSnapshot, auditCatalogVsD1 } =
+      await import('./warlordsAssetDb');
+    await hydrateWarlordsFromD1(2);
+    const snap = getWarlordsCatalogSnapshot();
+    const audit = auditCatalogVsD1();
+    console.log(
+      `[IslandAssets] Warlords catalog n=${snap.count} D1-indexed=${snap.d1Indexed} missingFromD1=${audit.missing.length}`,
+    );
+  } catch (e) {
+    console.warn('[IslandAssets] D1 hydrate skipped', e);
+  }
 
   const loads: Promise<THREE.Group>[] = [
     loadIsolatedMesh(STYLIZED.vegetation, STYLIZED_VARIANTS.vegetationTrees, 1),
