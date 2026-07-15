@@ -11,7 +11,7 @@ import { getIslandConfigOverride } from '../adminOverrides';
 
 export type AnimalSpecies = 'boar' | 'deer' | 'rabbit' | 'fox' | 'bear' | 'wolf';
 export type TreeSpecies   = 'common_1' | 'common_2' | 'common_3' | 'pine_1' | 'pine_2' | 'pine_3'
-                          | 'twisted_1' | 'twisted_2' | 'dead_1';
+                          | 'twisted_1' | 'twisted_2' | 'dead_1' | 'palm';
 export type RockSpecies   = 'rock_1' | 'rock_2' | 'rock_3' | 'cliff_rock' | 'boulder_rock';
 export type PlantSpecies  = 'fern' | 'plant_1' | 'bush' | 'bush_flowers' | 'clover'
                           | 'grass_short' | 'grass_tall' | 'mushroom'
@@ -82,7 +82,8 @@ export const ISLAND_CONFIGS: Record<IslandBiomePreset, IslandConfig> = {
   tropical: {
     id: 'tropical', label: 'Tropical Paradise',
     worldSize: DEFAULT_WORLD, area: DEFAULT_AREA, maxHeight: 26, waterDepth: 20,
-    trees:   { species: ['common_1','common_2','common_3','twisted_1','twisted_2'], density: 0.18, min: 40, max: 200 },
+    // palm from tropical pack (STYLIZED.tropical) + vegetation trees — CDN SSOT
+    trees:   { species: ['palm','common_1','common_2','common_3','twisted_1'], density: 0.18, min: 40, max: 200 },
     rocks:   { species: ['rock_1','rock_2','rock_3','cliff_rock'],                 density: 0.06, min: 12, max: 60 },
     plants:  { species: ['fern','bush','bush_flowers','clover','grass_short','grass_tall','periwinkle','celandine'], density: 0.28, min: 70, max: 320 },
     flowers: { species: ['flower_3_group','flower_4_group','flower_3_single'],     density: 0.10, min: 20, max: 90 },

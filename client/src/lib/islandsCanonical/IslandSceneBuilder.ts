@@ -29,6 +29,7 @@ import { getIslandConfig, type IslandConfig } from './IslandConfig';
 import { createBiomeTerrainMaterial, type BiomeTerrainMaterialResult } from './BiomeTerrainMaterial';
 import { buildLandScatter, type LandScatterResult } from './LandScatter';
 import { createSceneLayers, type SceneLayerSet } from './SceneLayers';
+import { DayNightCycle, TOD_PROGRESS } from './DayNightCycle';
 
 export type IslandBiomePreset = 'tropical' | 'temperate' | 'volcanic' | 'arctic' | 'desert';
 
@@ -79,6 +80,15 @@ export interface IslandSceneOptions {
   spawnLandFeatures?: boolean;
   /** If supplied, scatter avoids a circle of this world-space radius. */
   spawnPad?: { x: number; z: number; radius: number };
+  /**
+   * Continuous day/night clock (world-map style). When omitted, a cycle is
+   * still created and pinned to `timeOfDayOverride` (or biome default).
+   */
+  dayCycle?: DayNightCycle;
+  /** Real-time seconds per in-game day when auto-running. Default 480. */
+  dayLengthSec?: number;
+  /** Start with auto day/night advance. Default false (manual TOD pins). */
+  autoDayNight?: boolean;
 }
 
 export interface IslandScene {
@@ -102,9 +112,13 @@ export interface IslandScene {
   landScatter: Promise<LandScatterResult | null>;
   /** Suggested player spawn point — flat, above-sea-level, away from water. */
   spawnPoint: THREE.Vector3;
+  /** Continuous day/night clock (auto or manual). */
+  dayCycle: DayNightCycle;
   update(camera: THREE.Camera, elapsedSec: number, dt: number): void;
   setWeather(w: SkyWeather): void;
   setTimeOfDay(t: SkyTimeOfDay): void;
+  setDayProgress(p: number): void;
+  setAutoDayNight(on: boolean): void;
   heightAt(x: number, z: number): number;
   dispose(): void;
 }
@@ -162,12 +176,23 @@ export function buildIslandScene(parent: THREE.Scene, options: IslandSceneOption
     shape: style.shape,
   });
 
-  // 2. Sky + ocean uniforms.
+  // 2. Sky + ocean uniforms + continuous day/night clock (world-map style).
+  const initialTod = options.timeOfDayOverride ?? style.timeOfDay;
+  const skyWeather = options.weatherOverride ?? style.weather;
+  const dayCycle =
+    options.dayCycle ??
+    new DayNightCycle({
+      startProgress: TOD_PROGRESS[initialTod],
+      dayLengthSec: options.dayLengthSec ?? 480,
+      auto: options.autoDayNight ?? false,
+    });
   const sky = new IslandSky({
-    weather:   options.weatherOverride   ?? style.weather,
-    timeOfDay: options.timeOfDayOverride ?? style.timeOfDay,
-    radius:    Math.max(800, worldSize * 4),
+    weather: skyWeather,
+    timeOfDay: initialTod,
+    radius: Math.max(800, worldSize * 4),
   });
+  // Continuous sun orbit sample (smooth day/night); weather still discrete.
+  sky.setDaySample(dayCycle.sample());
   layers.sky.add(sky.mesh);
 
   const ocean = new SeascapeOcean({
@@ -321,6 +346,9 @@ export function buildIslandScene(parent: THREE.Scene, options: IslandSceneOption
   layers.applyLayerChannels();
 
   function update(camera: THREE.Camera, elapsedSec: number, dt: number) {
+    // Continuous day/night (auto or pinned) drives sky + lights every frame.
+    const sample = dayCycle.tick(dt);
+    sky.setDaySample(sample);
     sky.update(elapsedSec, dt);
     ocean.update(elapsedSec, camera);
     chunks.updateLOD((camera as THREE.PerspectiveCamera).position);
@@ -330,6 +358,8 @@ export function buildIslandScene(parent: THREE.Scene, options: IslandSceneOption
     sun.color.copy(sky.sunColor);
     sun.intensity = sky.sunIntensity;
     sun.position.copy(sky.sunDirection).multiplyScalar(120);
+    // Night: dim shadows / ambient for readable moonsky.
+    sun.castShadow = sample.nightFactor < 0.85;
     updateAmbient();
     fill.position.copy(sky.sunDirection).multiplyScalar(-200);
     biomeMat.setSun(sky.sunDirection, sky.sunColor);
@@ -347,7 +377,17 @@ export function buildIslandScene(parent: THREE.Scene, options: IslandSceneOption
   }
 
   function setTimeOfDay(t: SkyTimeOfDay) {
-    sky.setTimeOfDay(t);
+    dayCycle.pinBand(t);
+    sky.setDaySample(dayCycle.sample());
+  }
+
+  function setDayProgress(p: number) {
+    dayCycle.setProgress(p);
+    sky.setDaySample(dayCycle.sample());
+  }
+
+  function setAutoDayNight(on: boolean) {
+    dayCycle.setAuto(on);
   }
 
   function heightAt(x: number, z: number): number {
@@ -368,7 +408,7 @@ export function buildIslandScene(parent: THREE.Scene, options: IslandSceneOption
 
   return {
     group, layers, heightmap, chunks, sky, ocean, creatures, weatherPass, sun, ambient,
-    picker, harbours, heatmap, config, landScatter, spawnPoint,
-    update, setWeather, setTimeOfDay, heightAt, dispose,
+    picker, harbours, heatmap, config, landScatter, spawnPoint, dayCycle,
+    update, setWeather, setTimeOfDay, setDayProgress, setAutoDayNight, heightAt, dispose,
   };
 }

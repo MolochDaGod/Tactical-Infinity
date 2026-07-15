@@ -39,6 +39,14 @@ export {
 } from './IslandSky';
 
 export {
+  DayNightCycle,
+  TOD_PROGRESS,
+  sampleDayNight,
+  type DayNightSample,
+  type DayNightCycleOptions,
+} from './DayNightCycle';
+
+export {
   IslandWeatherOverlayPass,
 } from './IslandWeatherOverlay';
 

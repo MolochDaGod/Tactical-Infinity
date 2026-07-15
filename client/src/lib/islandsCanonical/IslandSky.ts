@@ -130,6 +130,8 @@ export class IslandSky {
   private tod: SkyTimeOfDay;
   private nextLightningT = 0;
   private flashUntil = 0;
+  /** When set by continuous day cycle, overrides discrete TOD intensity. */
+  private _sampleIntensity: number | null = null;
 
   constructor(opts: IslandSkyOptions = {}) {
     const radius = opts.radius ?? 800;
@@ -164,7 +166,9 @@ export class IslandSky {
   /** Returns a unit vector pointing at the sun for use by directional lights. */
   get sunDirection(): THREE.Vector3 { return this.material.uniforms.uSunDir.value as THREE.Vector3; }
   get sunColor():     THREE.Color   { return this.material.uniforms.uSunColor.value as THREE.Color; }
-  get sunIntensity(): number        { return TOD[this.tod].intensity; }
+  get sunIntensity(): number {
+    return this._sampleIntensity ?? TOD[this.tod].intensity;
+  }
   get cloudCover():   number        { return WEATHER[this.weather].cloudCover; }
   get fogStrength():  number        { return WEATHER[this.weather].fog; }
   get currentWeather(): SkyWeather  { return this.weather; }
@@ -179,11 +183,32 @@ export class IslandSky {
 
   setTimeOfDay(tod: SkyTimeOfDay) {
     this.tod = tod;
+    this._sampleIntensity = null;
     const t = TOD[tod];
     (this.material.uniforms.uSunDir.value   as THREE.Vector3).copy(t.sunDir);
     (this.material.uniforms.uSunColor.value as THREE.Color).copy(t.sunColor);
     (this.material.uniforms.uZenith.value   as THREE.Color).copy(t.zenith);
     (this.material.uniforms.uHorizon.value  as THREE.Color).copy(t.horizon);
+  }
+
+  /**
+   * Continuous day/night from DayNightCycle — smooth sun orbit + sky colours
+   * (world-map style), not only four discrete presets.
+   */
+  setDaySample(sample: {
+    sunDir: THREE.Vector3;
+    sunColor: THREE.Color;
+    zenith: THREE.Color;
+    horizon: THREE.Color;
+    intensity: number;
+    band: SkyTimeOfDay;
+  }) {
+    this.tod = sample.band;
+    this._sampleIntensity = sample.intensity;
+    (this.material.uniforms.uSunDir.value as THREE.Vector3).copy(sample.sunDir);
+    (this.material.uniforms.uSunColor.value as THREE.Color).copy(sample.sunColor);
+    (this.material.uniforms.uZenith.value as THREE.Color).copy(sample.zenith);
+    (this.material.uniforms.uHorizon.value as THREE.Color).copy(sample.horizon);
   }
 
   update(elapsedSec: number, dt: number) {

@@ -2,13 +2,17 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { resolveGrudgeAssetUrl } from '@/lib/grudgeAssetConfig';
+import {
+  STYLIZED,
+  STYLIZED_VARIANTS,
+} from '@/lib/warlordsNatureCDN';
 
 const gltfLoader = new GLTFLoader();
 const fbxLoader = new FBXLoader();
 const texLoader = new THREE.TextureLoader();
 
-type LoadedAsset = THREE.Group | null;
-
+/** Full pack scenes (uncloned root) for mesh isolation. */
+const packSceneCache = new Map<string, THREE.Group>();
 const modelCache = new Map<string, THREE.Group>();
 const textureCache = new Map<string, THREE.Texture>();
 
@@ -22,8 +26,110 @@ function loadTexture(url: string): THREE.Texture {
   return tex;
 }
 
+function resolveAssetUrl(url: string): string {
+  if (/^https?:\/\//i.test(url)) return url;
+  return resolveGrudgeAssetUrl(url);
+}
+
+async function loadPackScene(url: string): Promise<THREE.Group | null> {
+  const resolved = resolveAssetUrl(url);
+  if (packSceneCache.has(resolved)) return packSceneCache.get(resolved)!;
+  try {
+    const gltf = await gltfLoader.loadAsync(resolved);
+    const root = gltf.scene as THREE.Group;
+    packSceneCache.set(resolved, root);
+    return root;
+  } catch (e) {
+    console.warn(`[IslandAssets] Failed to load pack: ${resolved}`, e);
+    return null;
+  }
+}
+
+/**
+ * Isolate one named mesh (or first Mesh) from a multi-mesh Warlords pack.
+ * Never returns the whole pack scene.
+ */
+export async function loadIsolatedMesh(
+  packUrl: string,
+  meshNames: readonly string[],
+  scale = 1,
+): Promise<THREE.Group> {
+  const scene = await loadPackScene(packUrl);
+  const out = new THREE.Group();
+  if (!scene) return out;
+
+  const want = meshNames[Math.floor(Math.random() * Math.max(1, meshNames.length))];
+  let source: THREE.Object3D | null = null;
+  if (want) {
+    scene.traverse((o) => {
+      if (source) return;
+      if (o.name === want || o.name.includes(want)) source = o;
+    });
+  }
+  if (!source) {
+    scene.traverse((o) => {
+      if (source) return;
+      if ((o as THREE.Mesh).isMesh) source = o;
+    });
+  }
+  if (!source) return out;
+
+  const cloned = source.clone(true);
+  // Detach world transform from pack hierarchy
+  cloned.position.set(0, 0, 0);
+  cloned.rotation.set(0, 0, 0);
+  cloned.scale.set(1, 1, 1);
+  cloned.traverse((child) => {
+    if ((child as THREE.Mesh).isMesh) {
+      const m = child as THREE.Mesh;
+      m.castShadow = true;
+      m.receiveShadow = true;
+      if (m.material) {
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        for (const mat of mats) {
+          const std = mat as THREE.MeshStandardMaterial;
+          if (std.map) std.map.colorSpace = THREE.SRGBColorSpace;
+        }
+      }
+    }
+  });
+
+  // Normalize to ~2–4 m height for trees/rocks
+  const box = new THREE.Box3().setFromObject(cloned);
+  const size = new THREE.Vector3();
+  box.getSize(size);
+  const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+  const target = 3.5 * scale;
+  const s = target / maxDim;
+  cloned.scale.setScalar(s);
+  const box2 = new THREE.Box3().setFromObject(cloned);
+  cloned.position.y = -box2.min.y;
+  out.add(cloned);
+  out.userData.meshName = (source as THREE.Object3D).name;
+  out.userData.packUrl = packUrl;
+  return out;
+}
+
 async function loadGLTF(url: string, scale: number): Promise<THREE.Group> {
-  const resolved = resolveGrudgeAssetUrl(url);
+  // Warlords packs → isolate one mesh; never clone whole multi-mesh root into world.
+  const isPack =
+    /nature\/stylized|example_home_island|nature_vegetation|tropical_plants|stylised_rocks|flowers_pack|ore_nodes|minerals_pack|foliage_pack/i.test(
+      url,
+    );
+  if (isPack) {
+    let names: readonly string[] = STYLIZED_VARIANTS.vegetationTrees;
+    if (/pine|snow/i.test(url)) names = STYLIZED_VARIANTS.vegetationPines;
+    if (/tropical/i.test(url)) names = STYLIZED_VARIANTS.tropicalPalms;
+    if (/rock|stylised_rocks|example_home/i.test(url)) names = STYLIZED_VARIANTS.stylizedRocks;
+    if (/flower/i.test(url)) names = STYLIZED_VARIANTS.flowers;
+    if (/foliage/i.test(url)) names = STYLIZED_VARIANTS.foliage;
+    if (/ore/i.test(url)) names = STYLIZED_VARIANTS.oreNodes;
+    if (/mineral/i.test(url)) names = STYLIZED_VARIANTS.minerals;
+    if (/example_home/i.test(url)) names = STYLIZED_VARIANTS.exampleTrees;
+    return loadIsolatedMesh(url, names, scale);
+  }
+
+  const resolved = resolveAssetUrl(url);
   if (modelCache.has(resolved)) {
     return modelCache.get(resolved)!.clone();
   }
@@ -91,57 +197,53 @@ export interface IslandAssetConfig {
   textureUrl?: string;
 }
 
+/**
+ * Warlords CDN stylized packs (absolute). Paths go through resolve only if relative.
+ * Placement always isolates one meshName — see loadIsolatedMesh.
+ */
 export const NATURE_TREES: Record<string, IslandAssetConfig> = {
-  common_1: { url: '/models/nature/CommonTree_1.gltf', type: 'gltf', scale: 1.8 },
-  common_2: { url: '/models/nature/CommonTree_2.gltf', type: 'gltf', scale: 1.8 },
-  common_3: { url: '/models/nature/CommonTree_3.gltf', type: 'gltf', scale: 1.8 },
-  pine_1:   { url: '/models/nature/Pine_1.gltf', type: 'gltf', scale: 1.8 },
-  pine_2:   { url: '/models/nature/Pine_2.gltf', type: 'gltf', scale: 1.8 },
-  pine_3:   { url: '/models/nature/Pine_3.gltf', type: 'gltf', scale: 1.8 },
-  twisted_1:{ url: '/models/nature/TwistedTree_1.gltf', type: 'gltf', scale: 1.6 },
-  twisted_2:{ url: '/models/nature/TwistedTree_2.gltf', type: 'gltf', scale: 1.6 },
-  dead_1:   { url: '/models/nature/DeadTree_1.gltf', type: 'gltf', scale: 1.5 },
+  common_1: { url: STYLIZED.vegetation, type: 'gltf', scale: 1.0 },
+  common_2: { url: STYLIZED.vegetation, type: 'gltf', scale: 1.0 },
+  common_3: { url: STYLIZED.plainsTrees, type: 'gltf', scale: 1.0 },
+  pine_1:   { url: STYLIZED.vegetation, type: 'gltf', scale: 1.0 },
+  pine_2:   { url: STYLIZED.snow, type: 'gltf', scale: 1.0 },
+  pine_3:   { url: STYLIZED.vegetation, type: 'gltf', scale: 1.0 },
+  twisted_1:{ url: STYLIZED.exampleIsland, type: 'gltf', scale: 1.0 },
+  twisted_2:{ url: STYLIZED.exampleIsland, type: 'gltf', scale: 1.0 },
+  dead_1:   { url: STYLIZED.exampleIsland, type: 'gltf', scale: 1.0 },
+  palm:     { url: STYLIZED.tropical, type: 'gltf', scale: 1.0 },
 };
 
 export const NATURE_PLANTS: Record<string, IslandAssetConfig> = {
-  bush:         { url: '/models/nature/Bush_Common.gltf', type: 'gltf', scale: 1.2 },
-  bush_flowers: { url: '/models/nature/Bush_Common_Flowers.gltf', type: 'gltf', scale: 1.2 },
-  fern:         { url: '/models/nature/Fern_1.gltf', type: 'gltf', scale: 1.0 },
-  plant_1:      { url: '/models/nature/Plant_1.gltf', type: 'gltf', scale: 1.0 },
-  clover:       { url: '/models/nature/Clover_1.gltf', type: 'gltf', scale: 1.0 },
-  grass_short:  { url: '/models/nature/Grass_Common_Short.gltf', type: 'gltf', scale: 1.0 },
-  grass_tall:   { url: '/models/nature/Grass_Common_Tall.gltf', type: 'gltf', scale: 1.0 },
-  mushroom:     { url: '/models/nature/Mushroom_Common.gltf', type: 'gltf', scale: 1.2 },
-  // New high-detail CC0 plant scans (sized via metric normalization at scatter).
-  hemp:         { url: '/models/nature/plants/hemp.glb', type: 'gltf', scale: 1.0 },
-  periwinkle:   { url: '/models/nature/plants/periwinkle/periwinkle_plant_2k.gltf', type: 'gltf', scale: 1.0 },
-  celandine:    { url: '/models/nature/plants/celandine/celandine_01_2k.gltf', type: 'gltf', scale: 1.0 },
+  bush:         { url: STYLIZED.vegetation, type: 'gltf', scale: 1.0 },
+  bush_flowers: { url: STYLIZED.foliage, type: 'gltf', scale: 1.0 },
+  fern:         { url: STYLIZED.tropical, type: 'gltf', scale: 1.0 },
+  plant_1:      { url: STYLIZED.foliage, type: 'gltf', scale: 1.0 },
+  clover:       { url: STYLIZED.foliage, type: 'gltf', scale: 1.0 },
+  grass_short:  { url: STYLIZED.foliage, type: 'gltf', scale: 1.0 },
+  grass_tall:   { url: STYLIZED.foliage, type: 'gltf', scale: 1.0 },
+  mushroom:     { url: STYLIZED.foliage, type: 'gltf', scale: 1.0 },
 };
 
 export const NATURE_FLOWERS: Record<string, IslandAssetConfig> = {
-  flower_3_group:  { url: '/models/nature/Flower_3_Group.gltf', type: 'gltf', scale: 1.3 },
-  flower_3_single: { url: '/models/nature/Flower_3_Single.gltf', type: 'gltf', scale: 1.3 },
-  flower_4_group:  { url: '/models/nature/Flower_4_Group.gltf', type: 'gltf', scale: 1.3 },
-  flower_4_single: { url: '/models/nature/Flower_4_Single.gltf', type: 'gltf', scale: 1.3 },
+  flower_3_group:  { url: STYLIZED.flowers, type: 'gltf', scale: 1.0 },
+  flower_3_single: { url: STYLIZED.flowers, type: 'gltf', scale: 1.0 },
+  flower_4_group:  { url: STYLIZED.flowers, type: 'gltf', scale: 1.0 },
+  flower_4_single: { url: STYLIZED.flowers, type: 'gltf', scale: 1.0 },
 };
 
 export const NATURE_ROCKS: Record<string, IslandAssetConfig> = {
-  rock_1: { url: '/models/nature/Rock_Medium_1.gltf', type: 'gltf', scale: 2.0 },
-  rock_2: { url: '/models/nature/Rock_Medium_2.gltf', type: 'gltf', scale: 2.0 },
-  rock_3: { url: '/models/nature/Rock_Medium_3.gltf', type: 'gltf', scale: 2.0 },
-  // New CC0 rock scans — sized via metric normalization at scatter time.
-  cliff_rock:   { url: '/models/nature/new/cliff_rock.glb',   type: 'gltf', scale: 1.0 },
-  boulder_rock: { url: '/models/nature/new/boulder_rock.glb', type: 'gltf', scale: 1.0 },
+  rock_1: { url: STYLIZED.rocks, type: 'gltf', scale: 1.0 },
+  rock_2: { url: STYLIZED.rocks, type: 'gltf', scale: 1.0 },
+  rock_3: { url: STYLIZED.exampleIsland, type: 'gltf', scale: 1.0 },
+  cliff_rock:   { url: STYLIZED.rocks, type: 'gltf', scale: 1.0 },
+  boulder_rock: { url: STYLIZED.rocks, type: 'gltf', scale: 1.0 },
 };
 
-/**
- * Mineable-node source meshes. `crystal` is the multi-crystal cluster scan
- * (used for gem/mythril/gold veins); `boulder` is a chunky rock (used for
- * stone/iron/copper). Both are metric-normalized per node by HarvestNodeSystem.
- */
+/** Mineable nodes from canonical ore/mineral packs. */
 export const HARVEST_ASSETS: Record<'crystal' | 'boulder', IslandAssetConfig> = {
-  crystal: { url: '/models/nature/new/ore_and_crystals.glb', type: 'gltf', scale: 1.0 },
-  boulder: { url: '/models/nature/new/boulder_rock.glb',     type: 'gltf', scale: 1.0 },
+  crystal: { url: STYLIZED.minerals, type: 'gltf', scale: 1.0 },
+  boulder: { url: STYLIZED.oreNodes, type: 'gltf', scale: 1.0 },
 };
 
 export const ANIMALS: Record<string, IslandAssetConfig> = {
@@ -205,23 +307,45 @@ export async function loadAsset(config: IslandAssetConfig | undefined | null): P
 
 export async function loadRandomTree(nodeType: string): Promise<THREE.Group> {
   const isPine = nodeType.includes('pine');
-  const catalog = isPine
-    ? [NATURE_TREES.pine_1, NATURE_TREES.pine_2, NATURE_TREES.pine_3]
-    : [NATURE_TREES.common_1, NATURE_TREES.common_2, NATURE_TREES.common_3, NATURE_TREES.twisted_1];
-  return loadAsset(pickRandom(catalog));
+  if (isPine) {
+    return loadIsolatedMesh(STYLIZED.vegetation, STYLIZED_VARIANTS.vegetationPines, 1.1);
+  }
+  // Mix vegetation + example home-island tree variants (Warlords home island contract).
+  const pack = Math.random() < 0.35 ? STYLIZED.exampleIsland : STYLIZED.vegetation;
+  const names =
+    pack === STYLIZED.exampleIsland
+      ? STYLIZED_VARIANTS.exampleTrees
+      : STYLIZED_VARIANTS.vegetationTrees;
+  return loadIsolatedMesh(pack, names, 1.0);
 }
 
 export async function loadRandomFlower(): Promise<THREE.Group> {
-  return loadAsset(pickRandomAsset(NATURE_FLOWERS));
+  return loadIsolatedMesh(STYLIZED.flowers, STYLIZED_VARIANTS.flowers, 0.45);
 }
 
 export async function loadRandomPlant(): Promise<THREE.Group> {
-  const picks = [NATURE_PLANTS.fern, NATURE_PLANTS.plant_1, NATURE_PLANTS.bush, NATURE_PLANTS.clover];
-  return loadAsset(pickRandom(picks));
+  if (Math.random() < 0.4) {
+    return loadIsolatedMesh(STYLIZED.tropical, STYLIZED_VARIANTS.tropicalPlants, 0.7);
+  }
+  return loadIsolatedMesh(STYLIZED.foliage, STYLIZED_VARIANTS.foliage, 0.55);
 }
 
 export async function loadRandomRock(): Promise<THREE.Group> {
-  return loadAsset(pickRandomAsset(NATURE_ROCKS));
+  const pack = Math.random() < 0.25 ? STYLIZED.exampleIsland : STYLIZED.rocks;
+  const names =
+    pack === STYLIZED.exampleIsland
+      ? STYLIZED_VARIANTS.exampleRocks
+      : STYLIZED_VARIANTS.stylizedRocks;
+  return loadIsolatedMesh(pack, names, 0.9);
+}
+
+/** Canonical ore / mineral harvest mesh from D1/CDN packs (not primitives). */
+export async function loadRandomOre(nodeType: string): Promise<THREE.Group> {
+  const isGem = /gold|mythril|crystal|gem/i.test(nodeType);
+  if (isGem) {
+    return loadIsolatedMesh(STYLIZED.minerals, STYLIZED_VARIANTS.minerals, 0.6);
+  }
+  return loadIsolatedMesh(STYLIZED.oreNodes, STYLIZED_VARIANTS.oreNodes, 0.75);
 }
 
 export async function loadAnimal(animalType: string): Promise<THREE.Group> {
@@ -358,17 +482,16 @@ export async function preloadIslandAssets(): Promise<void> {
   _preloaded = true;
 
   const loads: Promise<THREE.Group>[] = [
-    loadAsset(NATURE_TREES.common_1),
-    loadAsset(NATURE_TREES.pine_1),
-    loadAsset(NATURE_ROCKS.rock_1),
-    loadAsset(NATURE_FLOWERS.flower_3_group),
-    loadAsset(NATURE_PLANTS.fern),
-    loadAsset(NATURE_PLANTS.bush_flowers),
+    loadIsolatedMesh(STYLIZED.vegetation, STYLIZED_VARIANTS.vegetationTrees, 1),
+    loadIsolatedMesh(STYLIZED.rocks, STYLIZED_VARIANTS.stylizedRocks, 1),
+    loadIsolatedMesh(STYLIZED.flowers, STYLIZED_VARIANTS.flowers, 0.5),
+    loadIsolatedMesh(STYLIZED.oreNodes, STYLIZED_VARIANTS.oreNodes, 0.7),
+    loadIsolatedMesh(STYLIZED.exampleIsland, STYLIZED_VARIANTS.exampleTrees, 1),
   ];
 
   try {
     await Promise.allSettled(loads);
-    console.log('[IslandAssets] Core models preloaded');
+    console.log('[IslandAssets] Warlords CDN packs preloaded (isolated meshes)');
   } catch (e) {
     console.warn('[IslandAssets] Some models failed to preload', e);
   }

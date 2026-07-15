@@ -100,6 +100,10 @@ export default function Islands() {
   const [showControls, setShowControls] = useState(true);
   const [showChunks,   setShowChunks]   = useState(false);
   const [walkMode,     setWalkMode]     = useState(false);
+  /** World-map style continuous day/night (auto-advance). */
+  const [autoDayNight, setAutoDayNight] = useState(true);
+  const [dayProgress, setDayProgress] = useState(0.45);
+  const [dayLengthMin, setDayLengthMin] = useState(8);
   const [tool,         setTool]         = useState<IslandTool>("orbit");
   const [brushMode,    setBrushMode]    = useState<BrushMode>("raise");
   const [brushRadius,  setBrushRadius]  = useState(14);
@@ -135,6 +139,9 @@ export default function Islands() {
       chunksPerSide: 8,
       weatherOverride: w,
       timeOfDayOverride: t,
+      // Default auto day/night on (world-map skybox feel); UI can pause it.
+      autoDayNight: true,
+      dayLengthSec: 8 * 60,
     });
     const passes = (composer as unknown as { passes: ShaderPass[] }).passes;
     passes.splice(passes.length - 1, 0, island.weatherPass);
@@ -156,7 +163,11 @@ export default function Islands() {
   }, []);
   const applyTod = useCallback((t: SkyTimeOfDay) => {
     setTod(t);
+    // Pin continuous clock to band (disables “wrong” discrete snap-only sky).
     islandRef.current?.setTimeOfDay(t);
+    const p =
+      t === "dawn" ? 0.22 : t === "noon" ? 0.45 : t === "dusk" ? 0.72 : 0.0;
+    setDayProgress(p);
   }, []);
 
   useEffect(() => {
@@ -249,6 +260,11 @@ export default function Islands() {
       }
 
       island?.update(camera, elapsed, dt);
+      // Sync UI day progress from continuous clock (~2 Hz) when auto day/night runs.
+      if (island?.dayCycle?.auto && Math.floor(elapsed * 2) !== Math.floor((elapsed - dt) * 2)) {
+        setDayProgress(island.dayCycle.dayProgress);
+        setTod(island.dayCycle.sample().band);
+      }
       backdropRef.current?.update(elapsed);
       island?.weatherPass.setResolution(container.clientWidth, container.clientHeight);
       composer.render();
@@ -364,19 +380,20 @@ export default function Islands() {
         playerRef.current.dispose();
         playerRef.current = null;
       }
+      // Canonical Warlords captain — grudge6 race GLB (CDN / arena path), never Meshy.
       const player = new CharacterController(scene, {
-        modelPath: '/models/characters/meshy_character.glb',
-        animationsPath: '/models/characters/meshy_animations.glb',
+        modelPath:
+          'https://assets.grudge-studio.com/models/grudge6/races/WK_Characters.glb',
         stripRootMotion: true,
         scale: 1.0,
         position: island.spawnPoint.clone(),
         enableShadows: true,
         animationMap: {
-          idle: ['armature|clip0|baselayer', 'idle', 'breathing', 'stand'],
-          walk: ['walking', 'walk'],
-          run: ['running', 'run', 'sprint'],
-          jump: ['jump_rope', 'jumping_jacks', 'jumping_punch', 'jumping'],
-          attack: ['punch_combo_1', 'charged_ground_slam', 'charged_upward_slash'],
+          idle: ['idle', 'Idle', 'Armature|Idle', 'breathing', 'stand'],
+          walk: ['walk', 'Walk', 'walking', 'Armature|Walk'],
+          run: ['run', 'Run', 'running', 'sprint', 'Armature|Run'],
+          jump: ['jump', 'Jump', 'jumping'],
+          attack: ['attack', 'Attack', 'slash', 'punch'],
         },
       });
       playerRef.current = player;
@@ -460,11 +477,71 @@ export default function Islands() {
 
             <ControlGroup label="Time of Day">
               {(Object.keys(TOD_LABELS) as SkyTimeOfDay[]).map((t) => (
-                <PillButton key={t} active={tod === t} onClick={() => applyTod(t)} testid={`button-tod-${t}`}>
+                <PillButton key={t} active={tod === t && !autoDayNight} onClick={() => {
+                  setAutoDayNight(false);
+                  islandRef.current?.setAutoDayNight(false);
+                  applyTod(t);
+                }} testid={`button-tod-${t}`}>
                   {TOD_LABELS[t]}
                 </PillButton>
               ))}
             </ControlGroup>
+
+            <div className="space-y-2">
+              <label className="flex items-center gap-2 text-xs text-white/70 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={autoDayNight}
+                  onChange={(e) => {
+                    const on = e.target.checked;
+                    setAutoDayNight(on);
+                    islandRef.current?.setAutoDayNight(on);
+                  }}
+                  data-testid="checkbox-auto-daynight"
+                />
+                Auto day / night cycle (skybox sun orbit)
+              </label>
+              <label className="block text-[10px] text-white/50 uppercase tracking-wide">
+                Day progress · {TOD_LABELS[tod]} · {(dayProgress * 100).toFixed(0)}%
+              </label>
+              <input
+                type="range"
+                min={0}
+                max={1}
+                step={0.01}
+                value={dayProgress}
+                onChange={(e) => {
+                  const p = parseFloat(e.target.value);
+                  setDayProgress(p);
+                  setAutoDayNight(false);
+                  islandRef.current?.setAutoDayNight(false);
+                  islandRef.current?.setDayProgress(p);
+                  if (islandRef.current) setTod(islandRef.current.dayCycle.sample().band);
+                }}
+                className="w-full accent-amber-400"
+                data-testid="slider-day-progress"
+              />
+              <label className="block text-[10px] text-white/50 uppercase tracking-wide">
+                Day length · {dayLengthMin} min real-time
+              </label>
+              <input
+                type="range"
+                min={2}
+                max={30}
+                step={1}
+                value={dayLengthMin}
+                onChange={(e) => {
+                  const m = parseInt(e.target.value, 10);
+                  setDayLengthMin(m);
+                  if (islandRef.current) islandRef.current.dayCycle.setDayLength(m * 60);
+                }}
+                className="w-full accent-sky-400"
+                data-testid="slider-day-length"
+              />
+              <p className="text-[10px] text-white/35 leading-snug">
+                Assets: Warlords CDN nature packs + grudge6 (assets.grudge-studio.com). Weather + sky match world-map systems.
+              </p>
+            </div>
 
             <button
               onClick={handleRegenerate}
