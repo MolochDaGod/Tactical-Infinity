@@ -640,6 +640,14 @@ export class ThreeWorldMapManager {
       );
       await this.fishManager.initialize();
     }
+
+    // 9-sector ship tier showcases (raft + dock hull assets across the map)
+    try {
+      const { spawnAllSectorShipAssets } = await import('@/lib/oceanSectorAssets');
+      await spawnAllSectorShipAssets(this.scene);
+    } catch (e) {
+      console.warn('[WorldMap] sector ship assets', e);
+    }
   }
 
   /** Open-world fish under the boat (Quaternius CDN pack). */

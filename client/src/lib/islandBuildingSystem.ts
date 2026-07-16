@@ -14,6 +14,7 @@ import {
   cloneMeshMaterials
 } from './gridSystem';
 import { FarmLivestockManager, FARM_LIVESTOCK } from './farmLivestock';
+import { markBoatDockBuilt } from './playerProgression';
 
 export type BuildingMode = 'none' | 'build' | 'delete';
 
@@ -512,6 +513,11 @@ export class IslandBuildingSystem {
     // UF Farm: auto-seed livestock pens (Llama / Pig / Sheep) for raise loop
     if (this.selectedBuildingType === 'rts_farm') {
       void this.seedFarmLivestock(buildingId, position);
+    }
+
+    // Boat Dock RTS → unlocks dock hull construction (skiff…manOWar)
+    if (this.selectedBuildingType === 'boat_dock') {
+      markBoatDockBuilt();
     }
 
     this.onBuildingPlaced?.(placedBuilding);

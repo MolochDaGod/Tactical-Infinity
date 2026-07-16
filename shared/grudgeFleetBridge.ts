@@ -67,6 +67,7 @@ export const BOAT_TO_WARLORDS_PREFAB: Record<string, string> = {
   sloop: 'sloop',
   brigantine: 'brigantine',
   galleon: 'galleon',
+  manOWar: 'galleon',
 };
 
 export function resolveWarlordsUrl(path: string): string {

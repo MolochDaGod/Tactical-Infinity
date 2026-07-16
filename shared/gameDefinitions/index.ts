@@ -10,4 +10,5 @@ export * from './items';
 export * from './sailing';
 export * from './boatRegistry';
 export * from './shipTiers';
+export * from './waterEngagement';
 export * from './sprites';

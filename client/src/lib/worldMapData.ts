@@ -70,6 +70,15 @@ export interface EnemyShipData {
 export const WORLD_SIZE = 9000;
 export const WORLD_CENTER = { x: 0, z: 0 };
 
+// Re-export 9-sector water engagement grid (lobby + world map ship assets)
+export {
+  OCEAN_SECTORS,
+  sectorAtWorld,
+  getOceanSector,
+  type OceanSector,
+  type OceanSectorId,
+} from '@shared/gameDefinitions/waterEngagement';
+
 // The Ethereal Falls - World Edge Boundary
 // A mythical and terrifying place bridging our doomed world with the realms of magic and death
 export const ETHEREAL_FALLS_BOUNDARY = {

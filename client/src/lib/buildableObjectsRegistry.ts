@@ -32,6 +32,8 @@ export type PlaceableBuildingType =
   | 'rts_farm'
   | 'rts_wheat_field'
   | 'rts_temple'
+  /** Water engagement — RTS shipyard for dock hulls (skiff…manOWar). */
+  | 'boat_dock'
   /** note_of_arms Chain_V* — buildable chain link / connection tool */
   | 'chain'
   | 'window_thin_flat'
@@ -195,6 +197,19 @@ export const placeableBuildingDefinitions: Record<PlaceableBuildingType, Placeab
     fallbackGeometry: 'box',
     fallbackColor: 0x8B0000,
     scale: 1.0
+  },
+  boat_dock: {
+    type: 'boat_dock',
+    name: 'Boat Dock',
+    description:
+      'RTS shipyard pier. Construct Skiff, Sloop, Brigantine, Galleon, and Man o’ War. Raft is a main-panel quick craft.',
+    category: 'production',
+    cost: { wood: 40, stone: 25, ore: 5, gold: 50 },
+    cellSize: { width: 4, height: 6 },
+    rotatable: true,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x6B5344,
+    scale: 1.0,
   },
   tower: {
     type: 'tower',

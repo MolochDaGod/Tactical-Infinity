@@ -3,7 +3,7 @@
 // PLAYABLE boat at runtime (rendering + physics + gunnery).
 // ============================================================
 // One entry per boat, keyed by the canonical id set:
-//     raft → skiff → sloop → brigantine → galleon
+//     raft → skiff → sloop → brigantine → galleon → manOWar
 // This set is shared by the gameplay systems that were previously
 // scattered and inconsistent:
 //   - SHIP_TYPES         (stats: crew/cargo/speed/durability/name/tier)
@@ -31,9 +31,25 @@ import {
   type ShipCannonConfig,
 } from './sailing';
 
-export type BoatId = 'raft' | 'skiff' | 'sloop' | 'brigantine' | 'galleon';
+export type BoatId = 'raft' | 'skiff' | 'sloop' | 'brigantine' | 'galleon' | 'manOWar';
 
-export const BOAT_IDS: readonly BoatId[] = ['raft', 'skiff', 'sloop', 'brigantine', 'galleon'] as const;
+export const BOAT_IDS: readonly BoatId[] = [
+  'raft',
+  'skiff',
+  'sloop',
+  'brigantine',
+  'galleon',
+  'manOWar',
+] as const;
+
+/** Hulls constructed at a Boat Dock RTS building (not main-panel quick craft). */
+export const DOCK_BUILDABLE_BOATS: readonly BoatId[] = [
+  'skiff',
+  'sloop',
+  'brigantine',
+  'galleon',
+  'manOWar',
+] as const;
 
 /** Starter boat — players must build this on home island before sailing. */
 export const STARTER_BOAT_ID: BoatId = 'raft';
@@ -136,6 +152,18 @@ const BOAT_RENDER: Record<BoatId, BoatRenderProfile> = {
       keelDepthFraction: 0.2,
     },
   },
+  manOWar: {
+    modelPath: '/models/ships/ship-pirate-large.glb',
+    modelScale: 3.4,
+    physics: {
+      mass: 5500,
+      stability: 0.97,
+      waveResponseScale: 0.5,
+      capsizeThreshold: Math.PI / 2.4,
+      keelBallastWeight: 0.45,
+      keelDepthFraction: 0.22,
+    },
+  },
 };
 
 // Every historical / alternate ship id → canonical boat.
@@ -157,10 +185,9 @@ export const LEGACY_BOAT_ALIASES: Readonly<Record<string, BoatId>> = Object.free
   rowSmall: 'raft',
   rowLarge: 'raft',
   // shipPhysics stray ids
-  warship: 'galleon',
+  warship: 'manOWar',
   frigate: 'brigantine',
-  manOWar: 'galleon',
-  manowar: 'galleon',
+  manowar: 'manOWar',
   // shipTiers.ts persistence ladder
   flotsam: 'raft',
   dinghy: 'skiff',

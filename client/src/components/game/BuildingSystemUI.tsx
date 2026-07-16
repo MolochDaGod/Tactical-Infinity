@@ -89,6 +89,21 @@ const BUILDING_CATEGORIES: BuildingCategory[] = [
     ]
   },
   {
+    id: 'harbor',
+    name: 'Harbor',
+    icon: <Waves className="h-4 w-4" />,
+    buildings: [
+      {
+        id: 'boat_dock',
+        name: 'Boat Dock',
+        description: 'RTS shipyard — build Skiff through Man o’ War (raft is main-panel quick craft)',
+        cost: { wood: 40, stone: 25, ore: 5, gold: 50 },
+        size: { width: 4, depth: 6 },
+      },
+      { id: 'dock', name: 'Simple Dock', description: 'Landing pier (no shipyard)', cost: { wood: 20, stone: 10 }, size: { width: 2, depth: 3 } },
+    ]
+  },
+  {
     id: 'storage',
     name: 'Storage',
     icon: <Store className="h-4 w-4" />,

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Button } from '@/components/ui/button';
-import { X, Shield, Swords, Sparkles, Hammer, Scroll, Users, Package } from 'lucide-react';
+import { X, Shield, Swords, Sparkles, Hammer, Scroll, Users, Package, Ship } from 'lucide-react';
 
 import { EquipmentPanel } from './panels/EquipmentPanel';
 import { InventoryPanel } from './panels/InventoryPanel';
@@ -10,6 +10,7 @@ import { SkillsPanel } from './panels/SkillsPanel';
 import { CraftingPanel } from './panels/CraftingPanel';
 import { AttributesPanel } from './panels/AttributesPanel';
 import { GuildPanel } from './panels/GuildPanel';
+import { ShipCraftPanel } from './panels/ShipCraftPanel';
 
 import { loadGearCatalogue, localCatalogue, gearForSlot } from '@/lib/gear/catalogue';
 import {
@@ -149,6 +150,7 @@ const PANEL_TABS = [
   { id: 'attributes', label: 'Attributes', icon: Sparkles },
   { id: 'skills', label: 'Skills', icon: Swords },
   { id: 'crafting', label: 'Crafting', icon: Hammer },
+  { id: 'ships', label: 'Ships', icon: Ship },
   { id: 'quests', label: 'Quests', icon: Scroll },
   { id: 'guild', label: 'Guild', icon: Users },
 ] as const;
@@ -458,6 +460,10 @@ export function MainGamePanel({
 
               <TabsContent value="crafting" className="h-full m-0 p-4">
                 <CraftingPanel inventoryData={effectiveInventory} />
+              </TabsContent>
+
+              <TabsContent value="ships" className="h-full m-0 p-4">
+                <ShipCraftPanel />
               </TabsContent>
 
               <TabsContent value="quests" className="h-full m-0 p-4">

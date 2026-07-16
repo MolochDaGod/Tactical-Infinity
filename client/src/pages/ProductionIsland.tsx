@@ -372,6 +372,13 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
     scene.add(dock.group);
     dockRef.current = dock;
 
+    // Lobby shipyard: tier hull showcase (5 dock ships + raft) for production water engagement
+    void import('@/lib/lobbyShipYard').then(({ createLobbyShipYard }) => {
+      createLobbyShipYard(scene, terrain, 'south').catch((e) =>
+        console.warn('[ProductionIsland] lobby shipyard', e),
+      );
+    });
+
     const nav = new IslandNavMeshV2({ resolution: 1.2, maxSlopeRad: 0.7 });
     const bounds = new THREE.Box3().setFromObject(terrain.mesh);
     nav.generate([terrain.mesh], bounds);
