@@ -35,6 +35,8 @@
     { "source": "/toon_rts/:path*", "destination": "https://assets.grudge-studio.com/toon_rts/:path*" },
     { "source": "/animations/:path*", "destination": "https://assets.grudge-studio.com/animations/:path*" },
     { "source": "/sprites/:path*", "destination": "https://assets.grudge-studio.com/sprites/:path*" },
+    { "source": "/audio/:path*", "destination": "https://assets.grudge-studio.com/audio/:path*" },
+    { "source": "/crushed_king/:path*", "destination": "https://assets.grudge-studio.com/crushed_king/:path*" },
 
     { "source": "/api/objectstore/:path*", "destination": "https://objectstore.grudge-studio.com/api/:path*" },
 

@@ -321,11 +321,19 @@ function GameApp() {
   }
 
   if (game.phase === "intro") {
+    let heroName = "Rac'al'vin Gruda";
+    let heroRace = "human";
+    try {
+      const q = new URLSearchParams(window.location.search);
+      heroName = q.get("hero") || q.get("name") || heroName;
+      heroRace = q.get("race") || heroRace;
+    } catch { /* ignore */ }
     return (
       <div className="h-screen w-full bg-black">
-        <IntroScene 
+        <IntroScene
           onComplete={() => game.setPhase("beachSpawn")}
-          heroName="Rac'al'vin Gruda"
+          heroName={heroName}
+          heroRace={heroRace}
         />
       </div>
     );

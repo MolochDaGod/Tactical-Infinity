@@ -8,10 +8,22 @@ import VideoOverlayLayer from '@/components/VideoOverlayLayer';
 import { getStormAudio, disposeStormAudio } from '@/lib/proceduralAudio';
 import { applyShipTextures } from '@/lib/shipPrefabs';
 import { ClothSimulation, WindForce } from '@/lib/clothPhysics';
+import { StonewispController } from '@/lib/stonewisp/StonewispController';
+import { getMonsterAudio } from '@/lib/monsterAudio';
+
+/** Production hero mesh — CDN GRUDGE6 (same as Warlords / Character Studio). */
+const HERO_GLB_CANDIDATES = [
+  'https://assets.grudge-studio.com/models/heroes/grudge6/western-kingdoms_warrior.glb',
+  'https://assets.grudge-studio.com/models/heroes/grudge6/orcs_warrior.glb',
+  '/models/characters/meshy_character.glb',
+  '/animations/base/animated-base-character.glb',
+];
 
 interface IntroSceneProps {
   onComplete: () => void;
   heroName?: string;
+  /** Optional race hint for hero model (human|orc|elf|dwarf|barbarian|undead) */
+  heroRace?: string;
   debugMode?: boolean;
 }
 
@@ -36,7 +48,12 @@ const STORY_TEXTS = [
   { time: 45000, text: "", duration: 8000 }, // Zoom into character - silent, intimate
 ];
 
-export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", debugMode = false }: IntroSceneProps) {
+export default function IntroScene({
+  onComplete,
+  heroName = "Rac'al'vin Gruda",
+  heroRace = 'human',
+  debugMode = false,
+}: IntroSceneProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
@@ -83,6 +100,8 @@ export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", 
   
   const stoneWispRef = useRef<THREE.Group | null>(null);
   const stoneWispMixerRef = useRef<THREE.AnimationMixer | null>(null);
+  /** Improved fight + tentacle tip IK controller */
+  const stoneWispCtrlRef = useRef<StonewispController | null>(null);
   const crushedKingRef = useRef<THREE.Group | null>(null);
   const crushedKingMixerRef = useRef<THREE.AnimationMixer | null>(null);
   const shipRef = useRef<THREE.Group | null>(null);
@@ -141,6 +160,14 @@ export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", 
   const krakenSound2Ref = useRef<HTMLAudioElement | null>(null);
   const krakenSound1PlayedRef = useRef(false);
   const krakenSound2PlayedRef = useRef(false);
+  const monsterAudioRef = useRef(getMonsterAudio());
+  const deckCrewRef = useRef<THREE.Group | null>(null);
+  const heroOnDeckRef = useRef<THREE.Group | null>(null);
+  const camLookSmoothed = useRef(new THREE.Vector3(0, 8, 0));
+  const camPosSmoothed = useRef(new THREE.Vector3(0, 10, 100));
+  const shipBreakTriggeredRef = useRef(false);
+  const shipBreakVelRef = useRef(new THREE.Vector3());
+  const shipBreakAngRef = useRef(new THREE.Vector3());
 
   // Enhanced chaotic ocean shader with FBM noise + Gerstner waves hybrid
   // Creates organic, unpredictable wave patterns that don't look mathematically obvious
@@ -603,9 +630,13 @@ export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", 
       return;
     }
     renderer.setSize(containerRef.current.clientWidth, containerRef.current.clientHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    // Cap DPR slightly lower for smoother frame pacing on mid GPUs
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.75));
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    renderer.toneMappingExposure = 1.2; // Brighter scene - increased from 0.6
+    renderer.toneMappingExposure = 1.15;
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
     containerRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
     
@@ -1133,77 +1164,164 @@ export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", 
       return group;
     }
     
-    // Load real character model for death float sequence - intelligent AI-driven animation
-    const loadFloatingCharacter = () => {
-      gltfLoader.load('/models/characters/meshy_character.glb', (gltf) => {
-        const character = gltf.scene;
-        character.scale.set(3.5, 3.5, 3.5); // Scale to visible size
-        
-        // Position near where shipwreck will be (will be tossed by wave)
-        character.position.copy(characterStartPosRef.current);
-        character.rotation.x = -Math.PI / 6; // Slight tilt, face partially in water
-        character.rotation.y = Math.PI / 4; // Angled away from monster
-        character.rotation.z = Math.PI / 8; // Slight roll
-        character.visible = false;
-        
-        // Setup materials for underwater/surface visibility
-        character.traverse((child) => {
-          if ((child as THREE.Mesh).isMesh) {
-            const mesh = child as THREE.Mesh;
-            mesh.castShadow = true;
-            mesh.receiveShadow = true;
-            
-            if (mesh.material) {
-              const mat = mesh.material as THREE.MeshStandardMaterial;
-              if (mat.isMeshStandardMaterial) {
-                mat.roughness = 0.6;
-                mat.metalness = 0.2;
-                // Subtle glow for visibility in dark water
-                mat.emissive = new THREE.Color(0x102030);
-                mat.emissiveIntensity = 0.15;
-              }
+    // Hero + deck crew — GRUDGE6 CDN first so the intro shows the player's race
+    const raceHeroUrl = (() => {
+      const map: Record<string, string> = {
+        human: 'https://assets.grudge-studio.com/models/heroes/grudge6/western-kingdoms_warrior.glb',
+        orc: 'https://assets.grudge-studio.com/models/heroes/grudge6/orcs_warrior.glb',
+        elf: 'https://assets.grudge-studio.com/models/heroes/grudge6/high-elves_ranger.glb',
+        dwarf: 'https://assets.grudge-studio.com/models/heroes/grudge6/dwarves_mage.glb',
+        barbarian: 'https://assets.grudge-studio.com/models/heroes/grudge6/barbarians_worge.glb',
+        undead: 'https://assets.grudge-studio.com/models/heroes/grudge6/undead_worge.glb',
+      };
+      return map[heroRace.toLowerCase()] ?? map.human;
+    })();
+
+    const fitCharacterRoot = (root: THREE.Object3D, targetH = 2.0) => {
+      root.updateWorldMatrix(true, true);
+      const box = new THREE.Box3().setFromObject(root);
+      const size = box.getSize(new THREE.Vector3());
+      const h = Math.max(size.y, 0.01);
+      // cm exports
+      let s = targetH / h;
+      if (h > 20) s = targetH / (h * 0.01);
+      root.scale.multiplyScalar(THREE.MathUtils.clamp(s, 0.002, 8));
+      root.updateWorldMatrix(true, true);
+      const b2 = new THREE.Box3().setFromObject(root);
+      root.position.y -= b2.min.y;
+    };
+
+    const styleCharacter = (root: THREE.Object3D) => {
+      root.traverse((child) => {
+        if ((child as THREE.Mesh).isMesh) {
+          const mesh = child as THREE.Mesh;
+          mesh.castShadow = true;
+          mesh.receiveShadow = true;
+          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+          for (const mat of mats) {
+            const m = mat as THREE.MeshStandardMaterial;
+            if (m?.isMeshStandardMaterial) {
+              m.roughness = Math.min(0.85, m.roughness ?? 0.7);
+              m.metalness = Math.min(0.25, m.metalness ?? 0.05);
+              m.emissive = new THREE.Color(0x0a1820);
+              m.emissiveIntensity = 0.12;
             }
           }
-        });
-        
-        // Setup animation mixer for character
-        if (gltf.animations && gltf.animations.length > 0) {
-          const mixer = new THREE.AnimationMixer(character);
-          floatingBodyMixerRef.current = mixer;
-          
-          // Try to find an idle or floating animation, else use first available
-          const floatAnim = gltf.animations.find(a => 
-            a.name.toLowerCase().includes('idle') || 
-            a.name.toLowerCase().includes('float') ||
-            a.name.toLowerCase().includes('swim')
-          ) || gltf.animations[0];
-          
-          if (floatAnim) {
-            const action = mixer.clipAction(floatAnim);
-            action.setLoop(THREE.LoopRepeat, Infinity);
-            action.timeScale = 0.4; // Slow, gentle motion
-            action.play();
-          }
         }
-        
-        scene.add(character);
-        floatingBodyRef.current = character;
-        console.log('Floating character loaded with', gltf.animations?.length || 0, 'animations');
-      }, undefined, (error) => {
-        console.warn('Failed to load floating character, using fallback:', error);
-        // Fallback to simple shape if GLB fails
-        const bodyGroup = new THREE.Group();
-        const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3d6b4f, roughness: 0.7 });
-        const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 1.2, 8, 16), bodyMat);
-        bodyGroup.add(torso);
-        bodyGroup.scale.set(2.5, 2.5, 2.5);
-        bodyGroup.position.copy(characterStartPosRef.current);
-        bodyGroup.visible = false;
-        scene.add(bodyGroup);
-        floatingBodyRef.current = bodyGroup;
       });
     };
-    loadFloatingCharacter();
+
+    const loadHeroGlb = (urls: string[], onOk: (scene: THREE.Group, anims: THREE.AnimationClip[]) => void, onFail: () => void) => {
+      let i = 0;
+      const tryNext = () => {
+        if (i >= urls.length) {
+          onFail();
+          return;
+        }
+        const url = urls[i++];
+        gltfLoader.load(
+          url,
+          (gltf) => onOk(gltf.scene as THREE.Group, gltf.animations || []),
+          undefined,
+          () => tryNext(),
+        );
+      };
+      tryNext();
+    };
+
+    // Player hero on deck (visible during storm) + floating body after wreck
+    loadHeroGlb([raceHeroUrl, ...HERO_GLB_CANDIDATES], (model, anims) => {
+      const hero = model.clone(true);
+      fitCharacterRoot(hero, 1.9);
+      styleCharacter(hero);
+      hero.position.set(-2.5, 0, 4);
+      hero.rotation.y = Math.PI * 0.85;
+      hero.visible = true;
+      // Parent to ship when available
+      const attach = () => {
+        if (shipRef.current) {
+          shipRef.current.add(hero);
+          hero.position.set(-2.5, 2.2, 3.5);
+        } else {
+          scene.add(hero);
+          hero.position.set(-2.5, 4, 8);
+        }
+      };
+      attach();
+      // re-try attach after ship loads
+      setTimeout(attach, 1200);
+      heroOnDeckRef.current = hero;
+
+      // Floating body = second instance for wash-up beat
+      const floater = model.clone(true);
+      fitCharacterRoot(floater, 2.1);
+      styleCharacter(floater);
+      floater.position.copy(characterStartPosRef.current);
+      floater.rotation.x = -Math.PI / 6;
+      floater.rotation.y = Math.PI / 4;
+      floater.rotation.z = Math.PI / 8;
+      floater.visible = false;
+      scene.add(floater);
+      floatingBodyRef.current = floater;
+      if (anims.length > 0) {
+        const mixer = new THREE.AnimationMixer(floater);
+        floatingBodyMixerRef.current = mixer;
+        const floatAnim =
+          anims.find((a) => /idle|float|swim|death|injured/i.test(a.name)) || anims[0];
+        const action = mixer.clipAction(floatAnim);
+        action.setLoop(THREE.LoopRepeat, Infinity);
+        action.timeScale = 0.35;
+        action.play();
+      }
+      console.log('[Intro] Hero + float body loaded for', heroName);
+    }, () => {
+      console.warn('[Intro] Hero GLB failed — capsule fallback');
+      const bodyGroup = new THREE.Group();
+      const bodyMat = new THREE.MeshStandardMaterial({ color: 0x3d6b4f, roughness: 0.7 });
+      bodyGroup.add(new THREE.Mesh(new THREE.CapsuleGeometry(0.5, 1.2, 8, 16), bodyMat));
+      bodyGroup.scale.set(2.5, 2.5, 2.5);
+      bodyGroup.position.copy(characterStartPosRef.current);
+      bodyGroup.visible = false;
+      scene.add(bodyGroup);
+      floatingBodyRef.current = bodyGroup;
+    });
+
+    // Deck crew silhouettes (additional heroes) for cinematic density
+    const deckCrew = new THREE.Group();
+    deckCrew.name = 'DeckCrew';
+    const crewUrls = [
+      'https://assets.grudge-studio.com/models/heroes/grudge6/orcs_warrior.glb',
+      'https://assets.grudge-studio.com/models/heroes/grudge6/western-kingdoms_warrior.glb',
+      'https://assets.grudge-studio.com/models/heroes/grudge6/high-elves_ranger.glb',
+    ];
+    crewUrls.forEach((url, idx) => {
+      gltfLoader.load(url, (gltf) => {
+        const c = gltf.scene;
+        fitCharacterRoot(c, 1.75);
+        styleCharacter(c);
+        c.position.set((idx - 1) * 3.2, 2.1, -1.5 + idx * 0.8);
+        c.rotation.y = Math.PI * (0.4 + idx * 0.25);
+        deckCrew.add(c);
+      }, undefined, () => {
+        const g = new THREE.Group();
+        const m = new THREE.Mesh(
+          new THREE.CapsuleGeometry(0.35, 1.0, 4, 8),
+          new THREE.MeshStandardMaterial({ color: 0x1a2030, emissive: 0x102030, emissiveIntensity: 0.2 }),
+        );
+        g.add(m);
+        g.position.set((idx - 1) * 3.2, 2.6, -1.5);
+        deckCrew.add(g);
+      });
+    });
+    scene.add(deckCrew);
+    deckCrewRef.current = deckCrew;
+    // Parent crew to ship when ready
+    setTimeout(() => {
+      if (shipRef.current && deckCrewRef.current) {
+        shipRef.current.add(deckCrewRef.current);
+        deckCrewRef.current.position.set(0, 0, 0);
+      }
+    }, 1500);
     
     // Load shipwreck model - destroyed ship for monster to attack during zoom out
     const loadShipwreck = () => {
@@ -1244,122 +1362,36 @@ export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", 
     };
     loadShipwreck();
     
-    // Load the Stonewisp beast (mutant stingray) as the underwater attacker
-    gltfLoader.load('/models/scenes/stonewisp_beast/scene.gltf', (gltf) => {
-      const stoneWisp = gltf.scene;
-      // Scale 36 - 3x larger for massive dramatic presence attacking the ship
-      stoneWisp.scale.set(36, 36, 36);
-      stoneWisp.position.set(0, -10, 80); // Start higher and closer to be visible early
-      stoneWisp.rotation.x = 0;
-      stoneWisp.rotation.y = Math.PI; // Facing the ship
-      
-      // Enhanced materials for better visibility with brighter lighting
-      stoneWisp.traverse((child) => {
-        if ((child as THREE.Mesh).isMesh) {
-          const mesh = child as THREE.Mesh;
-          const meshName = mesh.name.toLowerCase();
-          
-          // Show tentacles for attack animation
-          const originalMat = mesh.material as THREE.MeshStandardMaterial;
-          if (originalMat.isMeshStandardMaterial) {
-            // Enhance visibility with subtle emissive
-            originalMat.emissive = new THREE.Color(0x1a4a5a);
-            originalMat.emissiveIntensity = 0.2;
-            originalMat.roughness = 0.6;
-            originalMat.metalness = 0.15;
-            
-            // Tentacles get slightly different coloring
-            if (meshName.includes('tentacle')) {
-              originalMat.emissive = new THREE.Color(0x2a5a6a);
-              originalMat.emissiveIntensity = 0.25;
-            }
-            
-            // Eyes glow more dramatically
-            if (meshName.includes('eye')) {
-              originalMat.emissive = new THREE.Color(0xaaccdd);
-              originalMat.emissiveIntensity = 0.8;
-            }
-          }
-        }
-      });
-      
-      scene.add(stoneWisp);
-      stoneWispRef.current = stoneWisp;
-      
-      const animNames = gltf.animations.map(a => a.name);
-      console.log('Stonewisp loaded with animations:', animNames);
-      
-      // Update debug info
-      setDebugInfo(prev => ({ ...prev, stoneWispLoaded: true }));
-      
-      // Set up animation mixer with proper sequence: Swim → Intimidate for realistic attack
-      if (gltf.animations && gltf.animations.length > 0) {
-        const mixer = new THREE.AnimationMixer(stoneWisp);
-        stoneWispMixerRef.current = mixer;
-        
-        // Find key animations
-        const swimAnim = gltf.animations.find(a => a.name.includes('Swim'));
-        const intimidateAnim = gltf.animations.find(a => a.name.includes('Intimidate'));
-        const inspectAnim = gltf.animations.find(a => a.name.includes('Inspect'));
-        
-        // Start with swim animation, then switch to attack when close to boat
-        if (swimAnim) {
-          console.log('Starting Stonewisp swim animation:', swimAnim.name);
-          currentAnimationRef.current = swimAnim.name;
-          const swimAction = mixer.clipAction(swimAnim);
-          swimAction.setLoop(THREE.LoopRepeat, Infinity);
-          swimAction.timeScale = 0.6; // Slower menacing approach
-          swimAction.play();
-          
-          // Switch to Intimidate (attack) animation when close to boat (at 50% of 3D portion = ~12 seconds after video)
-          setTimeout(() => {
-            if (intimidateAnim && stoneWispMixerRef.current) {
-              console.log('Transitioning to Stonewisp attack animation:', intimidateAnim.name);
-              currentAnimationRef.current = intimidateAnim.name;
-              swimAction.fadeOut(0.8);
-              const intimidateAction = mixer.clipAction(intimidateAnim);
-              intimidateAction.reset();
-              intimidateAction.setLoop(THREE.LoopRepeat, Infinity);
-              intimidateAction.timeScale = 0.8; // Faster attack tempo
-              intimidateAction.fadeIn(0.8);
-              intimidateAction.play();
-            }
-          }, 12000); // Switch to attack at 50% phase when approaching boat
-        } else if (intimidateAnim) {
-          // Fallback to intimidate if no swim animation
-          currentAnimationRef.current = intimidateAnim.name;
-          const action = mixer.clipAction(intimidateAnim);
-          action.setLoop(THREE.LoopRepeat, Infinity);
-          action.timeScale = 0.8;
-          action.play();
-        } else {
-          // Last resort: play any available animation
-          const fallbackAnim = inspectAnim || gltf.animations[0];
-          if (fallbackAnim) {
-            currentAnimationRef.current = fallbackAnim.name;
-            const action = mixer.clipAction(fallbackAnim);
-            action.setLoop(THREE.LoopRepeat, Infinity);
-            action.timeScale = 0.8;
-            action.play();
-          }
-        }
+    // Stonewisp — controller discovers skeleton/tentacles, Swim→Intimidate, tip IK
+    const stoneCtrl = new StonewispController({
+      scene,
+      scale: 36,
+      path: '/models/scenes/stonewisp_beast/scene.gltf',
+      onAnalyzed: (report, analysis) => {
+        console.info('[IntroScene] Stonewisp analysis\n', report);
+        setDebugInfo((prev) => ({
+          ...prev,
+          stoneWispLoaded: true,
+          currentAnimation: analysis.animRoles.swim
+            || analysis.animRoles.intimidate
+            || analysis.animationNames[0]
+            || 'none',
+        }));
+        setOverlayStatus(
+          analysis.tentacleChains.length
+            ? `Stonewisp IK: ${analysis.tentacleChains.length} tentacle chains`
+            : 'Stonewisp loaded (no tentacle bones by name — check skeleton)',
+        );
+      },
+    });
+    stoneWispCtrlRef.current = stoneCtrl;
+    void stoneCtrl.load().then((ok) => {
+      stoneWispRef.current = stoneCtrl.root;
+      stoneWispMixerRef.current = stoneCtrl.mixer;
+      if (!ok) {
+        setDebugInfo((prev) => ({ ...prev, stoneWispLoaded: true }));
+        setOverlayStatus('Stonewisp procedural fallback — place scene.gltf under public/models/scenes/stonewisp_beast/');
       }
-    }, undefined, (error) => {
-      console.error('Stonewisp loading failed:', error);
-      const fallbackGeometry = new THREE.SphereGeometry(10, 16, 12);
-      fallbackGeometry.scale(2, 0.5, 1.5);
-      const fallbackMaterial = new THREE.MeshStandardMaterial({
-        color: 0x1a3545,
-        emissive: 0x2a5060,
-        emissiveIntensity: 0.2,
-        roughness: 0.7,
-      });
-      const fallbackMesh = new THREE.Mesh(fallbackGeometry, fallbackMaterial);
-      fallbackMesh.position.set(0, -30, 100);
-      const fallbackGroup = new THREE.Group();
-      fallbackGroup.add(fallbackMesh);
-      scene.add(fallbackGroup);
-      stoneWispRef.current = fallbackGroup;
     });
     
     // Create falling crew silhouettes (orcs and humans falling into ocean)
@@ -1635,12 +1667,18 @@ export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", 
     startTimeRef.current = Date.now();
     clockRef.current.start();
     
+    // Prefer file SFX; fall back to procedural monster audio (CDN files often SPA-404)
     krakenSound1Ref.current = new Audio('/audio/kraen_1768615924100.m4a');
     krakenSound2Ref.current = new Audio('/audio/kraken2_1768615924100.m4a');
-    krakenSound1Ref.current.volume = 0.85;  // Cinematic polish — louder approach
-    krakenSound2Ref.current.volume = 1.00;  // Cinematic polish — full hit on attack
+    krakenSound1Ref.current.volume = 0.85;
+    krakenSound2Ref.current.volume = 1.00;
+    krakenSound1Ref.current.preload = 'auto';
+    krakenSound2Ref.current.preload = 'auto';
     krakenSound1PlayedRef.current = false;
     krakenSound2PlayedRef.current = false;
+    shipBreakTriggeredRef.current = false;
+    monsterAudioRef.current.reset();
+    monsterAudioRef.current.setMuted(isMuted);
     
     setTimeout(() => setShowSkip(true), 3000);
     setTimeout(() => setShowVideoIntro(false), VIDEO_INTRO_DURATION);
@@ -1661,7 +1699,8 @@ export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", 
       const time = clockRef.current.getElapsedTime();
       
       // Update animation mixers EVERY frame with proper delta
-      if (stoneWispMixerRef.current) {
+      // Mixer + tentacle IK driven by StonewispController (see updateFight below)
+      if (stoneWispMixerRef.current && !stoneWispCtrlRef.current) {
         stoneWispMixerRef.current.update(frameDelta);
       }
       if (crushedKingMixerRef.current) {
@@ -1780,18 +1819,36 @@ export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", 
           stormAudioRef.current.mute();
         }
         
-        if (!krakenSound1PlayedRef.current && krakenSound1Ref.current) {
+        if (!krakenSound1PlayedRef.current) {
           krakenSound1PlayedRef.current = true;
-          krakenSound1Ref.current.muted = isMuted;
-          krakenSound1Ref.current.play().catch(e => console.warn('Kraken sound 1 play failed:', e));
+          if (krakenSound1Ref.current) {
+            krakenSound1Ref.current.muted = isMuted;
+            krakenSound1Ref.current.play().catch(() => {
+              monsterAudioRef.current.setMuted(isMuted);
+              monsterAudioRef.current.playApproach();
+            });
+          } else {
+            monsterAudioRef.current.setMuted(isMuted);
+            monsterAudioRef.current.playApproach();
+          }
+          // Always fire procedural layer so the roar is heard even if m4a is HTML
+          monsterAudioRef.current.setMuted(isMuted);
+          monsterAudioRef.current.playApproach();
         }
       }
       
       const adjustedTSound = (elapsed - VIDEO_INTRO_DURATION) / (INTRO_DURATION - VIDEO_INTRO_DURATION);
-      if (adjustedTSound > 0.55 && adjustedTSound < 0.70 && !krakenSound2PlayedRef.current && krakenSound2Ref.current) {
+      if (adjustedTSound > 0.55 && adjustedTSound < 0.70 && !krakenSound2PlayedRef.current) {
         krakenSound2PlayedRef.current = true;
-        krakenSound2Ref.current.muted = isMuted;
-        krakenSound2Ref.current.play().catch(e => console.warn('Kraken sound 2 play failed:', e));
+        if (krakenSound2Ref.current) {
+          krakenSound2Ref.current.muted = isMuted;
+          krakenSound2Ref.current.play().catch(() => {
+            monsterAudioRef.current.setMuted(isMuted);
+            monsterAudioRef.current.playStrike();
+          });
+        }
+        monsterAudioRef.current.setMuted(isMuted);
+        monsterAudioRef.current.playStrike();
       }
       
       // Update storm intensity based on timeline
@@ -2249,55 +2306,102 @@ export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", 
         }
       }
       
-      // Animate the Stonewisp beast - the main attraction!
-      // 2x scaled (scale 12) for dramatic presence attacking the ship
-      if (stoneWispRef.current && elapsed > VIDEO_INTRO_DURATION) {
+      // Stonewisp fight: approach → emerge → lunge → strike → retreat + tentacle tip IK
+      if (elapsed > VIDEO_INTRO_DURATION) {
         const adjustedT = (elapsed - VIDEO_INTRO_DURATION) / (INTRO_DURATION - VIDEO_INTRO_DURATION);
-        
-        // Phase 1 (0-0.15): Visible from start, swimming toward ship
-        // Phase 2 (0.15-0.5): Rise and approach ship dramatically
-        // Phase 3 (0.5-0.75): Attack phase - collide with ship, crew falls
-        
-        if (adjustedT < 0.15) {
-          // Early reveal phase - visible and swimming
-          const swimProgress = adjustedT / 0.15;
-          stoneWispRef.current.position.y = -10 + swimProgress * 5; // Rise from -10 to -5
-          stoneWispRef.current.position.z = 80 - swimProgress * 10; // Approach from 80 to 70
-          stoneWispRef.current.rotation.y = Math.PI + Math.sin(time * 0.4) * 0.08;
-          stoneWispRef.current.rotation.z = Math.sin(time * 0.6) * 0.03;
-        } else if (adjustedT < 0.5) {
-          // Emergence phase - rise dramatically and approach
-          const emergeProgress = (adjustedT - 0.15) / 0.35;
-          stoneWispRef.current.position.y = -5 + emergeProgress * 15; // Rise from -5 to +10
-          stoneWispRef.current.position.z = 70 - emergeProgress * 40; // Approach from 70 to 30
-          stoneWispRef.current.rotation.y = Math.PI + Math.sin(time * 0.4) * 0.08;
-          stoneWispRef.current.rotation.z = Math.sin(time * 0.6) * 0.03;
-        } else if (adjustedT < 0.75) {
-          // Attack phase - surge forward and collide with ship
-          const attackProgress = (adjustedT - 0.5) / 0.25;
-          
-          // Dramatic forward lunge toward ship - adjusted for new starting position
-          stoneWispRef.current.position.z = 30 - attackProgress * 25; // Approach from 30 to 5 (near ship at 0)
-          stoneWispRef.current.position.y = 10 + Math.sin(attackProgress * Math.PI) * 10; // Arc upward from +10
-          
-          // Aggressive tilt during attack
-          stoneWispRef.current.rotation.x = -attackProgress * 0.25; // Tilt upward for attack
-          stoneWispRef.current.rotation.y = Math.PI + Math.sin(time * 0.8) * 0.12;
-          
-          // Ship collision shake effect (applied to ship separately)
-          if (attackProgress > 0.6 && shipRef.current) {
-            const shakeIntensity = (attackProgress - 0.6) / 0.4;
-            shipRef.current.rotation.z += (Math.random() - 0.5) * 0.05 * shakeIntensity;
-          }
+        const shipWorld = new THREE.Vector3();
+        if (shipRef.current) {
+          shipRef.current.getWorldPosition(shipWorld);
+          shipWorld.y += 8;
         } else {
-          // Post-attack - beast sinks with ship, visible below surface
-          const sinkProgress = (adjustedT - 0.75) / 0.25;
-          stoneWispRef.current.position.y = 20 - sinkProgress * 75; // Descend from +20 to -55
-          stoneWispRef.current.position.z = 5 + sinkProgress * 20; // Drift back from attack position
-          stoneWispRef.current.rotation.x = -0.25 + sinkProgress * 0.1;
+          shipWorld.set(0, 6, 0);
         }
-        
-        // Animation mixer is now updated at the top of animate() loop
+
+        if (stoneWispCtrlRef.current?.isLoaded) {
+          stoneWispCtrlRef.current.setVisible(adjustedT > 0.05);
+          stoneWispCtrlRef.current.updateFight(adjustedT, frameDelta, shipWorld);
+
+          // Hide deck hero as ship breaks; show floating body later
+          if (heroOnDeckRef.current) {
+            heroOnDeckRef.current.visible = adjustedT < 0.72;
+          }
+          if (deckCrewRef.current) {
+            deckCrewRef.current.visible = adjustedT < 0.74;
+          }
+
+          // Tentacle wrap → ship break physics
+          if (shipRef.current && adjustedT > 0.55 && adjustedT < 0.82) {
+            const shake = (adjustedT - 0.55) / 0.27;
+            // Damped thrash (not pure random — smoother cinematic)
+            const t = elapsed * 0.001;
+            shipRef.current.rotation.z += Math.sin(t * 18) * 0.025 * shake;
+            shipRef.current.rotation.x += Math.sin(t * 11) * 0.018 * shake;
+            shipRef.current.position.x += Math.sin(t * 14) * 0.22 * shake;
+            shipRef.current.position.y += Math.abs(Math.sin(t * 9)) * 0.08 * shake;
+          }
+
+          // Break beat: once tentacles clamp, hull snaps and begins sinking
+          if (
+            shipRef.current
+            && !shipBreakTriggeredRef.current
+            && adjustedT > 0.64
+          ) {
+            shipBreakTriggeredRef.current = true;
+            shipBreakVelRef.current.set(
+              (Math.random() - 0.5) * 4,
+              2.5,
+              (Math.random() - 0.5) * 3,
+            );
+            shipBreakAngRef.current.set(0.35, 0.15, 0.55);
+            // Kick debris / mast if helpers exist
+            if (!mastBrokenRef.current && typeof (window as any) !== 'undefined') {
+              // Trigger existing tear/break systems via damage progress
+              hullDamageProgressRef.current = 1;
+              sailTornRef.current = 1;
+            }
+            monsterAudioRef.current.setMuted(isMuted);
+            monsterAudioRef.current.playStrike();
+          }
+
+          if (shipRef.current && shipBreakTriggeredRef.current && adjustedT > 0.64) {
+            const ship = shipRef.current;
+            const vel = shipBreakVelRef.current;
+            const ang = shipBreakAngRef.current;
+            vel.y -= 2.8 * frameDelta;
+            ship.position.addScaledVector(vel, frameDelta);
+            ship.rotation.x += ang.x * frameDelta;
+            ship.rotation.y += ang.y * frameDelta;
+            ship.rotation.z += ang.z * frameDelta;
+            // Water drag
+            if (ship.position.y < 0) {
+              vel.multiplyScalar(0.96);
+              ang.multiplyScalar(0.94);
+            }
+          }
+        } else if (stoneWispRef.current) {
+          // Legacy path if controller not ready
+          if (adjustedT < 0.15) {
+            const swimProgress = adjustedT / 0.15;
+            stoneWispRef.current.position.y = -10 + swimProgress * 5;
+            stoneWispRef.current.position.z = 80 - swimProgress * 10;
+            stoneWispRef.current.rotation.y = Math.PI + Math.sin(time * 0.4) * 0.08;
+          } else if (adjustedT < 0.5) {
+            const emergeProgress = (adjustedT - 0.15) / 0.35;
+            stoneWispRef.current.position.y = -5 + emergeProgress * 15;
+            stoneWispRef.current.position.z = 70 - emergeProgress * 40;
+            stoneWispRef.current.rotation.y = Math.PI + Math.sin(time * 0.4) * 0.08;
+          } else if (adjustedT < 0.75) {
+            const attackProgress = (adjustedT - 0.5) / 0.25;
+            stoneWispRef.current.position.z = 30 - attackProgress * 25;
+            stoneWispRef.current.position.y = 10 + Math.sin(attackProgress * Math.PI) * 10;
+            stoneWispRef.current.rotation.x = -attackProgress * 0.25;
+            stoneWispRef.current.rotation.y = Math.PI + Math.sin(time * 0.8) * 0.12;
+          } else {
+            const sinkProgress = (adjustedT - 0.75) / 0.25;
+            stoneWispRef.current.position.y = 20 - sinkProgress * 75;
+            stoneWispRef.current.position.z = 5 + sinkProgress * 20;
+          }
+        }
       }
       
       if (elapsed > VIDEO_INTRO_DURATION) {
@@ -2863,6 +2967,16 @@ export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", 
         const sceneCenterZ = (charPos.z + monsterPos.z) * 0.4;
         camera.lookAt(sceneCenterX, sceneCenterY, sceneCenterZ);
       }
+
+      // Cinematic damp — soft follow so hard camera cuts read as film moves
+      if (cameraRef.current) {
+        const cam = cameraRef.current;
+        const damp = 1 - Math.exp(-8 * Math.min(0.05, frameDelta));
+        camPosSmoothed.current.lerp(cam.position, damp);
+        // Don't fully replace position on splash/zoom (keep authored path strength)
+        cam.position.lerp(camPosSmoothed.current, 0.35);
+        camPosSmoothed.current.copy(cam.position);
+      }
       
       renderer.render(scene, camera);
       
@@ -3126,6 +3240,7 @@ export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", 
               }
               if (krakenSound1Ref.current) krakenSound1Ref.current.muted = newMuted;
               if (krakenSound2Ref.current) krakenSound2Ref.current.muted = newMuted;
+              monsterAudioRef.current.setMuted(newMuted);
             }}
             className="text-white/70 hover:text-white hover:bg-white/10"
             data-testid="button-mute-toggle"
@@ -3196,7 +3311,10 @@ export default function IntroScene({ onComplete, heroName = "Rac'al'vin Gruda", 
             Asset: stonewisp_beast/scene.gltf
           </div>
           <div className="text-white/40 text-[10px]">
-            Anims: Swim, Intimidate, Inspect, etc.
+            Anims: Swim → Intimidate · Tentacle tip IK (FABRIK)
+          </div>
+          <div className="text-cyan-400/80 text-[10px] mt-1">
+            {overlayStatus || 'loading stonewisp…'}
           </div>
           
           {/* Video Overlay Section */}
