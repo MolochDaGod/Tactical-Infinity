@@ -118,16 +118,40 @@ export async function loadIsolatedMesh(
 async function loadGLTF(url: string, scale: number): Promise<THREE.Group> {
   // Warlords packs → isolate one mesh; never clone whole multi-mesh root into world.
   const isPack =
-    /nature\/stylized|example_home_island|nature_vegetation|tropical_plants|stylised_rocks|flowers_pack|ore_nodes|minerals_pack|foliage_pack/i.test(
+    /nature\/stylized|example_home_island|nature_vegetation|tropical_plants|stylised_rocks|rocks_and_foliage_woods|flowers_pack|ore_nodes|minerals_pack|foliage_pack|plants_asset_set|stylised_redwood|islands_pack|chicken_gun_islands|florida_foliage|plant_generation_only_leaves|alien_plants|nature_pack_vol1|gameready_ivy|asiatic_lily/i.test(
       url,
     );
   if (isPack) {
     let names: readonly string[] = STYLIZED_VARIANTS.vegetationTrees;
     if (/pine|snow/i.test(url)) names = STYLIZED_VARIANTS.vegetationPines;
-    if (/tropical/i.test(url)) names = STYLIZED_VARIANTS.tropicalPalms;
-    if (/rock|stylised_rocks|example_home/i.test(url)) names = STYLIZED_VARIANTS.stylizedRocks;
-    if (/flower/i.test(url)) names = STYLIZED_VARIANTS.flowers;
-    if (/foliage/i.test(url)) names = STYLIZED_VARIANTS.foliage;
+    if (/tropical_plants/i.test(url)) names = STYLIZED_VARIANTS.tropicalPalms;
+    if (/stylised_redwood|redwood/i.test(url)) names = STYLIZED_VARIANTS.redwoodWoods;
+    if (/plants_asset_set/i.test(url)) names = STYLIZED_VARIANTS.greenPlants;
+    if (/florida_foliage/i.test(url)) names = STYLIZED_VARIANTS.floridaFoliage;
+    if (/plant_generation_only_leaves/i.test(url)) names = STYLIZED_VARIANTS.leafRegrow;
+    if (/alien_plants/i.test(url)) names = STYLIZED_VARIANTS.alienPlants;
+    if (/nature_pack_vol1|stylized_nature_pack_vol1/i.test(url)) names = STYLIZED_VARIANTS.natureVol1Trees;
+    if (/gameready_ivy/i.test(url)) names = STYLIZED_VARIANTS.gamereadyIvyCurves;
+    if (/asiatic_lily/i.test(url)) names = STYLIZED_VARIANTS.asiaticLily;
+    if (/islands_pack/i.test(url)) names = STYLIZED_VARIANTS.islandsPackMeshes;
+    if (/chicken_gun_islands/i.test(url)) {
+      names = [
+        ...STYLIZED_VARIANTS.chickenGunIslandMeshes,
+        ...STYLIZED_VARIANTS.chickenGunPalms,
+      ];
+    }
+    if (/rocks_and_foliage_woods/i.test(url)) {
+      names = [...STYLIZED_VARIANTS.woodsRocks, ...STYLIZED_VARIANTS.woodsFoliage];
+    } else if (/stylised_rocks/i.test(url)) {
+      names = [
+        ...STYLIZED_VARIANTS.stylizedRocks,
+        ...STYLIZED_VARIANTS.mossyRocks,
+      ];
+    } else if (/rock|example_home/i.test(url) && !/redwood/i.test(url)) {
+      names = STYLIZED_VARIANTS.stylizedRocks;
+    }
+    if (/flower/i.test(url) && !/woods/i.test(url)) names = STYLIZED_VARIANTS.flowers;
+    if (/foliage_pack/i.test(url)) names = STYLIZED_VARIANTS.foliage;
     if (/ore/i.test(url)) names = STYLIZED_VARIANTS.oreNodes;
     if (/mineral/i.test(url)) names = STYLIZED_VARIANTS.minerals;
     if (/example_home/i.test(url)) names = STYLIZED_VARIANTS.exampleTrees;

@@ -5,6 +5,16 @@ import { loadSurvivalKitNode } from '@/lib/survivalKitAssets';
 import { loadNoteOfArmsNode } from '@/lib/noteOfArmsAssets';
 import { normalizeToMetres } from '@/lib/modelNormalize';
 import { resolveWarlordsUrl } from '@/lib/warlordsAssetCatalog';
+// Shared camp/RTS SSOT (costs, train, claim, defense) — see shared/camp + docs/CAMP_RTS_SSOT.md
+export {
+  buildingPaletteRows,
+  getBuilding,
+  resolveBuilding,
+  canAfford as canAffordSsot,
+  inClaimBuildRadius,
+  recipesForBuilding,
+  unitsTrainedAt,
+} from '@/lib/campSsot';
 
 export type PlaceableBuildingType = 
   | 'wall'

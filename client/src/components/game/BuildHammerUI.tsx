@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+// useMemo / useSyncExternalStore imported with campSsot
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -14,6 +15,13 @@ import {
   placeableBuildingDefinitions 
 } from '@/lib/buildableObjectsRegistry';
 import type { BuildingMode, PlayerResources } from '@/lib/islandBuildingSystem';
+import {
+  buildingPaletteRows,
+  getClaim,
+  subscribeClaim,
+  canAffordSsot,
+} from '@/lib/campSsot';
+import { useSyncExternalStore, useMemo } from 'react';
 
 interface BuildHammerUIProps {
   isActive: boolean;
@@ -60,7 +68,10 @@ export function BuildHammerUI({
   onChangeLevel,
   onClose
 }: BuildHammerUIProps) {
-  const [activeCategory, setActiveCategory] = useState<PlaceableBuildingDefinition['category']>('structure');
+  const [activeCategory, setActiveCategory] =
+    useState<PlaceableBuildingDefinition['category']>('structure');
+  const claim = useSyncExternalStore(subscribeClaim, getClaim, () => null);
+  const ssotRows = useMemo(() => buildingPaletteRows('any'), []);
 
   if (!isActive) return null;
 
@@ -140,6 +151,74 @@ export function BuildHammerUI({
             <span className="text-amber-200 text-xs flex items-center gap-1">
               <Coins className="w-3 h-3" /> {playerResources.gold}
             </span>
+          </div>
+
+          <div className="text-xs text-amber-200/90 px-1">
+            {claim
+              ? `🚩 Claim active · r=${claim.radiusM}m`
+              : '⚠ Plant Claim Flag (Camp) before gated buildings'}
+          </div>
+
+          {/* Camp SSOT palette (canonical costs / claim / train defs) */}
+          <div className="space-y-1">
+            <div className="text-[10px] uppercase tracking-wider text-amber-400/80">
+              Camp SSOT
+            </div>
+            <ScrollArea className="h-28">
+              <div className="grid grid-cols-2 gap-1">
+                {ssotRows.map((row) => {
+                  const bag = playerResources as unknown as Record<string, number>;
+                  const affordable = canAffordSsot(row.cost, bag);
+                  // Map SSOT to a placeable type when possible
+                  const placeType = (
+                    [
+                      'rts_barracks',
+                      'rts_farm',
+                      'rts_town_center',
+                      'rts_archery',
+                      'workbench',
+                      'forge',
+                      'campfire',
+                      'tower',
+                      'wall',
+                      'boat_dock',
+                      'storage_chest',
+                    ] as PlaceableBuildingType[]
+                  ).find(
+                    (t) =>
+                      t === row.legacyId ||
+                      placeableBuildingDefinitions[t]?.name === row.name,
+                  );
+                  return (
+                    <button
+                      key={row.id}
+                      type="button"
+                      disabled={!affordable || !placeType}
+                      onClick={() => placeType && onSelectType(placeType)}
+                      className={`text-left text-xs p-1.5 rounded border ${
+                        placeType && selectedType === placeType
+                          ? 'border-amber-400 bg-amber-700/40'
+                          : 'border-amber-800/50 bg-amber-950/40'
+                      } ${!affordable || !placeType ? 'opacity-40' : 'hover:bg-amber-800/40'}`}
+                      title={
+                        placeType
+                          ? row.description
+                          : `${row.name} (map mesh pending)`
+                      }
+                    >
+                      <span>
+                        {row.emoji} {row.name}
+                      </span>
+                      {row.claimGated && (
+                        <span className="block text-[9px] text-orange-300">
+                          claim
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </ScrollArea>
           </div>
 
           <div className="flex gap-2">

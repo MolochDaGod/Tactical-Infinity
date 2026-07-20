@@ -15,6 +15,13 @@ import {
 } from './gridSystem';
 import { FarmLivestockManager, FARM_LIVESTOCK } from './farmLivestock';
 import { markBoatDockBuilt } from './playerProgression';
+import {
+  validateBuildAt,
+  plantClaimFlag,
+  registerPlacedOnClaim,
+  loadClaimFromStorage,
+  getBuilding,
+} from './campSsot';
 
 export type BuildingMode = 'none' | 'build' | 'delete';
 
@@ -369,9 +376,21 @@ export class IslandBuildingSystem {
 
     const canPlace = this.canPlaceBuilding(gridPos);
     const hasResources = this.hasRequiredResources(this.selectedBuildingType);
+    // Camp SSOT claim gate — blue in claim / red outside
+    const gate = validateBuildAt(
+      this.selectedBuildingType,
+      gridPos.x,
+      gridPos.z,
+    );
+    const claimOk =
+      this.selectedBuildingType === 'campfire' ||
+      getBuilding(this.selectedBuildingType)?.fieldQuickCraft === true ||
+      getBuilding(this.selectedBuildingType)?.id === 'bld.claim_flag' ||
+      gate.ok;
+    const valid = canPlace && hasResources && claimOk;
 
     // Use shared utility for preview material update
-    setPreviewMaterial(this.previewMesh, canPlace && hasResources, canPlace && hasResources ? 0.6 : 0.5);
+    setPreviewMaterial(this.previewMesh, valid, valid ? 0.6 : 0.5);
   }
 
   private getGridPositionFromMouse(): THREE.Vector3 | null {
@@ -471,6 +490,36 @@ export class IslandBuildingSystem {
     if (!this.canPlaceBuilding(position)) return;
     if (!this.hasRequiredResources(this.selectedBuildingType)) return;
 
+    // Claim gate (SSOT)
+    loadClaimFromStorage();
+    const ssot = getBuilding(this.selectedBuildingType);
+    const isClaimFlag =
+      this.selectedBuildingType.includes('claim') ||
+      ssot?.id === 'bld.claim_flag';
+    if (isClaimFlag) {
+      plantClaimFlag({
+        ownerAccountId: 'local',
+        islandId: 'production',
+        x: position.x,
+        y: position.y,
+        z: position.z,
+      });
+    } else {
+      const gate = validateBuildAt(
+        this.selectedBuildingType,
+        position.x,
+        position.z,
+      );
+      if (
+        !gate.ok &&
+        !ssot?.fieldQuickCraft &&
+        this.selectedBuildingType !== 'campfire'
+      ) {
+        console.warn('[build] claim gate:', gate.reason);
+        return;
+      }
+    }
+
     this.consumeResources(this.selectedBuildingType);
 
     const mesh = await buildableObjectsRegistry.loadBuildingMesh(this.selectedBuildingType);
@@ -494,6 +543,8 @@ export class IslandBuildingSystem {
     };
 
     this.scene.add(mesh);
+
+    registerPlacedOnClaim(buildingId);
 
     const placedBuilding: PlacedBuilding = {
       id: buildingId,
