@@ -11,25 +11,19 @@
  * Scale contract (matching OpenWaterSailing):
  *   • 1 Three.js unit ≈ 1 metre of game world.
  *   • Ship GLB loaded at scale=3; a pirate sloop ends up ~15-45m depending on model.
- *   • FBX character at modelScale=0.013; a Mixamo 170-unit figure ≈ 2.2m.
+ *   • Captain = grudge6 CharacterBuilder (Bip001 + fleet race) — NEVER Meshy.
  *   • deckY (ship-local) defaults to 1.0 — tune upward for taller ship decks.
  */
 
 import * as THREE from 'three';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { calculateWaveHeightAt } from './shipPhysics';
 import type { WeatherConfig } from './weatherSystem';
+import { CharacterBuilder, CHAR_SCALE } from '@/lib/character/CharacterBuilder';
+import { loadCaptainBuild, CLASS_TO_WEAPON_STYLE } from '@/lib/captainBuild';
+import type { Race, WeaponStyle } from '@/data/toonRTSAssets';
+import type { CharState } from '@/lib/character/grudgeClips';
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-
-const MODEL_PATH = '/models/player/Meshy_AI_Orc_Warlord_Render_1220104017_texture_fbx.fbx';
-const ANIM_PATHS: Record<string, string> = {
-  idle:    '/models/player/sword and shield idle.fbx',
-  walk:    '/models/player/sword and shield walk.fbx',
-  run:     '/models/player/sword and shield run.fbx',
-  jump:    '/models/player/sword and shield jump.fbx',
-  crouch:  '/models/player/sword and shield crouch.fbx',
-};
 
 /** ship-local Y where the character stands on deck */
 export const DECK_Y_DEFAULT = 1.0;
@@ -81,11 +75,10 @@ export class BoatBoardingSystem {
   private camera:  THREE.PerspectiveCamera;
   private weather: WeatherConfig | null = null;
 
-  // ── Character visual ──────────────────────────────────────────────────────
+  // ── Character visual (grudge6 CharacterBuilder) ───────────────────────────
   private charGroup  = new THREE.Group();
-  private mixer:       THREE.AnimationMixer | null = null;
-  private actionMap  = new Map<string, THREE.AnimationAction>();
-  private currentAct: THREE.AnimationAction | null = null;
+  private builder: CharacterBuilder | null = null;
+  private currentAnim: CharState = 'idle';
 
   // ── On-ship state ─────────────────────────────────────────────────────────
   /** Character position in ship-local space */
@@ -130,48 +123,49 @@ export class BoatBoardingSystem {
   setDeckY(y: number): void                   { this.deckY = y; this.localPos.y = y; }
 
   async load(): Promise<void> {
-    const loader = new FBXLoader();
+    // Production: fleet captain race + weapon from captain build (grudge6 CDN).
+    const build = loadCaptainBuild();
+    let race: Race = build?.race ?? 'human';
+    let weaponStyle: WeaponStyle =
+      build?.weaponStyle ??
+      (build ? CLASS_TO_WEAPON_STYLE[build.classKey] : 'sword_shield');
     try {
-      const fbx = await new Promise<THREE.Group>((res, rej) =>
-        loader.load(MODEL_PATH, res, undefined, rej)
-      );
-      fbx.scale.setScalar(0.013);
-      fbx.traverse(c => {
-        if ((c as THREE.Mesh).isMesh) {
-          (c as THREE.Mesh).castShadow    = true;
-          (c as THREE.Mesh).receiveShadow = true;
-        }
-      });
-      this.mixer = new THREE.AnimationMixer(fbx);
-      this.charGroup.add(fbx);
-
-      // Load animations
-      for (const [key, path] of Object.entries(ANIM_PATHS)) {
-        try {
-          const aFbx = await new Promise<THREE.Group>((res, rej) =>
-            loader.load(path, res, undefined, rej)
-          );
-          if (aFbx.animations.length > 0) {
-            const clip = aFbx.animations[0];
-            clip.name = key;
-            const act = this.mixer.clipAction(clip);
-            act.setLoop(THREE.LoopRepeat, Infinity);
-            this.actionMap.set(key, act);
-          }
-        } catch { /* non-fatal */ }
+      const saved = localStorage.getItem('tethical_captain');
+      if (saved) {
+        const data = JSON.parse(saved) as { race?: Race };
+        if (data.race) race = data.race;
       }
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      const builder = new CharacterBuilder({
+        race,
+        weaponStyle,
+        scale: CHAR_SCALE,
+      });
+      await builder.load();
+      this.builder = builder;
+      this.charGroup.add(builder.group);
+      builder.play('idle');
     } catch (e) {
-      // Fallback: use a simple box placeholder so the rest of the system still works
-      console.warn('[BoatBoarding] FBX load failed — using capsule placeholder', e);
+      // Last-resort: grey captain so boarding still works — never Meshy.
+      console.warn('[BoatBoarding] CharacterBuilder failed — metric capsule fallback', e);
       const geo = new THREE.CapsuleGeometry(0.3, 1.1, 4, 8);
-      const mat = new THREE.MeshStandardMaterial({ color: 0x8855aa });
+      const mat = new THREE.MeshStandardMaterial({
+        color: 0x4a6a8a,
+        roughness: 0.7,
+        metalness: 0.1,
+      });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.castShadow = true;
+      mesh.position.y = 0.85;
       this.charGroup.add(mesh);
     }
 
     this.scene.add(this.charGroup);
-    this._playAnim('idle', 0.1);
+    this._playAnim('idle');
 
     this.isLoaded = true;
     this.cb.onLoaded?.();
@@ -218,7 +212,7 @@ export class BoatBoardingSystem {
       case 'boarding': this._updateBoarding(dt); break;
     }
 
-    this.mixer?.update(dt);
+    this.builder?.update(dt);
     this._updateCamera();
   }
 
@@ -254,9 +248,9 @@ export class BoatBoardingSystem {
       const dz = Math.cos(moveAngle) * speed * dt;
       this.localPos.x += dx;
       this.localPos.z -= dz;
-      this._playAnim(sprint ? 'run' : 'walk', 0.15);
+      this._playAnim(sprint ? 'run' : 'walk');
     } else {
-      this._playAnim('idle', 0.2);
+      this._playAnim('idle');
     }
 
     // Keep character on deck (no falling through)
@@ -305,7 +299,7 @@ export class BoatBoardingSystem {
     this.swimYaw   = this.charGroup.rotation.y;
 
     this._setMode('swimming');
-    this._playAnim('jump', 0.1);
+    this._playAnim('jump');
   }
 
   // ── Swimming update ───────────────────────────────────────────────────────
@@ -339,9 +333,10 @@ export class BoatBoardingSystem {
       const spd  = SWIM_SPEED * (inWater ? 1.0 : 1.5);
       this.swimVel.x += Math.sin(angle) * spd * dt * 8;
       this.swimVel.z -= Math.cos(angle) * spd * dt * 8;
-      this._playAnim(inWater ? 'crouch' : 'run', 0.2);
+      // No dedicated swim clip yet — walk/run read as surface stroke.
+      this._playAnim(inWater ? 'walk' : 'run');
     } else {
-      this._playAnim(inWater ? 'idle' : 'jump', 0.3);
+      this._playAnim(inWater ? 'idle' : 'jump');
     }
 
     // Horizontal drag
@@ -404,20 +399,20 @@ export class BoatBoardingSystem {
 
     this.swimVel.set(0, 0, 0);
     this._setMode('boarding');
-    this._playAnim('jump', 0.1);
+    this._playAnim('jump');
 
     // Short boarding delay then snap to onShip
     setTimeout(() => this._setMode('onShip'), 600);
   }
 
-  private _updateBoarding(dt: number): void {
+  private _updateBoarding(_dt: number): void {
     if (!this.ship) return;
-    // During boarding, just slide character to deck surface and play crouch
+    // During boarding, just slide character to deck surface
     this.ship.updateWorldMatrix(true, false);
     const worldPos = this.localPos.clone();
     this.ship.localToWorld(worldPos);
     this.charGroup.position.lerp(worldPos, 0.25);
-    this._playAnim('crouch', 0.1);
+    this._playAnim('walk');
   }
 
   // ── Camera ────────────────────────────────────────────────────────────────
@@ -436,12 +431,11 @@ export class BoatBoardingSystem {
     this.cb.onModeChange?.(m);
   }
 
-  private _playAnim(name: string, fade: number): void {
-    const act = this.actionMap.get(name);
-    if (!act || act === this.currentAct) return;
-    this.currentAct?.fadeOut(fade);
-    act.reset().fadeIn(fade).play();
-    this.currentAct = act;
+  private _playAnim(name: string): void {
+    const state = (name === 'crouch' ? 'walk' : name) as CharState;
+    if (this.currentAnim === state) return;
+    this.currentAnim = state;
+    this.builder?.play(state);
   }
 
   // ── Deck probing — auto-detect deck height via raycasting ─────────────────
@@ -470,6 +464,8 @@ export class BoatBoardingSystem {
   // ── Dispose ───────────────────────────────────────────────────────────────
 
   dispose(): void {
+    this.builder?.dispose();
+    this.builder = null;
     this.scene.remove(this.charGroup);
     if (this._keyDown) window.removeEventListener('keydown', this._keyDown);
     if (this._keyUp)   window.removeEventListener('keyup',   this._keyUp);

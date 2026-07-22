@@ -243,7 +243,8 @@ export class ThreeWorldMapManager {
   private chaseCharacter: THREE.Group | null = null;
   private chaseCaptainId: string = 'chase-captain';
   private chaseCaptainRace: Race = 'human';
-  private useMeshyCharacter: boolean = true;  // Use Meshy AI character by default
+  /** Production default: grudge6 / fleet boats — Meshy is opt-in admin only. */
+  private useMeshyCharacter: boolean = false;
   private meshyCharacterController: MeshyCharacterController | null = null;
   
   // Flying boss system
@@ -3249,6 +3250,28 @@ export class ThreeWorldMapManager {
     
     this.islands.set(id, island);
     return island;
+  }
+
+  /**
+   * Attach fleet shell seed metadata (CDN shell + meshName + seed) for production
+   * island handoff / future shell mesh upgrade. Data from island_fleet_seeds.json.
+   */
+  tagIslandFleetShell(
+    id: string,
+    meta: {
+      shellKey: string;
+      cdn: string;
+      r2Key: string;
+      meshName?: string;
+      seed: number;
+      sectorId: string | number;
+    },
+  ): void {
+    const island = this.islands.get(id);
+    if (!island) return;
+    (island as Island3D & { fleetShell?: typeof meta }).fleetShell = meta;
+    island.mesh.userData.fleetShell = meta;
+    island.mesh.userData.seed = meta.seed;
   }
   
   createCannonball(id: string, position: THREE.Vector3, velocity: THREE.Vector3, ownerId: string, damage: number): Cannonball3D {

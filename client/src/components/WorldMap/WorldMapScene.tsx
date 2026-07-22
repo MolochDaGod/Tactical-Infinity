@@ -172,7 +172,8 @@ export function WorldMapScene({ onBackToMenu, onLandOnIsland }: WorldMapScenePro
   const [selectedObject, setSelectedObject] = useState<EditableObject | null>(null);
   const [editableObjects, setEditableObjects] = useState<EditableObject[]>([]);
   const [captainRace, setCaptainRace] = useState<Race>('human');
-  const [useMeshyCharacter, setUseMeshyCharacter] = useState(true);
+  // Production default OFF — grudge6 fleet assets only; Meshy is admin toggle.
+  const [useMeshyCharacter, setUseMeshyCharacter] = useState(false);
   const [worldMapOpen, setWorldMapOpen] = useState(false);
   // Mirror in a ref so the memoized key handler always reads the live value
   // (handleKeyDown is not re-created when worldMapOpen changes).
@@ -322,6 +323,32 @@ export function WorldMapScene({ onBackToMenu, onLandOnIsland }: WorldMapScenePro
     setTimeout(() => initIslandEnemies().catch(console.error), 100);
     
     // Create lore-accurate islands from Aethermoor world data
+    // Tag islands with fleet sector shell seeds (canonical CDN shells + meshName + seed).
+    void import('@/lib/islandFleetSeeds').then(async ({ loadIslandFleetSeeds, resolveSectorShell }) => {
+      try {
+        const seeds = await loadIslandFleetSeeds();
+        let i = 0;
+        for (const islandData of WORLD_ISLANDS) {
+          const sectorId = (islandData.tier ?? (i % 9) + 1);
+          const resolved = resolveSectorShell(seeds, sectorId);
+          if (resolved) {
+            manager.tagIslandFleetShell?.(islandData.id, {
+              shellKey: resolved.shellKey,
+              cdn: resolved.shell.cdn,
+              r2Key: resolved.shell.r2Key,
+              meshName: resolved.meshName,
+              seed: resolved.seed,
+              sectorId: resolved.sectorId,
+            });
+          }
+          i++;
+        }
+        console.log('[WorldMap] fleet island seeds tagged for', WORLD_ISLANDS.length, 'islands');
+      } catch (e) {
+        console.warn('[WorldMap] fleet seeds', e);
+      }
+    });
+
     for (const islandData of WORLD_ISLANDS) {
       manager.createIsland(
         islandData.id, 

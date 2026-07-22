@@ -2406,8 +2406,16 @@ function updateShip(state: any, delta: number, elapsed: number) {
 
   const angleToWind = state.shipHeading - weather.windDirection;
   const normalizedAngle = ((angleToWind % (Math.PI * 2)) + Math.PI * 3) % (Math.PI * 2) - Math.PI;
-  const polarSpeed = calculatePolarSpeed('sloop', THREE.MathUtils.radToDeg(normalizedAngle), weather.windStrength);
-  const baseSpeed = (SHIP_TYPES.sloop?.speed || 12) * polarSpeed * state.sailTrim;
+  // Use the player's actual boat id (raft / sloop / …) — not a hardcoded sloop.
+  const boatIdForPolar = state.currentShipId || shipType || resolvePlayerBoatId();
+  const polarSpeed = calculatePolarSpeed(
+    boatIdForPolar,
+    THREE.MathUtils.radToDeg(normalizedAngle),
+    weather.windStrength,
+  );
+  const shipDef =
+    SHIP_TYPES[boatIdForPolar as keyof typeof SHIP_TYPES] ?? SHIP_TYPES.sloop;
+  const baseSpeed = (shipDef?.speed || 12) * polarSpeed * state.sailTrim;
 
   const severityInfo = getWeatherSeverityLevel(weather);
   const fullSailMult = state.fullSailTimer > 0 ? FULL_SAIL_MULTIPLIER : 1.0;

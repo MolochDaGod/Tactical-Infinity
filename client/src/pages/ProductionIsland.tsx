@@ -182,18 +182,25 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
   }, []);
 
   const spawnWave = useCallback((ai: YukaAISystem, terrain: TerrainData, wave: number) => {
+    // Deterministic combat waves from home-island seed (not Math.random).
+    const HOME_SEED = 42;
+    let s = (HOME_SEED ^ (wave * 0x9e3779b9)) >>> 0;
+    const rnd = () => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      return s / 0x100000000;
+    };
     const count = 3 + wave * 2;
     const factions: AIEnemyConfig['faction'][] = ['raider', 'undead', 'beast', 'bandit'];
     for (let i = 0; i < count; i++) {
-      const angle = Math.random() * Math.PI * 2;
-      const dist = 40 + Math.random() * 80;
+      const angle = rnd() * Math.PI * 2;
+      const dist = 40 + rnd() * 80;
       const x = Math.cos(angle) * dist;
       const z = Math.sin(angle) * dist;
       const y = terrain.getHeightAt(x, z);
       if (y < 1) continue;
       const cfg: AIEnemyConfig = {
         name: `${factions[i % 4]} ${i + 1}`,
-        level: wave + Math.floor(Math.random() * 3),
+        level: wave + Math.floor(rnd() * 3),
         position: new THREE.Vector3(x, y, z),
         faction: factions[i % 4],
         aggroRange: 18 + wave * 2,
@@ -209,10 +216,17 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
 
   const spawnResourceNodes = useCallback(async (scene: THREE.Scene, terrain: TerrainData) => {
     await preloadIslandAssets();
+    // Fixed seed matches generateIslandTerrain({ seed: 42 }) for canonical home island.
+    const HOME_SEED = 42;
     const positions = generateResourceNodePositions(terrain, 55, 10);
     const nodes: THREE.Group[] = [];
+    let rotSeed = (HOME_SEED ^ 0xc0ffee) >>> 0;
+    const nextRot = () => {
+      rotSeed = (Math.imul(rotSeed, 1664525) + 1013904223) >>> 0;
+      return (rotSeed / 0x100000000) * Math.PI * 2;
+    };
 
-    const loadPromises = positions.map(async (pos) => {
+    const loadPromises = positions.map(async (pos, idx) => {
       const zone = getNodeZone(terrain, pos.x, pos.z);
       const type = selectNodeTypeForZone(zone);
       const vis = NODE_VISUALS[type] || { color: 0x888888, scale: 1, kind: 'plant' };
@@ -245,13 +259,16 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
       }
 
       const grp = new THREE.Group();
-      grp.name = `node_${type}`;
+      grp.name = `node_${type}_${idx}`;
       grp.userData.nodeType = type;
       grp.userData.nodeKind = kind;
+      grp.userData.seed = HOME_SEED;
 
       if (model && model.children.length > 0) {
         grp.add(model);
       } else {
+        // Last resort only — prefer CDN ore/tree packs; log for ops.
+        console.warn('[ProductionIsland] node mesh missing, low-poly fallback', type, kind);
         const fallbackGeo = new THREE.DodecahedronGeometry(vis.scale * 0.3, 1);
         const fallbackMat = new THREE.MeshStandardMaterial({ color: vis.color, roughness: 0.8 });
         const fallback = new THREE.Mesh(fallbackGeo, fallbackMat);
@@ -263,7 +280,7 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
       const snapped = snapToTerrain(terrain, pos.x, pos.z);
       grp.position.set(snapped.x, snapped.y, snapped.z);
 
-      grp.rotation.y = Math.random() * Math.PI * 2;
+      grp.rotation.y = nextRot();
       scene.add(grp);
       nodes.push(grp);
     });

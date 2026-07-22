@@ -24,6 +24,11 @@ interface MeshyStatus {
   message: string;
 }
 
+/**
+ * Meshy AI helpers — **not production** on water.grudge-studio.com.
+ * Production characters = grudge6 CharacterBuilder only.
+ * This hook reports configured=false unless VITE_ENABLE_MESHY=true (local/admin).
+ */
 export function useMeshyModels() {
   const [isConfigured, setIsConfigured] = useState<boolean>(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -39,6 +44,14 @@ export function useMeshyModels() {
   }, [pollingInterval]);
 
   const checkMeshyStatus = useCallback(async () => {
+    // Production fleet: never treat Meshy as available.
+    const enable =
+      typeof import.meta !== 'undefined' &&
+      (import.meta as ImportMeta & { env?: Record<string, string> }).env?.VITE_ENABLE_MESHY === 'true';
+    if (!enable) {
+      setIsConfigured(false);
+      return;
+    }
     try {
       const response = await fetch('/api/meshy/status');
       const data: MeshyStatus = await response.json();
