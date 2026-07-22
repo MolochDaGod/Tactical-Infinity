@@ -58,7 +58,6 @@
     { "source": "/api/battles/:path*", "destination": "https://api.tactical-infinity.up.railway.app/api/battles/:path*" },
     { "source": "/api/roster", "destination": "https://api.tactical-infinity.up.railway.app/api/roster" },
     { "source": "/api/harvest/:path*", "destination": "https://api.tactical-infinity.up.railway.app/api/harvest/:path*" },
-    // Meshy AI: NOT production — admin-only via explicit local env. Do not route /api/meshy on water.grudge-studio.com.
     { "source": "/api/(.*)", "destination": "https://grudge-api-production-0d46.up.railway.app/api/$1" },
 
     { "source": "/(.*)", "destination": "/index.html" }
