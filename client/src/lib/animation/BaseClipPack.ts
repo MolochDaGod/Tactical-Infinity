@@ -89,11 +89,13 @@ export async function loadBaseCharacterPack(
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
-    // Prefer same-origin staged pack, then absolute CDN if rehosted later.
+    // Prefer same-origin staged pack FIRST. Production resolveGrudgeAssetUrl
+    // used to CDN-prefix this path, and assets CDN does not host the pack yet
+    // (404) while water.public (or host static) does.
     const candidates = [
-      url,
       BASE_CHARACTER_GLB,
       '/animations/base/animated-base-character.glb',
+      url,
     ].filter((u, i, a) => u && a.indexOf(u) === i);
 
     try {
@@ -166,7 +168,9 @@ export function hasBaseClip(role: BaseSemanticRole): boolean {
 
 /**
  * Retarget a base role onto a live skeleton (Mixamo / Bip001 / any humanoid).
- * Prefer this at character spawn over static maps when possible.
+ *
+ * Production grudge6 / Toon-RTS race meshes are **Bip001**. Prefer the static
+ * DEF→Bip001 map (known-good track renames) and fall back to semantic retarget.
  */
 export function retargetBaseRole(
   role: BaseSemanticRole,
@@ -176,6 +180,24 @@ export function retargetBaseRole(
   const key = opts?.upperBody ? `${baseLibraryKey(role)}/upper` : baseLibraryKey(role);
   const src = getClip(key) ?? getClip(baseLibraryKey(role));
   if (!src) return null;
+
+  let hasBip001 = false;
+  let hasMixamo = false;
+  targetRoot.traverse((o) => {
+    const n = o.name || '';
+    if (/^Bip001/i.test(n)) hasBip001 = true;
+    if (/mixamorig/i.test(n)) hasMixamo = true;
+  });
+
+  if (hasBip001) {
+    const baked = remapClipBones(src, DEF_TO_BIP001);
+    if (baked.tracks.length > 0) return baked;
+  }
+  if (hasMixamo) {
+    const baked = remapClipBones(src, DEF_TO_MIXAMO);
+    if (baked.tracks.length > 0) return baked;
+  }
+
   return retargetClip(src, targetRoot);
 }
 

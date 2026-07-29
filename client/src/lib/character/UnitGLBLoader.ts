@@ -28,6 +28,7 @@ import {
 } from '@/lib/animation';
 import { ANIM_BANK_PATH } from '@/data/factionUnits';
 import { resolveGrudgeAssetUrl, GLB_ATTACH_PATTERNS } from '@/lib/grudgeAssetConfig';
+import { applyBareLoadout } from '@/lib/characterMeshFilter';
 import { applyLoadout3D, disposeLoadout3D, findHandBone, findHeadBone, type Rig3D } from '@/lib/gear/rig3d';
 import type { ResolvedLoadout } from '@/lib/gear/loadout';
 
@@ -187,6 +188,21 @@ export class UnitCharacter {
     const gltf = await gltfLoader.loadAsync(resolveGrudgeAssetUrl(path));
     const root = gltf.scene as THREE.Group;
 
+    // Race GLBs are modular kits (every body/head/weapon variant). Hide kit
+    // clutter + keep one body/arms/legs/head BEFORE fitting so scale/Y seat
+    // use the real silhouette (not a stacked multi-body AABB).
+    applyBareLoadout(root, { pickOneVariant: true, log: false, label: path });
+
+    // Class kit: show one default weapon for knight preview (sword_A) if present;
+    // leave other weapons hidden by bare loadout. Barracks may re-equip later.
+    root.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh) return;
+      const n = (mesh.name || '').toLowerCase();
+      // Un-hide a single starter sword so pedestals aren't empty-handed blobs.
+      if (/weapon_sword_a|sword_a\b/.test(n)) mesh.visible = true;
+    });
+
     root.traverse((child) => {
       const mesh = child as THREE.Mesh;
       if (mesh.isMesh) {
@@ -210,14 +226,51 @@ export class UnitCharacter {
     });
 
     // Auto-fit: scale so the model is `targetHeight` tall and rests feet-on-floor.
-    const box = new THREE.Box3().setFromObject(root);
+    // Only include *visible* meshes so hidden kit doesn't inflate the AABB.
+    const box = new THREE.Box3();
+    let hasVisible = false;
+    root.updateMatrixWorld(true);
+    root.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.visible) return;
+      const geo = mesh.geometry;
+      if (!geo) return;
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      if (!geo.boundingBox) return;
+      const worldBox = geo.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+      if (!hasVisible) {
+        box.copy(worldBox);
+        hasVisible = true;
+      } else {
+        box.union(worldBox);
+      }
+    });
+    if (!hasVisible) box.setFromObject(root);
     const size = new THREE.Vector3();
     box.getSize(size);
     const rawHeight = size.y || 1;
     const fitScale = targetHeight / rawHeight;
     root.scale.setScalar(fitScale);
-    // Re-measure after scaling to seat feet on y=0.
-    const box2 = new THREE.Box3().setFromObject(root);
+    // Re-measure after scaling to seat feet on y=0 (visible meshes only).
+    root.updateMatrixWorld(true);
+    const box2 = new THREE.Box3();
+    let hasVis2 = false;
+    root.traverse((child) => {
+      const mesh = child as THREE.Mesh;
+      if (!mesh.isMesh || !mesh.visible) return;
+      const geo = mesh.geometry;
+      if (!geo) return;
+      if (!geo.boundingBox) geo.computeBoundingBox();
+      if (!geo.boundingBox) return;
+      const worldBox = geo.boundingBox.clone().applyMatrix4(mesh.matrixWorld);
+      if (!hasVis2) {
+        box2.copy(worldBox);
+        hasVis2 = true;
+      } else {
+        box2.union(worldBox);
+      }
+    });
+    if (!hasVis2) box2.setFromObject(root);
     root.position.y -= box2.min.y;
 
     const mixer = new THREE.AnimationMixer(root);
@@ -253,12 +306,12 @@ export class UnitCharacter {
     }
 
     // Layer A base pack — semantic base/* roles (loco/roll/attack/cast).
-    // Race GLBs on CDN ship ZERO baked clips; Rigify base pack lives on the
-    // water host (`/animations/base/animated-base-character.glb`) and must be
-    // RETARGETED onto Bip001 before the mixer can play it.
+    // Race GLBs on CDN ship ZERO baked clips; Rigify base pack is same-origin
+    // on water (`/animations/base/animated-base-character.glb`) and must be
+    // remapped DEF→Bip001 before the mixer can play it.
     if (includeBasePack) {
       const baseOk = await loadBaseCharacterPack(
-        resolveGrudgeAssetUrl('/animations/base/animated-base-character.glb'),
+        '/animations/base/animated-base-character.glb',
       );
       if (baseOk) {
         const roles: BaseSemanticRole[] = [

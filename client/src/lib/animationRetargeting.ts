@@ -23,7 +23,8 @@ import * as THREE from "three";
 //   "mixamorig:Spine" -> "spine"
 //   "BRB_Spine_01"    -> "spine01"
 //   "Spine"           -> "spine"
-const NAMESPACE_PREFIXES = /^(mixamorig:?|bip\d+_?|brb_|wk_|dwf_|elf_|elv_|orc_|ud_|und_)/i;
+// Include Rigify DEF- so Animated Base Character tracks normalize cleanly.
+const NAMESPACE_PREFIXES = /^(mixamorig:?|bip\d+_?|def[-_]?|brb_|wk_|dwf_|elf_|elv_|orc_|ud_|und_)/i;
 
 export function normalizeBoneName(name: string): string {
   return name
@@ -50,7 +51,7 @@ export function normalizeBoneName(name: string): string {
 // three vocabularies onto a single canonical token so the retargeter can
 // pair them.
 
-const SEMANTIC_PREFIX = /^(mixamorig:?|bip\d+\s*|brb[ _]?|wk[ _]?|dwf[ _]?|elf[ _]?|elv[ _]?|orc[ _]?|ud[ _]?|und[ _]?)/i;
+const SEMANTIC_PREFIX = /^(mixamorig:?|bip\d+\s*|def[-_]?|brb[ _]?|wk[ _]?|dwf[ _]?|elf[ _]?|elv[ _]?|orc[ _]?|ud[ _]?|und[ _]?)/i;
 
 function detectSide(s: string): "l" | "r" | "" {
   if (/^left/.test(s)) return "l";
@@ -72,12 +73,15 @@ function detectPart(s: string): string {
   if (/clavicle|shoulder/.test(c)) return "shoulder";
   if (/hand/.test(c)) return "hand";
   if (/thigh|upleg|upperleg/.test(c)) return "upleg";
-  if (/calf|lowerleg/.test(c) || /leg/.test(c)) return "leg";
+  // Rigify uses shin; Biped uses Calf; Mixamo uses Leg for lower leg.
+  if (/shin|calf|lowerleg/.test(c) || /leg/.test(c)) return "leg";
   if (/foot|ankle/.test(c)) return "foot";
   if (/toe/.test(c)) return "toe";
   if (/pelvis|hips|^hip/.test(c)) return "hips";
-  if (/spine2|upperchest|chest/.test(c)) return "spine2";
-  if (/spine1/.test(c)) return "spine1";
+  // Numbered spines before bare "spine" (DEF-spine.002 / Spine1 / Spine2).
+  if (/spine2|spine02|spine\.002|upperchest|chest/.test(c)) return "spine2";
+  if (/spine1|spine01|spine\.001/.test(c)) return "spine1";
+  if (/spine3|spine03|spine\.003/.test(c)) return "spine2";
   if (/spine/.test(c)) return "spine";
   if (/neck/.test(c)) return "neck";
   if (/head/.test(c)) return "head";

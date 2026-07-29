@@ -47,8 +47,15 @@ const EQUIPMENT_PATTERNS: readonly string[] = [
 // same slot we keep the first match and hide the rest. Patterns are tried in
 // order; whichever bucket the mesh name falls into, that bucket gets at most
 // one visible mesh.
+// Modular Toon-RTS / grudge6 race GLBs ship every Body_A/B/C, Arms_*, Legs_*,
+// head_* variant in one file. Without pick-one, the lineup is a stacked blob
+// (or looks "empty" once equipment submeshes dominate the silhouette).
 const PICK_ONE_BUCKETS: readonly { id: string; pattern: RegExp }[] = [
-  { id: "head",  pattern: /(?:^|[^a-z])head(?:[^a-z]|\d|$)/i },
+  { id: "body",  pattern: /units?_body|body_[a-z0-9]+$|_body_/i },
+  { id: "arms",  pattern: /units?_arms|arms_[a-z0-9]+$|_arms_/i },
+  { id: "legs",  pattern: /units?_legs|legs_[a-z0-9]+$|_legs_/i },
+  { id: "head",  pattern: /(?:^|[^a-z])head(?:[^a-z]|\d|$)|units?_head/i },
+  { id: "shoulders", pattern: /shoulderpad|pauldron|units?_shoulder/i },
   { id: "hair",  pattern: /(?:^|[^a-z])hair(?:[^a-z]|\d|$)/i },
   { id: "beard", pattern: /(?:^|[^a-z])beard(?:[^a-z]|\d|$)/i },
 ];

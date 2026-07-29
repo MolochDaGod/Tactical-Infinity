@@ -26,10 +26,21 @@ export function useAssetsCdn(): boolean {
  * Resolve a site-relative asset path (`/models/...`, `/toon_rts/...`) to the
  * correct URL for the current environment.
  */
+/**
+ * Paths that must stay same-origin on water.grudge-studio.com (or any host
+ * that ships them in `public/`). CDN rewrite/proxy for these keys 404s today
+ * (`assets…/animations/base/*` is empty) and was breaking Barracks idle.
+ */
+const HOST_LOCAL_PREFIXES = [
+  '/animations/base/',
+  '/anim/',
+] as const;
+
 export function resolveGrudgeAssetUrl(localPath: string): string {
   if (!localPath) return localPath;
   if (/^https?:\/\//i.test(localPath)) return localPath;
   const normalized = localPath.startsWith('/') ? localPath : `/${localPath}`;
+  if (HOST_LOCAL_PREFIXES.some((p) => normalized.startsWith(p))) return normalized;
   if (!useAssetsCdn()) return normalized;
   return `${getAssetsCdnBase()}${normalized}`;
 }
