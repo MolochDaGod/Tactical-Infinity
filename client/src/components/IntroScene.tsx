@@ -1,6 +1,7 @@
 import { useRef, useEffect, useState, useCallback } from 'react';
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import { Button } from '@/components/ui/button';
 import { SkipForward, Volume2, VolumeX } from 'lucide-react';
 import { oceanVertexShader, oceanFragmentShader } from '@/lib/oceanShader';
@@ -11,12 +12,12 @@ import { ClothSimulation, WindForce } from '@/lib/clothPhysics';
 import { StonewispController } from '@/lib/stonewisp/StonewispController';
 import { getMonsterAudio } from '@/lib/monsterAudio';
 
-/** Production hero mesh — CDN GRUDGE6 (same as Warlords / Character Studio). */
+/** Production hero mesh — CDN GRUDGE6 only (no meshy / fake stand-ins). */
 const HERO_GLB_CANDIDATES = [
   'https://assets.grudge-studio.com/models/heroes/grudge6/western-kingdoms_warrior.glb',
   'https://assets.grudge-studio.com/models/heroes/grudge6/orcs_warrior.glb',
-  '/models/characters/meshy_character.glb',
-  '/animations/base/animated-base-character.glb',
+  'https://assets.grudge-studio.com/models/heroes/grudge6/barbarians_warrior.glb',
+  'https://assets.grudge-studio.com/models/heroes/grudge6/elves_warrior.glb',
 ];
 
 interface IntroSceneProps {
@@ -759,6 +760,8 @@ export default function IntroScene({
     rainVelocitiesRef.current = rainVelocities;
     
     const gltfLoader = new GLTFLoader();
+    // Required for meshopt-compressed cinema GLBs on CDN
+    gltfLoader.setMeshoptDecoder(MeshoptDecoder);
     
     // Load wood debris models for ship destruction
     gltfLoader.load('/models/scenes/wood_debris_extracted/scene.gltf', (gltf) => {
@@ -780,13 +783,53 @@ export default function IntroScene({
       console.log('Wood debris loading error:', error);
     });
     
-    gltfLoader.load('/models/ships/ship-pirate-large.glb', async (gltf) => {
+    // Production ship SSOT: stylized pirate (cinema bake) → black-tide → legacy pirate-large
+    // Wrong/old ship + missing monster were leaving island-3d intro on procedural junk.
+    const SHIP_CANDIDATES = [
+      'https://assets.grudge-studio.com/models/cinema/stylized-pirate-ship.prod.glb',
+      '/models/cinema/stylized-pirate-ship.prod.glb',
+      'https://assets.grudge-studio.com/models/pirate/black-tide.glb',
+      'https://assets.grudge-studio.com/models/ships/ship-pirate-large.glb',
+      '/models/ships/ship-pirate-large.glb',
+    ];
+    const loadShipGltf = (urls: string[], i = 0): Promise<any> =>
+      new Promise((resolve, reject) => {
+        if (i >= urls.length) {
+          reject(new Error('all ship candidates failed'));
+          return;
+        }
+        gltfLoader.load(
+          urls[i]!,
+          resolve,
+          undefined,
+          () => {
+            console.warn('[Intro] ship load failed', urls[i]);
+            loadShipGltf(urls, i + 1).then(resolve, reject);
+          },
+        );
+      });
+
+    loadShipGltf(SHIP_CANDIDATES).then(async (gltf) => {
       const ship = gltf.scene;
-      ship.scale.set(8, 8, 8);
+      // Scale by AABB (stylized/black-tide SI metres; legacy pirate-large was ×8)
+      ship.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(ship);
+      const size = box.getSize(new THREE.Vector3());
+      const maxDim = Math.max(size.x, size.y, size.z, 0.001);
+      // Target hull ~45 m long for intro framing (human 1.8 m yardstick)
+      const targetLen = 45;
+      ship.scale.setScalar(targetLen / maxDim);
       ship.position.set(0, 3, 0);
-      
+      ship.updateMatrixWorld(true);
+      const box2 = new THREE.Box3().setFromObject(ship);
+      ship.position.y -= box2.min.y - 1.5;
+
       // Apply realistic wood, cloth, and metal textures to all ship parts
-      await applyShipTextures(ship, 'pirateLarge');
+      try {
+        await applyShipTextures(ship, 'pirateLarge');
+      } catch (e) {
+        console.warn('[Intro] applyShipTextures skipped', e);
+      }
       
       // Helper to detect sail-like geometry (thin vertical planes)
       const isSailLikeGeometry = (mesh: THREE.Mesh): boolean => {
@@ -1094,17 +1137,20 @@ export default function IntroScene({
       
       scene.add(ship);
       shipRef.current = ship;
-      
+      console.info('[Intro] ship mounted', {
+        size: new THREE.Box3().setFromObject(ship).getSize(new THREE.Vector3()).toArray(),
+      });
+
       if (shipLightRef.current) {
         shipLightRef.current.position.set(0, 45, 5);
       }
-    }, undefined, (error) => {
+    }).catch((error) => {
       console.log('Ship loading error, using fallback:', error);
       const fallbackShip = createFallbackShip();
       scene.add(fallbackShip);
       shipRef.current = fallbackShip;
     });
-    
+
     function createFallbackShip() {
       const group = new THREE.Group();
       

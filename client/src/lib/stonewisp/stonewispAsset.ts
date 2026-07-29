@@ -1,25 +1,30 @@
 /**
  * Stonewisp Beast — asset inventory + runtime discovery helpers.
  *
- * Canonical path (TI public / CDN):
- *   /models/scenes/stonewisp_beast/scene.gltf  (+ scene.bin + textures/)
+ * Production SSOT (R2 / CDN) — real mutant stingray GLB, not procedural fake:
+ *   models/creatures/ocean/mutant-stingray.prod.glb
+ * Source bake: D:\Games\Models\stonewisp_-_mutant_stingray_-rigged_and_animated.glb
  *
- * Described in IntroScene as a "mutant stingray" sea terror.
- * Materials (from cdnManifest texture names):
- *   Body · Eyes · Teeth · Tentacles
- *   maps: baseColor, normal, metallicRoughness, emissive
+ * Legacy (often missing → was causing fake procedural monster):
+ *   /models/scenes/stonewisp_beast/scene.gltf
  *
- * Animations used by intro (name includes):
- *   Swim · Intimidate · Inspect  (+ any others in the GLB)
- *
- * NOTE: Binary may be LFS/CDN-only. When the GLB is present, call
- * `analyzeStonewisp(root, clips)` after load for live skeleton dump.
+ * When the GLB is present, call `analyzeStonewisp(root, clips)` after load.
  */
 
 import * as THREE from 'three';
 
-export const STONEWISP_GLTF_PATH = '/models/scenes/stonewisp_beast/scene.gltf';
+/** Same-origin after TI deploy (optional local public mirror). */
+export const STONEWISP_GLTF_PATH =
+  '/models/creatures/ocean/mutant-stingray.prod.glb';
+
+/** Production CDN — preferred for water.grudge-studio.com / island-3d embed */
 export const STONEWISP_CDN_PATH =
+  'https://assets.grudge-studio.com/models/creatures/ocean/mutant-stingray.prod.glb';
+
+/** Legacy fallback only (often 404) */
+export const STONEWISP_LEGACY_GLTF_PATH =
+  '/models/scenes/stonewisp_beast/scene.gltf';
+export const STONEWISP_LEGACY_CDN_PATH =
   'https://assets.grudge-studio.com/models/scenes/stonewisp_beast/scene.gltf';
 
 /** Material / mesh groups expected on the asset */

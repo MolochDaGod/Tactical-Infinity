@@ -3,9 +3,12 @@
  */
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
 import {
   STONEWISP_GLTF_PATH,
   STONEWISP_CDN_PATH,
+  STONEWISP_LEGACY_GLTF_PATH,
+  STONEWISP_LEGACY_CDN_PATH,
   analyzeStonewisp,
   formatStonewispReport,
   matchAnimRole,
@@ -43,7 +46,8 @@ export class StonewispController {
 
   constructor(opts: StonewispControllerOpts) {
     this.opts = {
-      scale: 36,
+      // SI-ish: mutant-stingray prod GLB is already metre-scale; old gltf used ×36
+      scale: 12,
       path: STONEWISP_GLTF_PATH,
       ...opts,
     };
@@ -67,13 +71,26 @@ export class StonewispController {
 
   async load(): Promise<boolean> {
     const loader = new GLTFLoader();
-    const paths = [this.opts.path, STONEWISP_CDN_PATH];
+    loader.setMeshoptDecoder(MeshoptDecoder);
+    // Prefer production mutant-stingray GLB on CDN; legacy gltf last (often missing).
+    const paths = [
+      this.opts.path,
+      STONEWISP_CDN_PATH,
+      STONEWISP_GLTF_PATH,
+      STONEWISP_LEGACY_CDN_PATH,
+      STONEWISP_LEGACY_GLTF_PATH,
+    ].filter(Boolean) as string[];
+    // de-dupe while preserving order
+    const seen = new Set<string>();
     for (const path of paths) {
+      if (seen.has(path)) continue;
+      seen.add(path);
       try {
         const gltf = await new Promise<any>((resolve, reject) => {
-          loader.load(path!, resolve, undefined, reject);
+          loader.load(path, resolve, undefined, reject);
         });
         this.mount(gltf);
+        console.info('[Stonewisp] loaded', path);
         return true;
       } catch (e) {
         console.warn('[Stonewisp] load failed', path, e);

@@ -20,9 +20,11 @@ import {
   getClip,
   listClips,
   loadBaseCharacterPack,
+  retargetBaseRole,
   createRootLock,
   AnimGraph,
   type RootLockHandle,
+  type BaseSemanticRole,
 } from '@/lib/animation';
 import { ANIM_BANK_PATH } from '@/data/factionUnits';
 import { resolveGrudgeAssetUrl, GLB_ATTACH_PATTERNS } from '@/lib/grudgeAssetConfig';
@@ -191,15 +193,17 @@ export class UnitCharacter {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.frustumCulled = false; // skinned meshes: bounds move with the skeleton
-        if (envMap) {
-          const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
-          for (const m of mats) {
-            const sm = m as THREE.MeshStandardMaterial;
-            if ('envMap' in sm) {
-              sm.envMap = envMap;
-              sm.envMapIntensity = 0.7;
-              sm.needsUpdate = true;
-            }
+        const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material];
+        for (const m of mats) {
+          const sm = m as THREE.MeshStandardMaterial;
+          if (sm?.map) {
+            sm.map.colorSpace = THREE.SRGBColorSpace;
+            sm.map.needsUpdate = true;
+          }
+          if (envMap && 'envMap' in sm) {
+            sm.envMap = envMap;
+            sm.envMapIntensity = 0.7;
+            sm.needsUpdate = true;
           }
         }
       }
@@ -249,16 +253,79 @@ export class UnitCharacter {
     }
 
     // Layer A base pack — semantic base/* roles (loco/roll/attack/cast).
+    // Race GLBs on CDN ship ZERO baked clips; Rigify base pack lives on the
+    // water host (`/animations/base/animated-base-character.glb`) and must be
+    // RETARGETED onto Bip001 before the mixer can play it.
     if (includeBasePack) {
-      await loadBaseCharacterPack();
-      for (const key of listClips().filter((k) => k.startsWith('base/'))) {
-        if (clipByKey.has(key)) continue;
-        const clip = getClip(key);
-        if (!clip) continue;
-        clipByKey.set(key, clip);
-        const label = key.slice('base/'.length);
-        clips.push({ key, label, source: 'bank', category: 'base' });
+      const baseOk = await loadBaseCharacterPack(
+        resolveGrudgeAssetUrl('/animations/base/animated-base-character.glb'),
+      );
+      if (baseOk) {
+        const roles: BaseSemanticRole[] = [
+          'idle', 'walk', 'jog', 'sprint',
+          'jump_start', 'jump_loop', 'jump_land',
+          'roll', 'attack_melee', 'cast_shoot', 'death',
+        ];
+        // Alias map so Barracks LOCOMOTION_KEYMAP / playFirstAvailable(['idle']) work.
+        const aliases: Record<string, string[]> = {
+          idle: ['idle'],
+          walk: ['walk'],
+          jog: ['jog', 'run'],
+          sprint: ['sprint', 'run'],
+          jump_start: ['jump', 'jump_start'],
+          jump_loop: ['jump_loop'],
+          jump_land: ['jump_land'],
+          roll: ['roll', 'dodge'],
+          attack_melee: ['attack', 'sword_attack', 'attack_1', 'attack_melee'],
+          cast_shoot: ['cast', 'cast_shoot'],
+          death: ['death'],
+        };
+        for (const role of roles) {
+          try {
+            const retargeted = retargetBaseRole(role, root);
+            if (!retargeted) continue;
+            const names = aliases[role] ?? [role];
+            for (const name of names) {
+              if (clipByKey.has(name)) continue;
+              const clip = retargeted.clone();
+              clip.name = name;
+              if (stripRootMotion && /walk|run|sprint|jog|jump/i.test(name)) {
+                stripHorizontalRootMotion(clip);
+              }
+              clipByKey.set(name, clip);
+              clips.push({ key: name, label: name, source: 'bank', category: 'base' });
+            }
+            // Also keep base/<role> for AnimGraph
+            const baseKey = `base/${role}`;
+            if (!clipByKey.has(baseKey)) {
+              const c2 = retargeted.clone();
+              c2.name = baseKey;
+              clipByKey.set(baseKey, c2);
+              clips.push({ key: baseKey, label: role, source: 'bank', category: 'base' });
+            }
+          } catch (e) {
+            console.warn(`[UnitGLBLoader] retarget base/${role} failed:`, e);
+          }
+        }
       }
+      // If retarget failed entirely, still register raw base clips (won't drive Bip001
+      // but keeps API surface non-empty for debugging).
+      if (clips.length === 0) {
+        for (const key of listClips().filter((k) => k.startsWith('base/'))) {
+          const clip = getClip(key);
+          if (!clip) continue;
+          clipByKey.set(key, clip);
+          clips.push({ key, label: key.slice('base/'.length), source: 'bank', category: 'base' });
+        }
+      }
+    }
+
+    if (clips.length === 0) {
+      console.warn(
+        `[UnitGLBLoader] no clips for ${path} — mesh will T-pose. Check base pack + retarget.`,
+      );
+    } else {
+      console.info(`[UnitGLBLoader] ${path} → ${clips.length} clips (baked=${gltf.animations?.length ?? 0})`);
     }
 
     const lock = rootLock ? createRootLock(root) : null;

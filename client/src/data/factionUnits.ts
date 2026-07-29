@@ -62,14 +62,43 @@ export const FACTION_UNIT_COLORS: Record<Faction, number> = {
   legion: 0xdc2626,
 };
 
-const CHAR_BASE = '/models/characters';
+/**
+ * Production character meshes — SSOT on assets CDN.
+ *
+ * The old layout `public/models/characters/<faction>/<slug>_<class>.glb`
+ * was never uploaded (404 on water + R2). Barracks / Unit Viewer use the
+ * toon-rts-characters race GLBs (Bip001, modular meshes) which ARE live:
+ *   assets.grudge-studio.com/asset-packs/toon-rts-characters/glb/characters/<race>.glb
+ *
+ * Class (knight/mage/…) is a loadout/anim choice, not a separate mesh file.
+ */
+const TOON_RACE_GLB: Record<Race, string> = {
+  human: 'https://assets.grudge-studio.com/asset-packs/toon-rts-characters/glb/characters/human.glb',
+  barbarian: 'https://assets.grudge-studio.com/asset-packs/toon-rts-characters/glb/characters/barbarian.glb',
+  dwarf: 'https://assets.grudge-studio.com/asset-packs/toon-rts-characters/glb/characters/dwarf.glb',
+  elf: 'https://assets.grudge-studio.com/asset-packs/toon-rts-characters/glb/characters/elf.glb',
+  orc: 'https://assets.grudge-studio.com/asset-packs/toon-rts-characters/glb/characters/orc.glb',
+  undead: 'https://assets.grudge-studio.com/asset-packs/toon-rts-characters/glb/characters/undead.glb',
+};
 
-/** Absolute public path to a unit's starting-build GLB. */
-export function unitGLBPath(faction: Faction, raceSlug: string, cls: UnitClass): string {
-  return `${CHAR_BASE}/${faction}/${raceSlug}_${cls}.glb`;
+/** Map race slug (from FACTION_UNIT_RACES) → canonical Race id. */
+const SLUG_TO_RACE: Record<string, Race> = {
+  'western-kingdoms': 'human',
+  barbarians: 'barbarian',
+  dwarves: 'dwarf',
+  'high-elves': 'elf',
+  orcs: 'orc',
+  undead: 'undead',
+};
+
+/** Absolute CDN path to a unit's race mesh GLB (class does not change mesh file). */
+export function unitGLBPath(faction: Faction, raceSlug: string, _cls: UnitClass): string {
+  void faction;
+  const race = SLUG_TO_RACE[raceSlug] ?? (raceSlug as Race);
+  return TOON_RACE_GLB[race] ?? TOON_RACE_GLB.human;
 }
 
-/** Shared animation library GLB (Bip001-rigged, mesh-less). */
+/** Shared animation library GLB (optional; base pack + retarget is production fallback). */
 export const ANIM_BANK_PATH = '/anim/anim-bank.glb';
 
 export interface UnitDescriptor {

@@ -89,11 +89,29 @@ export async function loadBaseCharacterPack(
   if (loadPromise) return loadPromise;
 
   loadPromise = (async () => {
+    // Prefer same-origin staged pack, then absolute CDN if rehosted later.
+    const candidates = [
+      url,
+      BASE_CHARACTER_GLB,
+      '/animations/base/animated-base-character.glb',
+    ].filter((u, i, a) => u && a.indexOf(u) === i);
+
     try {
-      const gltf = await gltfLoader.loadAsync(url);
+      let gltf: Awaited<ReturnType<typeof gltfLoader.loadAsync>> | null = null;
+      let usedUrl = url;
+      for (const candidate of candidates) {
+        try {
+          gltf = await gltfLoader.loadAsync(candidate);
+          usedUrl = candidate;
+          break;
+        } catch {
+          /* try next */
+        }
+      }
+      if (!gltf) throw new Error('base pack not found on any candidate URL');
       const clips = gltf.animations ?? [];
       if (!clips.length) {
-        console.warn("[BaseClipPack] no animations in", url);
+        console.warn("[BaseClipPack] no animations in", usedUrl);
         return false;
       }
 
@@ -108,19 +126,19 @@ export async function loadBaseCharacterPack(
         }
         let clip = cloneClipWithName(raw, def.libraryKey);
         if (def.stripRoot) clip = stripRootMotion(clip);
-        registerClip(def.libraryKey, clip, undefined, url);
+        registerClip(def.libraryKey, clip, undefined, usedUrl);
         // Upper-body variant for moving combat overlays
         if (def.upperBody) {
           const upper = filterClipToNormalizedBones(clip, UPPER_BODY);
           if (upper.tracks.length) {
-            registerClip(`${def.libraryKey}/upper`, upper, undefined, url);
+            registerClip(`${def.libraryKey}/upper`, upper, undefined, usedUrl);
           }
         }
       }
 
       loaded = true;
       console.info(
-        `[BaseClipPack] registered ${listClips().filter((k) => k.startsWith("base/")).length} base/* clips from ${url}`,
+        `[BaseClipPack] registered ${listClips().filter((k) => k.startsWith("base/")).length} base/* clips from ${usedUrl}`,
       );
       return true;
     } catch (e) {
