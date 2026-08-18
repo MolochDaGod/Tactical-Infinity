@@ -80,7 +80,7 @@ import {
   type MissionResources,
 } from '@/lib/islandStarterMission';
 import { StarterRaftPanel } from '@/components/game/StarterRaftPanel';
-import { discoverRecipe, isRaftBuilt, markRaftBuilt } from '@/lib/playerProgression';
+import { awardHarvestXp, discoverRecipe, isRaftBuilt, markRaftBuilt } from '@/lib/playerProgression';
 import { nearIslet, type CoastalIslet } from '@/lib/placeCoastalIslet';
 
 interface Props {
@@ -894,8 +894,13 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
       skinTimerRef.current = Math.max(0, skinTimerRef.current - dt);
       if (keys.has('e') && skinTimerRef.current <= 0 && harvestToolRef.current === 'rod' && harvestSystemRef.current) {
         skinTimerRef.current = 0.8;
-        const leveledUp = harvestSystemRef.current.addXp('fishing', 8);
-        showHuntToast(`Caught a fish${leveledUp ? ' · Fishing up!' : ''}`);
+        harvestSystemRef.current.addXp('fishing', 8);
+        const fish = awardHarvestXp('fishing', 8);
+        showHuntToast(
+          fish.leveledUp
+            ? `Caught a fish · Fishing ${fish.level}${fish.level >= 26 ? ' · boat learned' : ''}`
+            : 'Caught a fish',
+        );
       } else if (keys.has('e') && skinTimerRef.current <= 0 && carcassManagerRef.current && harvestSystemRef.current) {
         const nodes = carcassManagerRef.current.getAllNodes();
         let nearest: (typeof nodes)[number] | null = null;

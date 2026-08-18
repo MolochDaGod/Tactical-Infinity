@@ -11,6 +11,11 @@ import {
 } from '@shared/gameDefinitions/waterEngagement';
 import { loadCaptainBuild, saveCaptainBuild } from '@/lib/captainBuild';
 import { getFleetCharacterId, TACTICAL_CAPTAIN_KEY } from '@/lib/grudgeCharacterSync';
+import {
+  FISHERMANS_BOAT_UNLOCK,
+  harvestUnlocksAtLevel,
+  type HarvestProfessionId,
+} from '@shared/gameDefinitions/professions';
 
 const STORAGE_KEY = 'gw-player-progression';
 
@@ -43,8 +48,10 @@ export interface PlayerProgression {
   boatCraftXp: number;
   /** Active raft hull id from RAFT_HULLS (short_plank…). */
   activeRaftHullId: string;
-  /** Discoverable recipes (e.g. orc_long). */
+  /** Discoverable recipes (e.g. orc_long, fishermans_boat). */
   discoveredRecipes: string[];
+  /** Six gather trees — same ladder as professions.ts */
+  harvesting: Record<HarvestProfessionId, { level: number; xp: number }>;
 }
 
 const DEFAULT: PlayerProgression = {
@@ -59,6 +66,14 @@ const DEFAULT: PlayerProgression = {
   boatCraftXp: 0,
   activeRaftHullId: 'short_plank',
   discoveredRecipes: [],
+  harvesting: {
+    mining: { level: 1, xp: 0 },
+    herbalism: { level: 1, xp: 0 },
+    woodcutting: { level: 1, xp: 0 },
+    fishing: { level: 1, xp: 0 },
+    skinning: { level: 1, xp: 0 },
+    foraging: { level: 1, xp: 0 },
+  },
 };
 
 function normalizeBoats(boats: string[] | undefined): BoatId[] {
@@ -92,6 +107,10 @@ export function loadProgression(): PlayerProgression {
       boatCraftXp: parsed.boatCraftXp ?? 0,
       activeRaftHullId: parsed.activeRaftHullId ?? 'short_plank',
       discoveredRecipes: parsed.discoveredRecipes ?? [],
+      harvesting: {
+        ...DEFAULT.harvesting,
+        ...(parsed.harvesting ?? {}),
+      },
     };
   } catch {
     return {
@@ -315,6 +334,43 @@ export function discoverRecipe(id: string): boolean {
 
 export function isRecipeDiscovered(id: string): boolean {
   return (loadProgression().discoveredRecipes ?? []).includes(id);
+}
+
+export function getHarvestLevel(id: HarvestProfessionId): number {
+  return loadProgression().harvesting?.[id]?.level ?? 1;
+}
+
+/** Award gather XP. Syncs profession unlocks (fisherman boat at fishing 26). */
+export function awardHarvestXp(id: HarvestProfessionId, amount: number): {
+  level: number;
+  leveledUp: boolean;
+} {
+  const p = loadProgression();
+  const row = p.harvesting?.[id] ?? { level: 1, xp: 0 };
+  row.xp += amount;
+  let leveledUp = false;
+  let need = Math.floor(100 * Math.pow(1.5, row.level - 1));
+  while (row.xp >= need) {
+    row.xp -= need;
+    row.level += 1;
+    leveledUp = true;
+    need = Math.floor(100 * Math.pow(1.5, row.level - 1));
+  }
+  p.harvesting = { ...DEFAULT.harvesting, ...p.harvesting, [id]: row };
+  for (const u of harvestUnlocksAtLevel(id, row.level)) {
+    if (!(p.discoveredRecipes ?? []).includes(u.id)) {
+      p.discoveredRecipes = [...(p.discoveredRecipes ?? []), u.id];
+    }
+  }
+  saveProgression(p);
+  return { level: row.level, leveledUp };
+}
+
+export function isFishermansBoatLearned(): boolean {
+  return (
+    isRecipeDiscovered(FISHERMANS_BOAT_UNLOCK) ||
+    getHarvestLevel('fishing') >= 26
+  );
 }
 
 export function resetDeckLoadout(hull: BoatId): void {

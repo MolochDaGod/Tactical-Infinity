@@ -176,6 +176,18 @@ export const FLEET_ASSET_CATALOG: readonly FleetAssetEntry[] = [
     notes: 'Stylized low-poly rowboat + two paddles. Not a raft.',
   },
   {
+    id: 'fishermans_boat',
+    kind: 'boat',
+    name: "Fisherman's Boat",
+    url: '/models/fleet/boats/fishermans_boat.glb',
+    lengthM: 4.8,
+    beamM: 1.6,
+    heightM: 1.35,
+    fitAxis: 'length',
+    deckCollider: { half: [0.68, 0.06, 1.95], offset: [0, 0.42, 0] },
+    notes: 'Fishing-profession hull (Journeyman 26). Upgraded rowboat — not a warship ladder id.',
+  },
+  {
     id: 'skiff',
     kind: 'boat',
     name: 'Pirate Skiff',

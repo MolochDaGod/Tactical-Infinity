@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { GATHERING_PROFESSIONS } from '@shared/gameDefinitions/professions';
 
 export type HarvestingProfession = 
   | 'woodcutting'
@@ -126,8 +127,8 @@ export const professionDefinitions: Record<HarvestingProfession, {
     description: 'Catch fish from water sources',
     iconType: 'fish',
     resourceTypes: ['fish_common', 'fish_rare'],
-    requiredTool: 'fishing_rod'
-  }
+    requiredTool: GATHERING_PROFESSIONS.fishing.requiredTool,
+  },
 };
 
 export const resourceDefinitions: Record<ResourceType, {

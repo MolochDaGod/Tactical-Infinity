@@ -22,9 +22,12 @@ import {
 } from '@shared/gameDefinitions/waterEngagement';
 import {
   awardBoatCraftXp,
+  discoverRecipe,
   getBoatCraftXp,
+  getHarvestLevel,
   getRaftLoadout,
   isBoatDockBuilt,
+  isFishermansBoatLearned,
   isRecipeDiscovered,
   loadProgression,
   markBoatDockBuilt,
@@ -32,6 +35,11 @@ import {
   setActiveRaftHull,
   setRaftAttachment,
 } from '@/lib/playerProgression';
+import {
+  FISHERMANS_BOAT_PATH,
+  FISHERMANS_BOAT_UNLOCK,
+  HARVEST_TREES,
+} from '@shared/gameDefinitions/professions';
 import { createDock } from '@/lib/islandDockSystem';
 
 const SLOTS: RaftAttachmentSlot[] = ['sail', 'mast', 'storage', 'utility', 'mooring', 'canopy'];
@@ -48,6 +56,7 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
   const dockRef = useRef<THREE.Object3D | null>(null);
   const gizmoRef = useRef<EditorGizmoSession | null>(null);
   const [hullId, setHullId] = useState(() => loadProgression().activeRaftHullId || 'short_plank');
+  const [viewFisherman, setViewFisherman] = useState(false);
   const [xp, setXp] = useState(() => getBoatCraftXp());
   const [, tick] = useState(0);
   const [status, setStatus] = useState('dock');
@@ -152,11 +161,13 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
     }
     const loader = new GLTFLoader();
     setStatus('loading hull');
+    const path = viewFisherman ? FISHERMANS_BOAT_PATH : hull.modelPath;
+    const heightM = viewFisherman ? 1.35 : hull.heightM;
     loader.load(
-      hull.modelPath,
+      path,
       (gltf) => {
         const g = gltf.scene;
-        normalizeToMetres(g, { targetSizeM: hull.heightM, axis: 'height', ground: true, centerXZ: true });
+        normalizeToMetres(g, { targetSizeM: heightM, axis: 'height', ground: true, centerXZ: true });
         g.position.set(0, 0.55, 6);
         root.add(g);
         hullMeshRef.current = g;
@@ -165,7 +176,7 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
       undefined,
       () => setStatus('missing mesh'),
     );
-  }, [hull.modelPath, hull.heightM]);
+  }, [hull.modelPath, hull.heightM, viewFisherman]);
 
   const buildHull = (def: RaftHullDef) => {
     if (def.requiresDock && !dockReady) {
@@ -176,6 +187,7 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
     const total = awardBoatCraftXp(def.craftXp);
     setXp(total);
     setHullId(def.id);
+    setViewFisherman(false);
     tick((n) => n + 1);
   };
 
@@ -213,6 +225,42 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
               }}
             />
           ))}
+        </section>
+
+        <section>
+          <h2 className="text-xs uppercase tracking-wide text-amber-400/80 mb-1">
+            Fishing hull · {HARVEST_TREES.fishing.profession.name} Lv {getHarvestLevel('fishing')}
+          </h2>
+          <button
+            type="button"
+            onClick={() => {
+              if (!isFishermansBoatLearned()) return;
+              setViewFisherman(true);
+              discoverRecipe(FISHERMANS_BOAT_UNLOCK);
+              awardBoatCraftXp(80);
+              tick((n) => n + 1);
+            }}
+            disabled={!isFishermansBoatLearned()}
+            className={`w-full text-left text-xs px-2 py-1.5 rounded border mb-1 ${
+              !isFishermansBoatLearned()
+                ? 'border-white/10 opacity-50'
+                : viewFisherman
+                  ? 'border-sky-400 bg-sky-950/50'
+                  : 'border-white/10 hover:border-sky-700/40'
+            }`}
+          >
+            <div className="flex justify-between">
+              <span>Fisherman's Boat</span>
+              <span className="text-sky-300/80">
+                {isFishermansBoatLearned() ? '+80 xp' : 'Lv 26'}
+              </span>
+            </div>
+            <div className="text-[10px] text-slate-500">
+              {isFishermansBoatLearned()
+                ? '4.8 m fishing hull · learned on the fishing tree'
+                : 'Journeyman fishing unlock — same 1/11/26/51/76 ladder as mining'}
+            </div>
+          </button>
         </section>
 
         <section>
@@ -267,7 +315,9 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
           onDeselect={() => gizmoRef.current?.detach()}
         />
         <div className="absolute bottom-3 left-3 text-[11px] bg-black/55 border border-amber-800/40 px-2 py-1 rounded">
-          {hull.name} · {hull.lengthM} m · {hull.cls}
+          {viewFisherman
+            ? "Fisherman's Boat · 4.8 m · fishing"
+            : `${hull.name} · ${hull.lengthM} m · ${hull.cls}`}
         </div>
       </div>
     </div>
