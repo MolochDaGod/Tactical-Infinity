@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
-import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { IslandCombatManager, type Enemy } from '@/lib/islandCombat';
 import { generateIslandTerrain, type TerrainData } from '@/lib/islandHeightmapTerrain';
 import { createToonOceanPlane, updateToonWater } from '@/lib/toonWaterShader';
@@ -13,6 +12,9 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Swords, Shield, Heart, Zap, ArrowLeft, Trophy, Skull, ChevronRight } from 'lucide-react';
 import { GameHUD } from '@/components/game/GameHUD';
 import { Button } from '@/components/ui/button';
+import { CharacterBuilder, CHAR_SCALE } from '@/lib/character/CharacterBuilder';
+import type { CharState } from '@/lib/character/grudgeClips';
+import type { Race } from '@/data/toonRTSAssets';
 
 interface BattleGroundsProps {
   onBack?: () => void;
@@ -40,193 +42,101 @@ const WAVES = [
   { count: 10, enemyHpMult: 1.8, enemyDmgMult: 1.6, label: 'BOSS WAVE — Warlord Assault' },
 ];
 
-// ── Toon RTS asset paths ──────────────────────────────────────────────────────
-const TOON_BASE = '/toon_rts/Toon_RTS';
-const WK_CHAR_FBX   = `${TOON_BASE}/WesternKingdoms/models/WK_Characters_customizable.FBX`;
-const WK_SWORD_FBX  = `${TOON_BASE}/WesternKingdoms/models/extra models/equipment/WK_weapon_sword_A.FBX`;
-
-// ── SimpleToonPlayer ─────────────────────────────────────────────────────────
-// Self-contained capsule controller with Toon RTS character visual loaded async.
-// Exposes the same interface used by the BattleGrounds game loop.
-
+/**
+ * grudge6 / Toon RTS battle player — CharacterBuilder SSOT only.
+ * - Body + equipped sword_shield (not all kit meshes, not geometric capsule)
+ * - Retargeted Bip001 anim packs (idle/run/attack)
+ * - Art-forward +Z (FBX +X → yaw π/2 on model)
+ * - Feet grounded to terrain via Box3 min.y
+ */
 class SimpleToonPlayer {
-  readonly isLoaded = true;               // always ready — capsule is instant
+  isLoaded = false;
   position: THREE.Vector3;
   state = 'idle';
 
-  private group: THREE.Group;            // capsule placeholder (shown immediately)
-  private toonGroup: THREE.Group | null = null;  // FBX visual (async)
-  private capsuleVis: THREE.Group;       // the actual capsule meshes
-  private mixer: THREE.AnimationMixer | null = null;
-  private anims: Map<string, THREE.AnimationAction> = new Map();
-  private currentAnimKey = '';
-
+  private group: THREE.Group;
+  private builder: CharacterBuilder | null = null;
   private keys = new Set<string>();
   private yaw = Math.PI;
   private pitch = 0.45;
   private cameraTarget = new THREE.Vector3();
-  private cameraPos    = new THREE.Vector3(0, 6, 10);
+  private cameraPos = new THREE.Vector3(0, 6, 10);
   private readonly CAM_DIST = 7;
   private readonly CAM_HEIGHT = 2.6;
+  /** World facing yaw applied to CharacterBuilder.group (after art-forward on FBX). */
+  private faceYaw = 0;
 
   private attackTimer = 0;
   private cleanupFns: Array<() => void> = [];
   private scene: THREE.Scene;
+  private race: Race;
 
-  constructor(scene: THREE.Scene, startPos = new THREE.Vector3(0, 2, 0)) {
+  constructor(scene: THREE.Scene, startPos = new THREE.Vector3(0, 2, 0), race: Race = 'human') {
     this.scene = scene;
-
+    this.race = race;
     this.group = new THREE.Group();
+    this.group.name = 'BattlePlayerRoot';
     this.group.position.copy(startPos);
     this.position = this.group.position;
-
-    // ── Capsule placeholder (human warrior look) ──────────────────────────
-    this.capsuleVis = new THREE.Group();
-
-    const mat  = (c: number) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.7 });
-    const skin = mat(0xC8956A);   // skin tone
-    const cloth= mat(0x5A3E2B);   // tunic
-    const metal= mat(0xB0B0B0);
-    const gold = mat(0xD4AA30);
-
-    // torso
-    const torso = new THREE.Mesh(new THREE.CapsuleGeometry(0.30, 0.65, 6, 12), cloth);
-    torso.position.y = 1.05; torso.castShadow = true;
-    this.capsuleVis.add(torso);
-
-    // head
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.24, 12, 8), skin);
-    head.position.y = 1.75; head.castShadow = true;
-    this.capsuleVis.add(head);
-
-    // legs
-    [-0.14, 0.14].forEach((x, i) => {
-      const leg = new THREE.Mesh(new THREE.CapsuleGeometry(0.12, 0.52, 4, 8), mat(i === 0 ? 0x4A3525 : 0x4A3525));
-      leg.position.set(x, 0.45, 0); leg.castShadow = true;
-      this.capsuleVis.add(leg);
-    });
-
-    // pauldrons
-    [-0.38, 0.38].forEach(x => {
-      const p = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), metal);
-      p.position.set(x, 1.22, 0); p.scale.set(1, 0.55, 0.85);
-      this.capsuleVis.add(p);
-    });
-
-    // sword
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.85, 0.04), metal);
-    blade.position.set(0.42, 1.15, 0.1); blade.rotation.z = -0.15;
-    blade.castShadow = true;
-    this.capsuleVis.add(blade);
-
-    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.05, 0.07), gold);
-    guard.position.set(0.42, 0.75, 0.1); guard.rotation.z = -0.15;
-    this.capsuleVis.add(guard);
-
-    this.group.add(this.capsuleVis);
     scene.add(this.group);
-
-    // load Toon RTS FBX async
-    this.loadToonVisual();
+    void this.loadGrudge6();
   }
 
-  private async loadToonVisual() {
+  private async loadGrudge6() {
     try {
-      const loader = new FBXLoader();
-      const fbx = await new Promise<THREE.Group>((res, rej) =>
-        loader.load(WK_CHAR_FBX, res, undefined, rej)
-      );
-
-      fbx.scale.setScalar(0.012);
-      fbx.traverse(c => {
-        const m = c as THREE.Mesh;
-        if (m.isMesh) {
-          m.castShadow = true;
-          m.receiveShadow = true;
-          if (Array.isArray(m.material)) {
-            m.material = m.material.map(mat => new THREE.MeshStandardMaterial({
-              color: (mat as THREE.MeshStandardMaterial).color ?? 0x8B7355,
-              roughness: 0.72, metalness: 0.1,
-            }));
-          } else {
-            m.material = new THREE.MeshStandardMaterial({
-              color: (m.material as THREE.MeshStandardMaterial).color ?? 0x8B7355,
-              roughness: 0.72, metalness: 0.1,
-            });
-          }
-        }
+      // sword_shield = body (bare kit filter) + equipped sword/shield on hands
+      const builder = new CharacterBuilder({
+        race: this.race,
+        weaponStyle: 'sword_shield',
+        scale: CHAR_SCALE,
       });
+      await builder.load();
+      this.builder = builder;
 
-      this.toonGroup = fbx;
-      this.toonGroup.position.copy(this.position);
-      this.toonGroup.rotation.y = this.group.rotation.y;
-      this.scene.add(this.toonGroup);
+      // Art-forward: grudge6 FBX faces +X → rotate model so local +Z is forward
+      const fbx = builder.group.children[0];
+      if (fbx) fbx.rotation.y = Math.PI / 2;
 
-      // Try to load sword and attach
-      try {
-        const swordFbx = await new Promise<THREE.Group>((res, rej) =>
-          (new FBXLoader()).load(WK_SWORD_FBX, res, undefined, rej)
-        );
-        swordFbx.scale.setScalar(0.012);
-        // Attach to right-hand bone
-        let attached = false;
-        this.toonGroup.traverse(child => {
-          if (!attached && child.name.toLowerCase().includes('hand_r')) {
-            child.add(swordFbx);
-            attached = true;
-          }
-        });
-        if (!attached) this.toonGroup.add(swordFbx); // fallback: just add to group
-      } catch (_) { /* no sword — fine */ }
-
-      this.capsuleVis.visible = false;
-
-      // Set up animation mixer
-      if (fbx.animations?.length > 0) {
-        this.mixer = new THREE.AnimationMixer(fbx);
-        fbx.animations.forEach(clip => {
-          const action = this.mixer!.clipAction(clip);
-          this.anims.set(clip.name.toLowerCase(), action);
-        });
-        this.playAnim('idle');
+      // Feet to local Y=0 (Box3 on skinned mesh after scale)
+      builder.group.position.set(0, 0, 0);
+      builder.group.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(builder.group);
+      if (isFinite(box.min.y)) {
+        builder.group.position.y = -box.min.y;
       }
 
-      console.log('[BattleGrounds] Toon RTS captain loaded ✓');
+      this.group.add(builder.group);
+      builder.play('idle');
+      this.isLoaded = true;
+      console.log('[BattleGrounds] grudge6 CharacterBuilder ready', this.race);
     } catch (err) {
-      console.warn('[BattleGrounds] Toon RTS FBX load failed — capsule used', err);
+      console.error('[BattleGrounds] CharacterBuilder FAILED — no geometric fallback', err);
     }
   }
 
-  private playAnim(keyword: string) {
-    const key = Array.from(this.anims.keys()).find(k => k.includes(keyword));
-    if (!key || key === this.currentAnimKey) return;
-
-    const prev = this.anims.get(this.currentAnimKey);
-    if (prev) prev.fadeOut(0.2);
-    const next = this.anims.get(key)!;
-    next.reset().fadeIn(0.2).play();
-    this.currentAnimKey = key;
+  private playState(state: CharState) {
+    this.builder?.play(state);
   }
 
   setupInput(container: HTMLElement) {
     const onDown = (e: KeyboardEvent) => { this.keys.add(e.code); e.preventDefault(); };
-    const onUp   = (e: KeyboardEvent) => this.keys.delete(e.code);
+    const onUp = (e: KeyboardEvent) => this.keys.delete(e.code);
     window.addEventListener('keydown', onDown);
     window.addEventListener('keyup', onUp);
 
     const onMove = (e: MouseEvent) => {
       if (document.pointerLockElement === container) {
-        this.yaw   -= e.movementX * 0.0025;
-        this.pitch  = Math.max(0.08, Math.min(0.72, this.pitch + e.movementY * 0.002));
+        this.yaw -= e.movementX * 0.0025;
+        this.pitch = Math.max(0.08, Math.min(0.72, this.pitch + e.movementY * 0.002));
       }
     };
     window.addEventListener('mousemove', onMove);
 
     const onClick = () => {
       if (document.pointerLockElement === container) {
-        this.attackTimer = 0.45;
+        this.attackTimer = 0.55;
         this.state = 'attack';
-        this.playAnim('attack');
+        this.playState('attack');
       } else {
         container.requestPointerLock();
       }
@@ -242,25 +152,25 @@ class SimpleToonPlayer {
   }
 
   update(dt: number, _camera: THREE.Camera, terrain?: TerrainData) {
-    // Attack timer
     if (this.attackTimer > 0) {
       this.attackTimer -= dt;
       if (this.attackTimer <= 0 && this.state === 'attack') {
         this.state = 'idle';
-        this.playAnim('idle');
+        this.playState('idle');
       }
     }
 
     if (document.pointerLockElement) {
       const sprint = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
-      const speed  = sprint ? 10.5 : 6.5;
+      const speed = sprint ? 10.5 : 6.5;
+      // Camera-relative move: yaw is camera orbit; forward = -sin/cos of yaw
       const sin = Math.sin(this.yaw);
       const cos = Math.cos(this.yaw);
 
       let dx = 0, dz = 0;
-      if (this.keys.has('KeyW') || this.keys.has('ArrowUp'))    { dx -= sin; dz -= cos; }
-      if (this.keys.has('KeyS') || this.keys.has('ArrowDown'))  { dx += sin; dz += cos; }
-      if (this.keys.has('KeyA') || this.keys.has('ArrowLeft'))  { dx -= cos; dz += sin; }
+      if (this.keys.has('KeyW') || this.keys.has('ArrowUp')) { dx -= sin; dz -= cos; }
+      if (this.keys.has('KeyS') || this.keys.has('ArrowDown')) { dx += sin; dz += cos; }
+      if (this.keys.has('KeyA') || this.keys.has('ArrowLeft')) { dx -= cos; dz += sin; }
       if (this.keys.has('KeyD') || this.keys.has('ArrowRight')) { dx += cos; dz -= sin; }
 
       const moving = Math.abs(dx) + Math.abs(dz) > 0.05;
@@ -271,32 +181,28 @@ class SimpleToonPlayer {
         this.position.z += dz * speed * dt;
         if (this.state !== 'attack') {
           this.state = sprint ? 'sprint' : 'run';
-          this.playAnim('run');
+          this.playState(sprint ? 'sprint' : 'run');
         }
-        const faceY = Math.atan2(dx, dz) + Math.PI;
-        this.group.rotation.y = faceY;
-        if (this.toonGroup) this.toonGroup.rotation.y = faceY;
+        // Face movement direction in world XZ (art-forward is already on FBX)
+        this.faceYaw = Math.atan2(dx, dz);
+        this.group.rotation.y = this.faceYaw;
       } else if (this.state === 'run' || this.state === 'sprint') {
         this.state = 'idle';
-        this.playAnim('idle');
+        this.playState('idle');
       }
     }
 
-    // Terrain height follow
+    // Terrain — feet on surface (group origin = feet after ground fix)
     if (terrain) {
-      const gy = terrain.getHeightAt(this.position.x, this.position.z);
-      this.position.y = gy;
+      this.position.y = terrain.getHeightAt(this.position.x, this.position.z);
     }
 
-    // Island boundary clamp
     const R = 40;
     const d = Math.sqrt(this.position.x ** 2 + this.position.z ** 2);
     if (d > R) { this.position.x *= R / d; this.position.z *= R / d; }
 
     this.group.position.copy(this.position);
-    if (this.toonGroup) this.toonGroup.position.copy(this.position);
-
-    if (this.mixer) this.mixer.update(dt);
+    this.builder?.update(dt);
   }
 
   applyCamera(camera: THREE.PerspectiveCamera) {
@@ -314,14 +220,15 @@ class SimpleToonPlayer {
     camera.position.copy(this.cameraPos);
 
     this.cameraTarget.lerp(
-      this.position.clone().add(new THREE.Vector3(0, 1.3, 0)), 0.12
+      this.position.clone().add(new THREE.Vector3(0, 1.3, 0)), 0.12,
     );
     camera.lookAt(this.cameraTarget);
   }
 
   dispose() {
-    this.cleanupFns.forEach(f => f());
-    if (this.toonGroup) this.scene.remove(this.toonGroup);
+    this.cleanupFns.forEach((f) => f());
+    this.builder?.dispose();
+    this.builder = null;
     this.scene.remove(this.group);
     document.exitPointerLock?.();
   }

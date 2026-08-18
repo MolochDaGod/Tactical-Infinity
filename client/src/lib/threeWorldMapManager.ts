@@ -20,6 +20,12 @@ import type { WeatherConfig } from './weatherSystem';
 import type { Race } from '@shared/schema';
 import { loadBoatTemplate } from './boatAssetLoader';
 import { resolveBoatId } from '@shared/gameDefinitions/boatRegistry';
+import { mountDeckStations } from './deckPlacement';
+import { getDeckLoadout } from './playerProgression';
+import {
+  RapierOpenSeaCombat,
+  type BallHitEvent,
+} from './naval/rapierOpenSeaCombat';
 
 export type CameraMode = 'third-person' | 'birds-eye' | 'chase';
 
@@ -216,6 +222,9 @@ export class ThreeWorldMapManager {
   private fishManager: FishManager | null = null;
   private cannonballEffects: CannonballEffects;
   private shipPartsManager: ShipPartsManager;
+  /** Rapier open-sea combat (hulls + CCD cannonballs + debris). Not Cannon.js. */
+  private rapierSea: RapierOpenSeaCombat = new RapierOpenSeaCombat();
+  private rapierHitsThisFrame: BallHitEvent[] = [];
   private gltfLoader: GLTFLoader;
   private meshyShipLoaded: boolean = false;
   private meshyShipData: DamageableShip | null = null;
@@ -351,6 +360,12 @@ export class ThreeWorldMapManager {
     this.cannonballEffects = new CannonballEffects(this.scene);
     this.shipPartsManager = new ShipPartsManager(this.scene);
     this.gltfLoader = new GLTFLoader();
+    // Rapier WASM for real projectile/hull hits (destroyable + repairable boats)
+    void this.rapierSea.init(this.scene).then(() => {
+      console.info('[WorldMap] Rapier open-sea combat ready');
+    }).catch((err) => {
+      console.warn('[WorldMap] Rapier init failed — falling back to distance hits', err);
+    });
     
     this.mainCamera = new THREE.PerspectiveCamera(
       60,
@@ -2197,6 +2212,8 @@ export class ThreeWorldMapManager {
     }
     
     innerGroup.rotation.y = Math.PI;
+    const boatId = resolveBoatId(shipType);
+    mountDeckStations(innerGroup, boatId, getDeckLoadout(boatId), { name: `sea_deck_${boatId}` });
     shipGroup.add(innerGroup);
     
     // Masthead wind pennant — a streamer that always points downwind so the
@@ -3094,6 +3111,8 @@ export class ThreeWorldMapManager {
     }
     
     innerGroup.rotation.y = Math.PI;
+    const npcBoat = resolveBoatId(shipSize);
+    mountDeckStations(innerGroup, npcBoat, undefined, { name: `npc_deck_${npcBoat}` });
     shipGroup.add(innerGroup);
     
     shipGroup.position.copy(position);
@@ -3311,6 +3330,20 @@ export class ThreeWorldMapManager {
     };
     
     this.cannonballs.set(id, cannonball);
+
+    // Rapier dynamic + CCD body (fleet physics — not Cannon.js)
+    if (this.rapierSea.isReady()) {
+      this.rapierSea.spawnCannonball({
+        id,
+        position: position.clone(),
+        velocity: launchVel.clone(),
+        ownerId,
+        damage,
+        radius: 0.55,
+        lifetime: 8,
+      });
+    }
+
     return cannonball;
   }
   
@@ -3456,13 +3489,14 @@ export class ThreeWorldMapManager {
     }
   }
   
-  // Repair ship damage
+  // Repair ship damage (hull HP + ShipPartsManager parts when registered)
   repairShip(amount: number): void {
     if (this.playerShip?.physics) {
       this.playerShip.physics.repair(amount);
     }
     if (this.playerShip) {
       this.playerShip.health = Math.min(this.playerShip.maxHealth, this.playerShip.health + amount);
+      this.shipPartsManager?.repairShip(this.playerShip.id, amount);
     }
   }
   
@@ -3582,46 +3616,94 @@ export class ThreeWorldMapManager {
     }
   }
   
+  /** Sync kinematic hulls into Rapier from sailing-sim transforms. */
+  private syncRapierHulls(): void {
+    if (!this.rapierSea.isReady()) return;
+    if (this.playerShip) {
+      this.rapierSea.syncShipHull({
+        id: this.playerShip.id,
+        kind: 'player',
+        halfExtents: RapierOpenSeaCombat.halfExtentsForShipType(this.playerShip.shipType),
+        position: this.playerShip.position,
+        yaw: this.playerShip.rotation,
+      });
+    }
+    this.npcShips.forEach((ship) => {
+      this.rapierSea.syncShipHull({
+        id: ship.id,
+        kind: 'npc',
+        halfExtents: RapierOpenSeaCombat.halfExtentsForShipType(ship.shipType),
+        position: ship.position,
+        yaw: ship.rotation,
+      });
+    });
+  }
+
   updateCannonballs(delta: number) {
-    // Fast arcade-style gravity for snappy cannonball physics
-    const gravity = -45; // Much stronger gravity for fast falling
-    const airDrag = 0.999; // Less air resistance
+    this.rapierHitsThisFrame = [];
+    this.syncRapierHulls();
+
+    // Prefer Rapier CCD dynamics when ready
+    if (this.rapierSea.isReady() && this.cannonballs.size > 0) {
+      const meshMap = new Map<string, THREE.Mesh>();
+      this.cannonballs.forEach((b, id) => meshMap.set(id, b.mesh));
+      const { hits, ballStates, removedBalls } = this.rapierSea.step(delta, meshMap);
+      this.rapierHitsThisFrame = hits;
+
+      ballStates.forEach((st, id) => {
+        const ball = this.cannonballs.get(id);
+        if (!ball) return;
+        ball.position.copy(st.pos);
+        ball.velocity.copy(st.vel);
+        this.cannonballEffects.updateTrail(id, ball.position, ball.velocity);
+      });
+
+      for (const id of removedBalls) {
+        const ball = this.cannonballs.get(id);
+        if (!ball) continue;
+        if (ball.position.y <= 0.2) {
+          this.cannonballEffects.createSplash(ball.position.clone(), true);
+        }
+        this.cannonballEffects.endTrail(id);
+        this.scene.remove(ball.mesh);
+        ball.mesh.geometry.dispose();
+        (ball.mesh.material as THREE.Material).dispose();
+        this.cannonballs.delete(id);
+      }
+
+      // Apply Rapier hull hits → HP + part damage + debris
+      for (const hit of hits) {
+        this.applyRapierShipHit(hit);
+      }
+
+      this.cannonballEffects.update(delta);
+      return;
+    }
+
+    // Fallback: arcade integrate (pre-Rapier / WASM not ready)
+    const gravity = -45;
+    const airDrag = 0.999;
     const toRemove: string[] = [];
     
     this.cannonballs.forEach((ball, id) => {
-      // Apply gravity to vertical velocity
       ball.velocity.y += gravity * delta;
-      
-      // Apply slight air drag for realistic deceleration
       ball.velocity.x *= Math.pow(airDrag, delta);
       ball.velocity.z *= Math.pow(airDrag, delta);
-      
-      // Update position
       ball.position.x += ball.velocity.x * delta;
       ball.position.y += ball.velocity.y * delta;
       ball.position.z += ball.velocity.z * delta;
-      
       ball.mesh.position.copy(ball.position);
-      
-      // Update trail effect (updateTrail only reads/copies — no clone needed)
       this.cannonballEffects.updateTrail(id, ball.position, ball.velocity);
-      
-      // Spin the cannonball based on velocity
       const speed = ball.velocity.length();
       ball.mesh.rotation.x += delta * speed * 0.08;
       ball.mesh.rotation.z += delta * speed * 0.04;
-      
       ball.lifetime -= delta;
-      
-      // Check for water impact
       if (ball.position.y <= 0) {
         this.cannonballEffects.createSplash(ball.position.clone(), true);
         toRemove.push(id);
       } else if (ball.lifetime <= 0) {
         toRemove.push(id);
       }
-      
-      // Note: Ship collision detection is handled by checkCollisions() method
     });
     
     toRemove.forEach(id => {
@@ -3636,6 +3718,48 @@ export class ThreeWorldMapManager {
     });
     
     this.cannonballEffects.update(delta);
+  }
+
+  /**
+   * VFX + part damage + debris when Rapier reports a hull hit.
+   * Hull HP is applied once by WorldMapScene from checkCollisions() — do not
+   * subtract health here (avoids double damage).
+   */
+  private applyRapierShipHit(hit: BallHitEvent): void {
+    this.cannonballEffects.createImpactExplosion(hit.point.clone());
+
+    const isPlayer = this.playerShip?.id === hit.shipId;
+    const ship = isPlayer ? this.playerShip : this.npcShips.get(hit.shipId);
+
+    if (isPlayer && ship) {
+      this.applyShipImpact(
+        hit.damage * 0.04,
+        Math.atan2(hit.point.x - ship.position.x, hit.point.z - ship.position.z),
+      );
+    }
+
+    // Mesh-part damage when parts-managed hull is registered
+    const partResult = this.shipPartsManager?.damageShipAtPoint(
+      hit.shipId,
+      hit.point,
+      hit.damage,
+    );
+    // Always throw some wood on solid hits; more when a part is destroyed
+    const throwDebris = partResult?.partDestroyed || hit.damage >= 15;
+    if (throwDebris) {
+      const dir = new THREE.Vector3(
+        hit.point.x - (ship?.position.x ?? 0),
+        1.5,
+        hit.point.z - (ship?.position.z ?? 0),
+      ).normalize();
+      this.rapierSea.spawnDebris({
+        id: `debris-${hit.ballId}-${Date.now()}`,
+        position: hit.point.clone().add(new THREE.Vector3(0, 1, 0)),
+        halfExtents: new THREE.Vector3(0.4, 0.12, 0.9),
+        impulse: dir.multiplyScalar(40 + hit.damage),
+        color: 0x4a3220,
+      });
+    }
   }
   
   updateTreasures(delta: number) {
@@ -3938,13 +4062,35 @@ export class ThreeWorldMapManager {
     const treasureCollects: string[] = [];
     
     if (!this.playerShip) return { shipHits, treasureCollects };
-    
-    this.cannonballs.forEach((ball, ballId) => {
-      this.npcShips.forEach((ship, shipId) => {
-        if (ball.ownerId !== shipId) {
-          const dist = ball.position.distanceTo(new THREE.Vector3(ship.position.x, 0, ship.position.z));
+
+    // Rapier already applied hits + VFX in updateCannonballs — report for HUD/XP
+    if (this.rapierSea.isReady() && this.rapierHitsThisFrame.length > 0) {
+      for (const h of this.rapierHitsThisFrame) {
+        shipHits.push({ targetId: h.shipId, damage: h.damage });
+      }
+      this.rapierHitsThisFrame = [];
+    } else if (!this.rapierSea.isReady()) {
+      // Distance fallback when Rapier WASM not ready
+      this.cannonballs.forEach((ball, ballId) => {
+        this.npcShips.forEach((ship, shipId) => {
+          if (ball.ownerId !== shipId) {
+            const dist = ball.position.distanceTo(new THREE.Vector3(ship.position.x, 0, ship.position.z));
+            if (dist < 6) {
+              shipHits.push({ targetId: shipId, damage: ball.damage });
+              this.cannonballEffects.createImpactExplosion(ball.position.clone());
+              this.cannonballEffects.endTrail(ballId);
+              this.scene.remove(ball.mesh);
+              this.cannonballs.delete(ballId);
+            }
+          }
+        });
+        
+        if (ball.ownerId !== this.playerShip!.id) {
+          const dist = ball.position.distanceTo(new THREE.Vector3(
+            this.playerShip!.position.x, 0, this.playerShip!.position.z
+          ));
           if (dist < 6) {
-            shipHits.push({ targetId: shipId, damage: ball.damage });
+            shipHits.push({ targetId: this.playerShip!.id, damage: ball.damage });
             this.cannonballEffects.createImpactExplosion(ball.position.clone());
             this.cannonballEffects.endTrail(ballId);
             this.scene.remove(ball.mesh);
@@ -3952,20 +4098,7 @@ export class ThreeWorldMapManager {
           }
         }
       });
-      
-      if (ball.ownerId !== this.playerShip!.id) {
-        const dist = ball.position.distanceTo(new THREE.Vector3(
-          this.playerShip!.position.x, 0, this.playerShip!.position.z
-        ));
-        if (dist < 6) {
-          shipHits.push({ targetId: this.playerShip!.id, damage: ball.damage });
-          this.cannonballEffects.createImpactExplosion(ball.position.clone());
-          this.cannonballEffects.endTrail(ballId);
-          this.scene.remove(ball.mesh);
-          this.cannonballs.delete(ballId);
-        }
-      }
-    });
+    }
     
     this.treasures.forEach((treasure, treasureId) => {
       if (!treasure.collected) {
@@ -4005,8 +4138,9 @@ export class ThreeWorldMapManager {
       this.oceanFloorManager.dispose();
     }
     
-    // Dispose cannonball effects
+    // Dispose cannonball effects + Rapier open-sea world
     this.cannonballEffects.dispose();
+    this.rapierSea.dispose();
     
     // Dispose wind streaks
     if (this.windStreaks) {

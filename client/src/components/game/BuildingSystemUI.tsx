@@ -94,13 +94,33 @@ const BUILDING_CATEGORIES: BuildingCategory[] = [
     icon: <Waves className="h-4 w-4" />,
     buildings: [
       {
+        id: 'fishing_dock',
+        name: 'Fishing Dock',
+        description: 'Viking fisherman house + pier. Harpoon / sailor work.',
+        cost: { wood: 20, stone: 10 },
+        size: { width: 3, depth: 5 },
+      },
+      {
         id: 'boat_dock',
         name: 'Boat Dock',
-        description: 'RTS shipyard — build Skiff through Man o’ War (raft is main-panel quick craft)',
+        description: 'Shipyard — build Skiff through Man o’ War (raft is main-panel quick craft)',
         cost: { wood: 40, stone: 25, ore: 5, gold: 50 },
         size: { width: 4, depth: 6 },
       },
-      { id: 'dock', name: 'Simple Dock', description: 'Landing pier (no shipyard)', cost: { wood: 20, stone: 10 }, size: { width: 2, depth: 3 } },
+      {
+        id: 'war_dock',
+        name: 'War Dock',
+        description: 'Battery pier — cannons, sniper nest, mage spot, harpoon',
+        cost: { wood: 70, stone: 40, ore: 20, gold: 120 },
+        size: { width: 5, depth: 8 },
+      },
+      {
+        id: 'capital_dock',
+        name: 'Capital Dock',
+        description: 'Home shipyard: viking house + berths for the hull ladder',
+        cost: { wood: 90, stone: 55, ore: 25, gold: 180 },
+        size: { width: 6, depth: 9 },
+      },
     ]
   },
   {

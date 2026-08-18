@@ -21,15 +21,15 @@ import { YukaAISystem, type AIEnemy, type AIEnemyConfig } from '@/lib/yukaEnemyA
 import { preloadAnimatedEnemyAssets } from '@/lib/animatedEnemyLoader';
 import { UnifiedNavSystem } from '@/lib/nav';
 import { PropColliderSystem } from '@/lib/PropColliderSystem';
-import { ARMOR_SLOTS, type ArmorSlot } from '@/lib/character/CharacterBuilder';
-import { UnitCharacter } from '@/lib/character/UnitGLBLoader';
-import { resolveUnitModel } from '@/lib/character/unitModel';
+import { CharacterBuilder, CHAR_SCALE, ARMOR_SLOTS, type ArmorSlot } from '@/lib/character/CharacterBuilder';
+import type { CharState } from '@/lib/character/grudgeClips';
 import { loadCaptainBuild } from '@/lib/captainBuild';
 import { loadGearCatalogue, localCatalogue, gearForSlot } from '@/lib/gear/catalogue';
 import { getLoadout, resolveLoadout, ensureLoadout, setSlot, subscribeLoadout, PLAYER_LOADOUT_ID, type Loadout, type ResolvedLoadout } from '@/lib/gear/loadout';
 import { GEAR_SLOTS, type GearItem, type GearSlot } from '@shared/gameDefinitions/gear';
 import { applyLoadout3D, findHandBone, findHeadBone, type Rig3D } from '@/lib/gear/rig3d';
 import type { Race, WeaponStyle } from '@/data/toonRTSAssets';
+import type { HotbarSlot } from '@/components/hud/CinzelOverlay';
 import {
   createDefaultGameFlow,
   grantPlayerXp,
@@ -84,6 +84,11 @@ const HARVEST_PROFESSION: Record<string, Profession> = {
   tree: 'woodcutting', rock: 'mining', goldmine: 'mining', plant: 'herbalism', animal: 'skinning',
 };
 
+/**
+ * Island battle captain — CharacterBuilder SSOT only.
+ * grudge6 body + equipped weapon set, retargeted anim packs, art-forward +Z,
+ * Box3 feet on terrain. NO geometric capsule / UnitGLB dual path.
+ */
 class IslandPlayer {
   group: THREE.Group;
   position: THREE.Vector3;
@@ -96,231 +101,123 @@ class IslandPlayer {
   attackDuration = 0;
   isAttacking = false;
   speedMult = 1;
-  private capsuleVis: THREE.Group;
-  private weapon: THREE.Group;
   private glow: THREE.PointLight;
   private scene: THREE.Scene;
-  // Body pivots — drive procedural attack/idle/walk animation. Right arm
-  // owns the weapon, so rotating its pivot rotates arm + weapon as a unit.
-  private rightArmPivot!: THREE.Group;
-  private leftArmPivot!: THREE.Group;
-  private upperBodyPivot!: THREE.Group;
-  private headPivot!: THREE.Group;
-  // Animation drivers
-  private animTime = 0;
-  private bodyLeanZ = 0;
-  private bodyTwistY = 0;
-  private lungeForward = 0;
   heightAt: (x: number, z: number) => number;
-  // Canonical 3D race character (replaces the box-mesh knight visual when loaded)
-  unit: UnitCharacter | null = null;
+
+  private builder: CharacterBuilder | null = null;
   private currentRace: Race | null = null;
-  private currentStyle: WeaponStyle | null = null;
-  private currentAnimKey: string | null = null;
+  private currentStyle: WeaponStyle = 'sword_shield';
+  private lastCharState: CharState | null = null;
   private charLoadToken = 0;
   private disposed = false;
+  /** Local Y offset so Box3 feet sit on terrain (applied under group). */
+  private feetY = 0;
 
   constructor(scene: THREE.Scene, heightAt: (x: number, z: number) => number) {
     this.scene = scene;
     this.heightAt = heightAt;
     this.group = new THREE.Group();
-    this.group.position.set(0, heightAt(0, 0) + 0.05, 0);
+    this.group.name = 'IslandBattlePlayer';
+    this.group.position.set(0, heightAt(0, 0), 0);
     this.position = this.group.position;
-    this.capsuleVis = new THREE.Group();
-    this._buildCapsule();
-    this.group.add(this.capsuleVis);
-    this.glow = new THREE.PointLight(0xFFAA44, 0, 3);
+    this.glow = new THREE.PointLight(0xFFAA44, 0, 4);
+    this.glow.position.y = 1.2;
     this.group.add(this.glow);
-    this.weapon = new THREE.Group();
-    this.weapon.position.set(0.42, 1.15, 0.1);
-    const bladeMat = new THREE.MeshStandardMaterial({ color: 0xD0D8E8, flatShading: true, roughness: 0.2, metalness: 0.9 });
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.7, 0.03), bladeMat);
-    blade.castShadow = true;
-    const bladeTip = new THREE.Mesh(new THREE.ConeGeometry(0.035, 0.15, 4), bladeMat);
-    bladeTip.position.y = 0.42;
-    bladeTip.rotation.y = Math.PI / 4;
-    const bladeEdge = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.65, 0.005), new THREE.MeshStandardMaterial({ color: 0xEEF0FF, roughness: 0.1, metalness: 1.0 }));
-    const guardMat = new THREE.MeshStandardMaterial({ color: 0xDAA520, flatShading: true, roughness: 0.3, metalness: 0.7 });
-    const guard = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.04, 0.08), guardMat);
-    guard.position.y = -0.36;
-    const pommel = new THREE.Mesh(new THREE.SphereGeometry(0.04, 5, 4), guardMat);
-    pommel.position.y = -0.52;
-    const grip = new THREE.Mesh(new THREE.CylinderGeometry(0.025, 0.025, 0.15, 6), new THREE.MeshStandardMaterial({ color: 0x4A2A10, roughness: 0.8 }));
-    grip.position.y = -0.44;
-    this.weapon.add(blade, bladeTip, bladeEdge, guard, pommel, grip);
-    this.capsuleVis.add(this.weapon);
-    // Now that the weapon Group exists, re-parent it under the right-arm
-    // pivot built inside `_buildCapsule()`. `attach` preserves the world
-    // transform so the sword stays in the same hand position.
-    this.capsuleVis.updateMatrixWorld(true);
-    this.rightArmPivot.attach(this.weapon);
     scene.add(this.group);
   }
 
-  private _buildCapsule() {
-    const lam = (c: number) => new THREE.MeshStandardMaterial({ color: c, flatShading: true, roughness: 0.7 });
-    const skinMat = lam(0xD4A574);
-    const armorMat = lam(0x4A5A70);
-    const darkArmor = lam(0x2A3548);
-    const leatherMat = lam(0x6B4226);
-    const goldMat = new THREE.MeshStandardMaterial({ color: 0xDAA520, flatShading: true, roughness: 0.3, metalness: 0.7 });
+  // ── grudge6 CharacterBuilder ─────────────────────────────────────────────
+  async setCharacter(race: Race, style: WeaponStyle): Promise<void> {
+    if (this.disposed) return;
+    this.currentRace = race;
+    this.currentStyle = style;
+    const token = ++this.charLoadToken;
 
-    const torso = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.28, 0.55, 8), armorMat);
-    torso.position.y = 1.08;
+    let builder: CharacterBuilder;
+    try {
+      builder = new CharacterBuilder({
+        race,
+        weaponStyle: style,
+        scale: CHAR_SCALE,
+      });
+      await builder.load();
+    } catch (err) {
+      console.error('[IslandBattle] CharacterBuilder FAILED — no geometric fallback', err);
+      return;
+    }
+    if (this.disposed || token !== this.charLoadToken) {
+      builder.dispose();
+      return;
+    }
 
-    const chest = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.35, 0.26), armorMat);
-    chest.position.y = 1.18;
+    // Tear down previous kit
+    if (this.builder) {
+      this.group.remove(this.builder.group);
+      this.builder.dispose();
+      this.builder = null;
+    }
 
-    const belt = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.26, 0.1, 8), leatherMat);
-    belt.position.y = 0.82;
-    const buckle = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.08, 0.14), goldMat);
-    buckle.position.set(0, 0.82, 0.13);
+    // Art-forward: grudge6 FBX faces +X → yaw π/2 so local +Z is forward
+    const fbx = builder.group.children[0];
+    if (fbx) fbx.rotation.y = Math.PI / 2;
 
-    const waist = new THREE.Mesh(new THREE.CylinderGeometry(0.24, 0.2, 0.2, 8), darkArmor);
-    waist.position.y = 0.72;
+    // Feet to local Y=0 (Box3 on skinned body after scale)
+    builder.group.position.set(0, 0, 0);
+    builder.group.updateMatrixWorld(true);
+    const box = new THREE.Box3().setFromObject(builder.group);
+    this.feetY = isFinite(box.min.y) ? -box.min.y : 0;
+    builder.group.position.y = this.feetY;
 
-    const neck = new THREE.Mesh(new THREE.CylinderGeometry(0.1, 0.12, 0.12, 6), skinMat);
-    neck.position.y = 1.42;
-    const head = new THREE.Mesh(new THREE.SphereGeometry(0.2, 8, 6), skinMat);
-    head.position.y = 1.64;
-    head.scale.set(1, 1.1, 0.95);
+    this.group.add(builder.group);
+    this.builder = builder;
+    this.lastCharState = null;
+    builder.play('idle');
+    console.log('[IslandBattle] grudge6 CharacterBuilder ready', race, style);
+  }
 
-    const helm = new THREE.Mesh(new THREE.SphereGeometry(0.22, 8, 5, 0, Math.PI * 2, 0, Math.PI * 0.6), armorMat);
-    helm.position.y = 1.72;
-    const helmRim = new THREE.Mesh(new THREE.TorusGeometry(0.21, 0.03, 4, 12), goldMat);
-    helmRim.position.y = 1.62;
-    helmRim.rotation.x = Math.PI / 2;
+  setWeaponStyle(style: WeaponStyle): void {
+    this.currentStyle = style;
+    if (this.builder?.ready) {
+      void this.builder.setWeaponStyle(style).then(() => {
+        this.lastCharState = null;
+        this.syncAnim();
+      });
+    } else if (this.currentRace) {
+      void this.setCharacter(this.currentRace, style);
+    }
+  }
 
-    const noseguard = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.14, 0.05), goldMat);
-    noseguard.position.set(0, 1.65, 0.18);
+  equipArmorVariant(slot: ArmorSlot, index: number | null): void {
+    this.builder?.equipArmorVariant(slot, index);
+  }
+  listArmor(slot: ArmorSlot): string[] {
+    return this.builder?.listArmor(slot) ?? [];
+  }
+  applyGearLoadout(resolved: ResolvedLoadout): void {
+    this.builder?.applyGearLoadout(resolved);
+  }
 
-    const shoulderGeo = new THREE.SphereGeometry(0.14, 6, 4);
-    const lShoulder = new THREE.Mesh(shoulderGeo, armorMat);
-    lShoulder.position.set(-0.36, 1.3, 0);
-    lShoulder.scale.set(1.2, 0.8, 1);
-    const rShoulder = new THREE.Mesh(shoulderGeo, armorMat);
-    rShoulder.position.set(0.36, 1.3, 0);
-    rShoulder.scale.set(1.2, 0.8, 1);
-
-    const armGeo = new THREE.CylinderGeometry(0.07, 0.08, 0.4, 6);
-    const lUpperArm = new THREE.Mesh(armGeo, skinMat);
-    lUpperArm.position.set(-0.38, 1.1, 0);
-    lUpperArm.rotation.z = 0.3;
-    const rUpperArm = new THREE.Mesh(armGeo, skinMat);
-    rUpperArm.position.set(0.38, 1.1, 0);
-    rUpperArm.rotation.z = -0.3;
-
-    const forearmGeo = new THREE.CylinderGeometry(0.06, 0.07, 0.35, 6);
-    const lForearm = new THREE.Mesh(forearmGeo, skinMat);
-    lForearm.position.set(-0.42, 0.82, 0.08);
-    lForearm.rotation.z = 0.15;
-    const rForearm = new THREE.Mesh(forearmGeo, skinMat);
-    rForearm.position.set(0.42, 0.82, 0.08);
-    rForearm.rotation.z = -0.15;
-
-    const bracerGeo = new THREE.CylinderGeometry(0.08, 0.09, 0.15, 6);
-    const lBracer = new THREE.Mesh(bracerGeo, leatherMat);
-    lBracer.position.set(-0.42, 0.88, 0.08);
-    const rBracer = new THREE.Mesh(bracerGeo, leatherMat);
-    rBracer.position.set(0.42, 0.88, 0.08);
-
-    const handGeo = new THREE.SphereGeometry(0.06, 5, 4);
-    const lHand = new THREE.Mesh(handGeo, skinMat);
-    lHand.position.set(-0.42, 0.68, 0.12);
-    const rHand = new THREE.Mesh(handGeo, skinMat);
-    rHand.position.set(0.42, 0.68, 0.12);
-
-    const thighGeo = new THREE.CylinderGeometry(0.1, 0.12, 0.42, 6);
-    const lThigh = new THREE.Mesh(thighGeo, darkArmor);
-    lThigh.position.set(-0.13, 0.5, 0);
-    const rThigh = new THREE.Mesh(thighGeo, darkArmor);
-    rThigh.position.set(0.13, 0.5, 0);
-
-    const shinGeo = new THREE.CylinderGeometry(0.08, 0.1, 0.38, 6);
-    const lShin = new THREE.Mesh(shinGeo, armorMat);
-    lShin.position.set(-0.13, 0.18, 0);
-    const rShin = new THREE.Mesh(shinGeo, armorMat);
-    rShin.position.set(0.13, 0.18, 0);
-
-    const bootGeo = new THREE.BoxGeometry(0.14, 0.08, 0.2);
-    const lBoot = new THREE.Mesh(bootGeo, leatherMat);
-    lBoot.position.set(-0.13, 0.02, 0.03);
-    const rBoot = new THREE.Mesh(bootGeo, leatherMat);
-    rBoot.position.set(0.13, 0.02, 0.03);
-
-    const kneeGeo = new THREE.SphereGeometry(0.07, 5, 4);
-    const lKnee = new THREE.Mesh(kneeGeo, armorMat);
-    lKnee.position.set(-0.13, 0.32, 0.04);
-    const rKnee = new THREE.Mesh(kneeGeo, armorMat);
-    rKnee.position.set(0.13, 0.32, 0.04);
-
-    const capeGeo = new THREE.PlaneGeometry(0.5, 0.7);
-    const capeMat = new THREE.MeshStandardMaterial({ color: 0x8B0000, flatShading: true, side: THREE.DoubleSide, roughness: 0.9 });
-    const cape = new THREE.Mesh(capeGeo, capeMat);
-    cape.position.set(0, 1.0, -0.16);
-    cape.rotation.x = 0.1;
-
-    const allParts = [
-      torso, chest, belt, buckle, waist, neck, head, helm, helmRim, noseguard,
-      lShoulder, rShoulder, lUpperArm, rUpperArm, lForearm, rForearm,
-      lBracer, rBracer, lHand, rHand,
-      lThigh, rThigh, lShin, rShin, lBoot, rBoot, lKnee, rKnee, cape
-    ];
-    allParts.forEach(m => { m.castShadow = true; this.capsuleVis.add(m); });
-
-    // --- Animation pivots ---------------------------------------------------
-    // The blocky body looks "kinda cute" but every prior frame the arms were
-    // FROZEN — only the weapon prop rotated, which read as wooden. Wrap the
-    // arm meshes (and the weapon) in shoulder pivots so the actual arm
-    // swings with the sword. `pivot.attach` preserves world transform so the
-    // rest pose is unchanged.
-
-    this.rightArmPivot = new THREE.Group();
-    this.rightArmPivot.position.set(0.36, 1.3, 0);
-    this.capsuleVis.add(this.rightArmPivot);
-
-    this.leftArmPivot = new THREE.Group();
-    this.leftArmPivot.position.set(-0.36, 1.3, 0);
-    this.capsuleVis.add(this.leftArmPivot);
-
-    this.headPivot = new THREE.Group();
-    this.headPivot.position.set(0, 1.42, 0); // base of neck
-    this.capsuleVis.add(this.headPivot);
-
-    // upperBodyPivot is anchored at the waist (y=0.85). Anything inside it
-    // leans/twists with the body without lifting the legs off the ground.
-    this.upperBodyPivot = new THREE.Group();
-    this.upperBodyPivot.position.set(0, 0.85, 0);
-    this.capsuleVis.add(this.upperBodyPivot);
-
-    // Make sure world matrices are populated before re-parenting so attach()
-    // can compute correct local transforms.
-    this.capsuleVis.updateMatrixWorld(true);
-
-    // Right arm + weapon move together — rotating the pivot rotates the
-    // whole sword arm as a unit, exactly how a swing actually works.
-    // NOTE: the weapon Group is built in the constructor *after* this
-    // method returns, so attaching it here would re-parent `undefined`
-    // and crash with "Cannot read properties of undefined (reading
-    // 'parent')". The constructor handles that attach itself once the
-    // weapon exists; only the body parts get attached here.
-    const rightArmParts = [rShoulder, rUpperArm, rForearm, rBracer, rHand];
-    rightArmParts.forEach(m => this.rightArmPivot.attach(m));
-
-    // Left arm pivot for opposite-side swing during locomotion / heavy attack.
-    const leftArmParts = [lShoulder, lUpperArm, lForearm, lBracer, lHand];
-    leftArmParts.forEach(m => this.leftArmPivot.attach(m));
-
-    // Head + helmet move with head pivot (look up during skill cast).
-    [head, helm, helmRim, noseguard, neck].forEach(m => this.headPivot.attach(m));
-
-    // Upper-body pivot owns the torso/chest/belt + the arm pivots + head pivot
-    // so a single body-lean / body-twist drives everything above the waist.
-    [torso, chest, belt, buckle].forEach(m => this.upperBodyPivot.attach(m));
-    this.upperBodyPivot.attach(this.rightArmPivot);
-    this.upperBodyPivot.attach(this.leftArmPivot);
-    this.upperBodyPivot.attach(this.headPivot);
-    this.upperBodyPivot.attach(cape);
+  /** Map battle state → CharacterBuilder CharState and play if changed. */
+  private syncAnim(): void {
+    if (!this.builder?.ready) return;
+    let charState: CharState;
+    switch (this.state) {
+      case 'walk':         charState = 'walk'; break;
+      case 'run':          charState = this.speedMult > 1.3 ? 'sprint' : 'run'; break;
+      case 'attack_light': charState = 'attack'; break;
+      case 'attack_heavy': charState = 'attack_heavy'; break;
+      case 'harvest':      charState = 'harvest'; break;
+      case 'skill':        charState = 'cast'; break;
+      default:             charState = 'idle';
+    }
+    const isLoco =
+      charState === 'idle' || charState === 'walk' || charState === 'run' || charState === 'sprint';
+    if (isLoco && charState === this.lastCharState) return;
+    // One-shots always re-fire when lastCharState was cleared by attack start
+    if (!isLoco && charState === this.lastCharState) return;
+    this.lastCharState = charState;
+    this.builder.play(charState, isLoco ? undefined : { force: true });
   }
 
   update(dt: number, keys: Set<string>, camera: THREE.PerspectiveCamera, targetDir?: number) {
@@ -334,7 +231,23 @@ class IslandPlayer {
     if (keys.has('a') || keys.has('arrowleft'))  { moveX -= camRight.x; moveZ -= camRight.z; }
     if (keys.has('d') || keys.has('arrowright')) { moveX += camRight.x; moveZ += camRight.z; }
     const len = Math.sqrt(moveX * moveX + moveZ * moveZ);
-    const moving = len > 0.01;
+    const moving = len > 0.01 && !this.isAttacking;
+
+    if (this.attackTimer > 0) {
+      this.attackTimer -= dt;
+      this.isAttacking = true;
+      if (this.attackTimer <= 0) {
+        this.isAttacking = false;
+        this.attackDuration = 0;
+        this.attackTimer = 0;
+        this.glow.intensity = 0;
+        // Allow loco/idle re-sync after one-shot finishes
+        this.lastCharState = null;
+      }
+    } else {
+      this.isAttacking = false;
+    }
+
     if (moving) {
       const nx = moveX / len, nz = moveZ / len;
       this.group.position.x += nx * SPEED * dt;
@@ -343,156 +256,42 @@ class IslandPlayer {
       if (keys.has('shift')) { this.state = 'run'; this.speedMult = 1.6; }
       else { this.state = 'walk'; this.speedMult = 1; }
     } else if (!this.isAttacking) {
-      this.state = 'idle'; this.speedMult = 1;
+      this.state = 'idle';
+      this.speedMult = 1;
+      if (targetDir !== undefined) this.facing = targetDir;
     }
-    if (moving) { this.capsuleVis.rotation.y = this.facing; this.weapon.rotation.y = 0; }
-    else if (targetDir !== undefined) { this.capsuleVis.rotation.y = targetDir; }
+
+    // World yaw on root (art-forward already on FBX child)
+    this.group.rotation.y = this.facing;
 
     const px = this.group.position.x, pz = this.group.position.z;
     const r2 = px * px + pz * pz;
-    if (r2 > 22 * 22) { const r = Math.sqrt(r2); this.group.position.x = px / r * 22; this.group.position.z = pz / r * 22; }
-    this.group.position.y = this.heightAt(this.group.position.x, this.group.position.z) + 0.03;
+    if (r2 > 22 * 22) {
+      const r = Math.sqrt(r2);
+      this.group.position.x = px / r * 22;
+      this.group.position.z = pz / r * 22;
+    }
+    // Feet on terrain — group origin is feet after feetY offset on builder
+    this.group.position.y = this.heightAt(this.group.position.x, this.group.position.z);
 
-    // -----------------------------------------------------------------------
-    // Procedural body animation. The arms used to be frozen during attacks —
-    // only the weapon prop rotated, which read as wooden. Now we drive the
-    // shoulder pivots, body lean / twist, head tilt, and a small forward
-    // lunge for a real swing. Heavy attack is a whirlwind spin; skill is an
-    // arms-overhead cast pose.
-    // -----------------------------------------------------------------------
-    this.animTime += dt;
-
-    // Per-frame target rest pose — overridden below when an action is active.
-    let armRX = 0;       // right shoulder rotation X (negative = up/back, positive = forward/down)
-    let armRZ = 0;
-    let armLX = 0;
-    let armLZ = 0;
-    let bodyTwistY = 0;  // upper-body twist around vertical axis
-    let bodyLeanZ = 0;   // upper-body side lean (used by heavy spin)
-    let bodyLeanX = 0;   // upper-body forward lean (chop follow-through)
-    let headTiltX = 0;   // negative = look up
-    let lunge = 0;       // forward push along facing
-    let glowTarget = 0;
-
-    if (this.attackTimer > 0) {
-      this.attackTimer -= dt;
-      this.isAttacking = true;
-      const dur = this.attackDuration > 0 ? this.attackDuration : 0.45;
-      const t = THREE.MathUtils.clamp(1 - this.attackTimer / dur, 0, 1);
-      const ease = (a: number, b: number, k: number) => a + (b - a) * (k * k * (3 - 2 * k)); // smoothstep
-
-      if (this.state === 'attack_light') {
-        // 3-phase chop: windup (0..0.3) → swing (0.3..0.7) → recover (0.7..1)
-        if (t < 0.3) {
-          const k = t / 0.3;
-          armRX = ease(0, -2.1, k);     // raise sword behind/above head
-          bodyTwistY = ease(0, 0.45, k); // coil shoulders right
-          armLX = ease(0, 0.5, k);      // off-hand counterbalance forward
-        } else if (t < 0.7) {
-          const k = (t - 0.3) / 0.4;
-          armRX = ease(-2.1, 1.3, k);   // explosive downward swing
-          bodyTwistY = ease(0.45, -0.35, k);
-          armLX = ease(0.5, -0.6, k);
-          bodyLeanX = Math.sin(k * Math.PI) * 0.25;
-          lunge = Math.sin(k * Math.PI) * 0.35;
-        } else {
-          const k = (t - 0.7) / 0.3;
-          armRX = ease(1.3, 0, k);      // arm settles back to rest
-          bodyTwistY = ease(-0.35, 0, k);
-          armLX = ease(-0.6, 0, k);
-        }
-        glowTarget = Math.sin(t * Math.PI) * 2.0;
-      } else if (this.state === 'attack_heavy') {
-        // Whirlwind: both arms extended out to the sides, body spins ~360°
-        // through the swing window then settles.
-        const spinT = t < 0.85 ? t / 0.85 : 1;
-        bodyTwistY = ease(0, Math.PI * 2.0, spinT);
-        const armOut = ease(0, -1.55, Math.min(t / 0.2, 1)) * (1 - Math.max(0, (t - 0.8) / 0.2));
-        armRX = armOut;
-        armLX = armOut;
-        armRZ = -0.55 + Math.sin(t * Math.PI) * -0.2;
-        armLZ =  0.55 + Math.sin(t * Math.PI) *  0.2;
-        bodyLeanZ = Math.sin(t * Math.PI * 2) * 0.12;
-        glowTarget = Math.sin(t * Math.PI) * 3.0;
-      } else if (this.state === 'skill') {
-        // Cast pose: both arms shoot overhead, head tilts up, glow pulses.
-        const k = Math.sin(t * Math.PI); // 0 → 1 → 0
-        armRX = -2.6 * k;
-        armLX = -2.6 * k;
-        armRZ = -0.25 * k;
-        armLZ =  0.25 * k;
-        headTiltX = -0.45 * k;
-        bodyLeanX = -0.12 * k; // slight back-arch
-        glowTarget = 4.0 * k;
-      } else if (this.state === 'harvest') {
-        // Repeated chopping — sine on right arm + small body bob.
-        const k = Math.sin(t * Math.PI * 2);
-        armRX = -0.6 + k * 0.9;
-        bodyTwistY = k * 0.15;
-        glowTarget = 0;
-      }
-    } else {
-      this.isAttacking = false;
-      this.attackDuration = 0;
+    // Soft skill glow decay
+    if (this.glow.intensity > 0 && !this.isAttacking) {
+      this.glow.intensity = Math.max(0, this.glow.intensity - dt * 4);
     }
 
-    // Locomotion overlay — only when NOT mid-attack so swings always read.
-    if (!this.isAttacking) {
-      if (this.state === 'walk' || this.state === 'run') {
-        const freq = this.state === 'run' ? 9 : 6;
-        const amp = this.state === 'run' ? 0.65 : 0.42;
-        const phase = this.animTime * freq;
-        armRX = Math.sin(phase) * amp;
-        armLX = -Math.sin(phase) * amp;
-        bodyTwistY = Math.sin(phase) * 0.08;
-        bodyLeanX = (this.state === 'run' ? 0.12 : 0.05); // slight forward lean while moving
-      } else {
-        // Idle breathing — torso rises subtly, arms sway.
-        const breath = Math.sin(this.animTime * 1.8);
-        bodyLeanX = breath * 0.025;
-        armRX = breath * 0.06 + Math.sin(this.animTime * 0.6) * 0.04;
-        armLX = -breath * 0.06 + Math.sin(this.animTime * 0.6 + Math.PI) * 0.04;
-      }
-    }
-
-    // Apply with small smoothing so transitions don't snap.
-    const k = Math.min(1, dt * 18);
-    this.rightArmPivot.rotation.x += (armRX - this.rightArmPivot.rotation.x) * k;
-    this.rightArmPivot.rotation.z += (armRZ - this.rightArmPivot.rotation.z) * k;
-    this.leftArmPivot.rotation.x  += (armLX - this.leftArmPivot.rotation.x)  * k;
-    this.leftArmPivot.rotation.z  += (armLZ - this.leftArmPivot.rotation.z)  * k;
-    this.upperBodyPivot.rotation.y += (bodyTwistY - this.upperBodyPivot.rotation.y) * k;
-    this.upperBodyPivot.rotation.z += (bodyLeanZ - this.upperBodyPivot.rotation.z) * k;
-    this.upperBodyPivot.rotation.x += (bodyLeanX - this.upperBodyPivot.rotation.x) * k;
-    this.headPivot.rotation.x      += (headTiltX  - this.headPivot.rotation.x)      * k;
-    this.lungeForward += (lunge - this.lungeForward) * k;
-    this.glow.intensity += (glowTarget - this.glow.intensity) * k;
-
-    // Apply forward lunge in the player's facing direction (capsule local).
-    const fwdSin = Math.sin(this.facing);
-    const fwdCos = Math.cos(this.facing);
-    const lungeX = fwdSin * this.lungeForward;
-    const lungeZ = fwdCos * this.lungeForward;
-    if (moving) {
-      this.capsuleVis.position.set(lungeX, Math.sin(Date.now() * 0.012) * 0.04, lungeZ);
-    } else {
-      this.capsuleVis.position.x = lungeX;
-      this.capsuleVis.position.z = lungeZ;
-      this.capsuleVis.position.y *= 0.9;
-    }
-
-    // Drive the canonical 3D character (skinned anim) if it has loaded.
-    if (this.unit) {
-      this.unit.update(dt);
-      this.syncAnim();
-    }
+    this.syncAnim();
+    this.builder?.update(dt);
   }
 
   doLightAttack() {
     if (this.isAttacking) return false;
     this.state = 'attack_light';
-    this.attackDuration = 0.45;
+    this.attackDuration = 0.55;
     this.attackTimer = this.attackDuration;
+    this.lastCharState = null; // force re-play attack clip
+    this.syncAnim();
+    this.glow.color.setHex(0xFFDD44);
+    this.glow.intensity = 1.5;
     return true;
   }
   doHeavyAttack() {
@@ -500,97 +299,39 @@ class IslandPlayer {
     this.state = 'attack_heavy';
     this.attackDuration = 0.85;
     this.attackTimer = this.attackDuration;
+    this.lastCharState = null;
+    this.syncAnim();
+    this.glow.color.setHex(0xFF4444);
+    this.glow.intensity = 2.5;
     return true;
   }
   startSkillAnimation(color: number) {
     this.glow.color.setHex(color);
+    this.glow.intensity = 3.5;
     this.state = 'skill';
-    this.attackDuration = 0.65;
+    this.attackDuration = 0.7;
     this.attackTimer = this.attackDuration;
+    this.isAttacking = true;
+    this.lastCharState = null;
+    this.syncAnim();
   }
-  // ── Canonical 3D character ───────────────────────────────────────────────
-  /**
-   * Drive the baked-GLB unit's OWN clips from the player state. Deduped on the
-   * resolved clip key — UnitCharacter.play() re-seeks the action on every call,
-   * so it must only be invoked when the target clip actually changes.
-   */
-  private syncAnim(): void {
-    if (!this.unit) return;
-    let candidates: string[];
-    let loop: boolean;
-    switch (this.state) {
-      case 'walk':         candidates = ['walk', 'run'];                                  loop = true;  break;
-      case 'run':          candidates = ['run', 'walk'];                                  loop = true;  break;
-      case 'harvest':      candidates = ['harvest', 'attack'];                            loop = true;  break;
-      case 'attack_light': candidates = ['sword_attack_a', 'attack', 'unarmed_uppercut']; loop = false; break;
-      case 'attack_heavy': candidates = ['sword_attack_c', 'sword_combo_finisher', 'attack']; loop = false; break;
-      case 'skill':        candidates = ['shield_bash', 'sword_dash_attack', 'attack'];   loop = false; break;
-      default:             candidates = ['idle'];                                         loop = true;
-    }
-    const key = candidates.find((k) => this.unit!.hasClip(k)) ?? 'idle';
-    if (key === this.currentAnimKey) return;
-    this.unit.play(key, { loop, fade: loop ? 0.25 : 0.12 });
-    this.currentAnimKey = key;
-  }
-
-  /** Swap the player's visual to its canonical faction GLB (async load). */
-  async setCharacter(race: Race, style: WeaponStyle): Promise<void> {
-    if (this.disposed) return;
-    this.currentRace = race;
-    this.currentStyle = style;
-    const token = ++this.charLoadToken;
-    const resolved = resolveUnitModel(race, { weaponStyle: style });
-    if (!resolved) return;
-
-    let unit: UnitCharacter;
-    try {
-      // Weapon comes BAKED from the mesh — no external attach. Root motion is
-      // stripped because the battle player is driven by game code, not by clips.
-      unit = await UnitCharacter.load(resolved.path, {
-        targetHeight: 1.8,
-        includeBank: false,
-        stripRootMotion: true,
-      });
-    } catch (e) {
-      console.warn('[IslandBattle] unit GLB load failed:', e);
-      return;
-    }
-    // A newer request superseded this one, or the player was disposed, while
-    // loading — discard the freshly built character.
-    if (this.disposed || token !== this.charLoadToken) { unit.dispose(); return; }
-
-    const old = this.unit;
-    if (old) old.dispose();
-
-    // Hide the procedural box-knight fallback, then attach the GLB so its own
-    // meshes (with baked weapon) become the visible character.
-    this.capsuleVis.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh) m.visible = false;
-    });
-    this.capsuleVis.add(unit.object);
-    this.unit = unit;
-    this.currentAnimKey = null;
+  startHarvestAnimation() {
+    this.state = 'harvest';
+    this.attackDuration = 0.5;
+    this.attackTimer = this.attackDuration;
+    this.isAttacking = true;
+    this.lastCharState = null;
     this.syncAnim();
   }
 
-  /** Weapon is baked per class GLB, so a style change reloads the matching build. */
-  setWeaponStyle(style: WeaponStyle): void {
-    this.currentStyle = style;
-    if (this.currentRace) void this.setCharacter(this.currentRace, style);
-  }
-  // Armor variants were FBX-submesh toggles; GLB armor is baked into the mesh.
-  equipArmorVariant(_slot: ArmorSlot, _index: number | null): void { /* baked into GLB */ }
-  listArmor(_slot: ArmorSlot): string[] { return []; }
-
-  /** Apply a resolved LOOT gear loadout on top of the baked build (hand bones). */
-  applyGearLoadout(resolved: ResolvedLoadout): void { this.unit?.applyGearLoadout(resolved); }
-
   dispose() {
     this.disposed = true;
-    this.charLoadToken++; // invalidate any in-flight setCharacter() load
-    this.unit?.dispose();
-    this.unit = null;
+    this.charLoadToken++;
+    if (this.builder) {
+      this.group.remove(this.builder.group);
+      this.builder.dispose();
+      this.builder = null;
+    }
     this.scene.remove(this.group);
   }
 }
@@ -1155,7 +896,7 @@ export default function IslandBattlePage({ onBack }: IslandBattlePageProps) {
         if (dockPrompt) { addKill('⚓ Captain Mode — set sail!'); return; }
         const ht = harvestTargetRef.current;
         if (ht && ht.hp > 0) {
-          player.state = 'harvest'; player.attackTimer = 0.5;
+          player.startHarvestAnimation();
           harvestNode(ht);
         }
         return;
@@ -1641,8 +1382,7 @@ export default function IslandBattlePage({ onBack }: IslandBattlePageProps) {
         </AnimatePresence>
       </div>
 
-      {/* Legacy GameHUD only renders with the dev escape hatch ?legacyhud=1 — */}
-      {/* otherwise the Cinzel overlay below is the single character HUD.    */}
+      {/* Legacy GameHUD only with ?legacyhud=1; Cinzel is default with live skill hotbar. */}
       {!isCinzelHudEnabled() && (
         <GameHUD
           mode="combat"
@@ -1664,7 +1404,7 @@ export default function IslandBattlePage({ onBack }: IslandBattlePageProps) {
             { id: "hp", label: "HP", current: playerHp, max: 500, color: playerHp < 150 ? "#ef4444" : "#22c55e", icon: "heart" },
             { id: "mp", label: "MP", current: playerMp, max: 200, color: "#3b82f6", icon: "zap" },
           ]}
-          hint="WASD Move · RMB Camera · Tab Target · C Panel · E Interact · 1-5 R F Z Skills"
+          hint="WASD Move · LMB Attack · RMB Heavy · Tab Target · C Panel · E Interact · 1-5 R F Z Skills"
         />
       )}
 
@@ -1673,7 +1413,39 @@ export default function IslandBattlePage({ onBack }: IslandBattlePageProps) {
           state={buildHudOverride({
             hp: { current: playerHp, max: 500 },
             mp: { current: playerMp, max: 200 },
-            fallback: { name: 'Captain', race: 'human', className: 'Warrior', level: gf.player.level },
+            fallback: {
+              name: 'Captain',
+              race: (charRace as 'human' | 'barbarian' | 'dwarf' | 'elf' | 'orc' | 'undead') || 'human',
+              className: 'Warrior',
+              level: gf.player.level,
+            },
+            // Live weapon skills → Cinzel 1–8 (digits 1–5 + R F Z mapped to 6–8)
+            hotbar: ([
+              ...SKILLS.slice(0, 5).map((skill, i): HotbarSlot => ({
+                key: i + 1,
+                name: skill.label,
+                icon: skill.icon,
+                cooldown: skillCools[skill.key] ?? 0,
+                disabled: (skillCools[skill.key] ?? 0) > 0.05,
+                onActivate: () => useSkill(skill.key),
+              })),
+              ...[
+                { skillKey: 'r', slot: 6 },
+                { skillKey: 'f', slot: 7 },
+                { skillKey: 'z', slot: 8 },
+              ].map(({ skillKey, slot }): HotbarSlot => {
+                const skill = SKILLS.find(s => s.key === skillKey)!;
+                return {
+                  key: slot,
+                  name: skill.label,
+                  icon: skill.icon,
+                  cooldown: skillCools[skillKey] ?? 0,
+                  disabled: (skillCools[skillKey] ?? 0) > 0.05,
+                  onActivate: () => useSkill(skillKey),
+                };
+              }),
+              { key: 9, name: 'Empty', icon: '', disabled: true },
+            ] as HotbarSlot[]),
           })}
           hideChat
         />

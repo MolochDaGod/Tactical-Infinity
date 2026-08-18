@@ -1,6 +1,9 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { ChestDropSystem, type ChestTier } from './chestDropSystem';
+import { CharacterBuilder, CHAR_SCALE } from '@/lib/character/CharacterBuilder';
+import type { CharState } from '@/lib/character/grudgeClips';
+import type { Race } from '@/data/toonRTSAssets';
 
 export type EnemyState = 'idle' | 'patrol' | 'chase' | 'attack' | 'hit' | 'death';
 export type PlayerCombatState = 'idle' | 'attacking' | 'dodging' | 'blocking' | 'staggered';
@@ -61,8 +64,12 @@ export interface PlayerCombat {
 }
 
 export interface CombatConfig {
-  enemyModelPath: string;
-  enemyAnimationsPath: string;
+  /** @deprecated Meshy paths ignored — grudge6 CharacterBuilder only */
+  enemyModelPath?: string;
+  enemyAnimationsPath?: string;
+  /** grudge6 race for enemies (default orc) */
+  enemyRace?: Race;
+  enemyWeaponStyle?: 'sword_shield' | 'axe' | 'greatsword' | 'spear';
 }
 
 const DEFAULT_ENEMY_STATS: CombatStats = {
@@ -101,11 +108,13 @@ export class IslandCombatManager {
   private playerCombat: PlayerCombat;
   private playerPosition: THREE.Vector3 = new THREE.Vector3();
   private nextId: number = 0;
-  private enemyModel: THREE.Group | null = null;
-  private enemyAnimations: THREE.AnimationClip[] = [];
+  /** Prototype grudge6 builder — cloned per spawn via SkeletonUtils */
+  private enemyPrototype: CharacterBuilder | null = null;
   private modelLoaded: boolean = false;
   private config: CombatConfig;
   private chestDropSystem: ChestDropSystem | null = null;
+  /** Per-enemy CharacterBuilder for anim updates */
+  private enemyBuilders = new Map<string, CharacterBuilder>();
 
   setChestSystem(system: ChestDropSystem): void {
     this.chestDropSystem = system;
@@ -123,9 +132,9 @@ export class IslandCombatManager {
     this.scene = scene;
     this.gltfLoader = new GLTFLoader();
     this.config = {
-      enemyModelPath: '/models/characters/meshy_biped/Meshy_AI_biped/Meshy_AI_Character_output.glb',
-      enemyAnimationsPath: '/models/characters/meshy_biped/Meshy_AI_biped/Meshy_AI_Meshy_Merged_Animations.glb',
-      ...config
+      enemyRace: 'orc',
+      enemyWeaponStyle: 'sword_shield',
+      ...config,
     };
 
     this.playerCombat = {
@@ -139,103 +148,77 @@ export class IslandCombatManager {
     };
   }
 
+  /**
+   * Load grudge6 race kit (body filter + equipped weapon style + retargeted anims).
+   * No Meshy. No geometric capsules.
+   */
   async loadEnemyAssets(): Promise<boolean> {
     try {
-      const [modelGltf, animGltf] = await Promise.all([
-        this.gltfLoader.loadAsync(this.config.enemyModelPath),
-        this.gltfLoader.loadAsync(this.config.enemyAnimationsPath)
-      ]);
+      const race = this.config.enemyRace ?? 'orc';
+      const style = this.config.enemyWeaponStyle ?? 'sword_shield';
+      const builder = new CharacterBuilder({
+        race,
+        weaponStyle: style as 'sword_shield',
+        scale: CHAR_SCALE,
+      });
+      await builder.load();
 
-      this.enemyModel = modelGltf.scene;
-      this.enemyAnimations = [...modelGltf.animations, ...animGltf.animations];
+      // Art-forward + feet ground on prototype
+      const fbx = builder.group.children[0];
+      if (fbx) fbx.rotation.y = Math.PI / 2;
+      builder.group.position.set(0, 0, 0);
+      builder.group.updateMatrixWorld(true);
+      const box = new THREE.Box3().setFromObject(builder.group);
+      if (isFinite(box.min.y)) builder.group.position.y = -box.min.y;
+
+      this.enemyPrototype = builder;
       this.modelLoaded = true;
-
-      console.log('Enemy model loaded with animations:', this.enemyAnimations.map(a => a.name));
+      console.log('[IslandCombat] grudge6 enemy prototype ready', race, style);
       return true;
     } catch (error) {
-      console.error('Failed to load enemy assets:', error);
+      console.error('[IslandCombat] grudge6 enemy load FAILED', error);
+      this.modelLoaded = false;
       return false;
     }
   }
 
-  /** Build a toon-style procedural orc enemy mesh when no GLTF is available. */
-  private buildFallbackEnemyMesh(): THREE.Group {
-    const grp = new THREE.Group();
-    const orcGreen = 0x4A6B2A;
-    const skinMat  = new THREE.MeshStandardMaterial({ color: orcGreen, roughness: 0.75 });
-    const armorMat = new THREE.MeshStandardMaterial({ color: 0x3A3020, roughness: 0.8, metalness: 0.15 });
-    const weapMat  = new THREE.MeshStandardMaterial({ color: 0x8A8A8A, metalness: 0.7, roughness: 0.3 });
-
-    // Body
-    const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.32, 0.85, 6, 12), skinMat);
-    body.position.y = 0.85; body.castShadow = true;
-    grp.add(body);
-
-    // Helmet
-    const helm = new THREE.Mesh(new THREE.SphereGeometry(0.25, 10, 8), armorMat);
-    helm.position.y = 1.75; helm.scale.y = 0.95; helm.castShadow = true;
-    grp.add(helm);
-
-    // Axe shaft
-    const shaft = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.04, 1.1, 6), armorMat);
-    shaft.position.set(0.42, 1.0, 0); shaft.rotation.z = -0.3; shaft.castShadow = true;
-    grp.add(shaft);
-
-    // Axe head
-    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.35, 0.08), weapMat);
-    blade.position.set(0.62, 1.45, 0); blade.rotation.z = -0.3;
-    grp.add(blade);
-
-    // Shoulder pads
-    [-1, 1].forEach(side => {
-      const pad = new THREE.Mesh(new THREE.SphereGeometry(0.16, 8, 6), armorMat);
-      pad.position.set(side * 0.38, 1.2, 0); pad.scale.set(1, 0.6, 0.9);
-      grp.add(pad);
-    });
-
-    grp.scale.setScalar(1.0);
-    return grp;
-  }
-
+  /**
+   * Spawn one enemy as a full CharacterBuilder instance (equipped gear + anims).
+   * Each unit gets its own builder so mixers don't fight.
+   */
   spawnEnemy(position: THREE.Vector3, patrolPoints?: THREE.Vector3[]): Enemy | null {
-    // Use loaded model OR build a procedural toon enemy as fallback
-    let mesh: THREE.Group;
-    if (this.modelLoaded && this.enemyModel) {
-      mesh = this.enemyModel.clone();
-      mesh.scale.setScalar(0.5);
-    } else {
-      mesh = this.buildFallbackEnemyMesh();
+    if (!this.modelLoaded || !this.enemyPrototype) {
+      console.warn('[IslandCombat] spawnEnemy before loadEnemyAssets — skip');
+      return null;
     }
+
+    const race = this.config.enemyRace ?? 'orc';
+    const style = (this.config.enemyWeaponStyle ?? 'sword_shield') as 'sword_shield';
+    const id = `enemy-${this.nextId++}`;
+
+    // Fire-and-forget async build — mesh placeholder group until ready
+    const mesh = new THREE.Group();
+    mesh.name = `grudge6-enemy-${id}`;
     mesh.position.copy(position);
-
-    mesh.traverse((child) => {
-      if (child instanceof THREE.Mesh) {
-        child.castShadow = true;
-        child.receiveShadow = true;
-      }
-    });
-
-    const mixer = new THREE.AnimationMixer(mesh);
-    const actions = new Map<string, THREE.AnimationAction>();
-
-    this.enemyAnimations.forEach((clip) => {
-      const action = mixer.clipAction(clip);
-      actions.set(clip.name.toLowerCase(), action);
-    });
+    // Art-forward facing
+    mesh.rotation.y = Math.atan2(
+      -position.x,
+      -position.z,
+    );
 
     const enemy: Enemy = {
-      id: `enemy-${this.nextId++}`,
+      id,
       mesh,
-      mixer,
-      actions,
+      mixer: null,
+      actions: new Map(),
       currentAction: null,
       state: 'idle',
       stats: { ...DEFAULT_ENEMY_STATS },
       position: position.clone(),
-      rotation: 0,
-      targetRotation: 0,
+      rotation: mesh.rotation.y,
+      targetRotation: mesh.rotation.y,
       aggroRadius: 15,
-      attackRadius: 2,
+      attackRadius: 2.2,
       attackCooldown: 0,
       hitStunTimer: 0,
       deathTimer: 0,
@@ -244,37 +227,55 @@ export class IslandCombatManager {
       patrolIndex: 0,
     };
 
-    this.playEnemyAnimation(enemy, 'idle');
     this.scene.add(mesh);
     this.enemies.set(enemy.id, enemy);
+
+    // Async load full grudge6 unit into the shell group
+    void (async () => {
+      try {
+        const builder = new CharacterBuilder({
+          race,
+          weaponStyle: style,
+          scale: CHAR_SCALE,
+        });
+        await builder.load();
+        const fbx = builder.group.children[0];
+        if (fbx) fbx.rotation.y = Math.PI / 2;
+        builder.group.position.set(0, 0, 0);
+        builder.group.updateMatrixWorld(true);
+        const box = new THREE.Box3().setFromObject(builder.group);
+        if (isFinite(box.min.y)) builder.group.position.y = -box.min.y;
+
+        mesh.add(builder.group);
+        builder.play('idle');
+        this.enemyBuilders.set(id, builder);
+        enemy.mixer = (builder as unknown as { mixer: THREE.AnimationMixer | null }).mixer ?? null;
+      } catch (e) {
+        console.warn('[IslandCombat] enemy CharacterBuilder failed', id, e);
+      }
+    })();
 
     return enemy;
   }
 
   private playEnemyAnimation(enemy: Enemy, animName: string): void {
-    const searchNames = [animName, animName.toLowerCase(), `${animName}_0`, 'idle'];
-    let action: THREE.AnimationAction | undefined;
-
-    for (const name of searchNames) {
-      action = enemy.actions.get(name);
-      if (action) break;
+    const builder = this.enemyBuilders.get(enemy.id);
+    if (builder) {
+      const map: Record<string, CharState> = {
+        idle: 'idle',
+        walk: 'walk',
+        run: 'run',
+        attack: 'attack',
+        hit: 'block',
+        death: 'death',
+        chase: 'run',
+        patrol: 'walk',
+      };
+      const state = map[animName.toLowerCase()] ?? 'idle';
+      builder.play(state);
+      return;
     }
-
-    if (!action) {
-      const firstAction = enemy.actions.values().next().value;
-      if (firstAction) action = firstAction;
-    }
-
-    if (!action) return;
-
-    if (enemy.currentAction && enemy.currentAction !== action) {
-      enemy.currentAction.fadeOut(0.2);
-    }
-
-    action.reset();
-    action.fadeIn(0.2);
-    action.play();
-    enemy.currentAction = action;
+    // Prototype not ready yet — no-op (idle when builder finishes)
   }
 
   private tierFromValue(value: number): ChestTier {
@@ -481,10 +482,13 @@ export class IslandCombatManager {
   }
 
   despawnAll(): void {
-    this.enemies.forEach(enemy => {
+    this.enemies.forEach((enemy) => {
       this.scene.remove(enemy.mesh);
+      const b = this.enemyBuilders.get(enemy.id);
+      b?.dispose();
+      this.enemyBuilders.delete(enemy.id);
     });
-    this.lootBoxes.forEach(loot => {
+    this.lootBoxes.forEach((loot) => {
       this.scene.remove(loot.mesh);
     });
     this.enemies.clear();
@@ -559,6 +563,9 @@ export class IslandCombatManager {
       if (enemy.state === 'death' && enemy.deathTimer <= 0) {
         this.createLootBox(enemy.position, enemy.lootValue);
         this.scene.remove(enemy.mesh);
+        const b = this.enemyBuilders.get(id);
+        b?.dispose();
+        this.enemyBuilders.delete(id);
         this.enemies.delete(id);
 
         if (this.playerCombat.lockedTarget?.id === id) {
@@ -577,9 +584,19 @@ export class IslandCombatManager {
   }
 
   private updateEnemy(enemy: Enemy, delta: number): void {
-    if (enemy.mixer) {
+    // grudge6 CharacterBuilder owns the mixer
+    const builder = this.enemyBuilders.get(enemy.id);
+    builder?.update(delta);
+    if (enemy.mixer && !builder) {
       enemy.mixer.update(delta);
     }
+
+    // Sync mesh transform to AI position + face player when chasing
+    enemy.mesh.position.x = enemy.position.x;
+    enemy.mesh.position.z = enemy.position.z;
+    // Keep Y from spawn/terrain (position.y already set)
+    enemy.mesh.position.y = enemy.position.y;
+    enemy.mesh.rotation.y = enemy.rotation;
 
     if (enemy.state === 'death') {
       enemy.deathTimer -= delta;
@@ -590,6 +607,7 @@ export class IslandCombatManager {
       enemy.hitStunTimer -= delta;
       if (enemy.hitStunTimer <= 0) {
         enemy.state = 'chase';
+        this.playEnemyAnimation(enemy, 'run');
       }
       return;
     }
@@ -631,10 +649,7 @@ export class IslandCombatManager {
       if (distanceToPlayer > enemy.attackRadius) {
         enemy.position.add(toPlayer.multiplyScalar(this.ENEMY_CHASE_SPEED * delta));
         enemy.mesh.position.copy(enemy.position);
-        
-        if (enemy.currentAction?.getClip().name !== 'run') {
-          this.playEnemyAnimation(enemy, 'run');
-        }
+        this.playEnemyAnimation(enemy, 'run');
       }
     } else if (enemy.patrolPoints.length > 0) {
       enemy.state = 'patrol';
@@ -656,10 +671,7 @@ export class IslandCombatManager {
 
         enemy.position.add(toTarget.multiplyScalar(this.ENEMY_MOVE_SPEED * delta));
         enemy.mesh.position.copy(enemy.position);
-
-        if (enemy.currentAction?.getClip().name !== 'walk') {
-          this.playEnemyAnimation(enemy, 'walk');
-        }
+        this.playEnemyAnimation(enemy, 'walk');
       }
     } else {
       if (enemy.state !== 'idle') {

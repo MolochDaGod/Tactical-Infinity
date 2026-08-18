@@ -19,6 +19,7 @@
     "@cocos/fbx2gltf-node": "^1.0.0-alpha.0",
     "@csstools/css-tokenizer": "^3.0.4",
     "@dimforge/rapier3d": "^0.19.3",
+    "@dimforge/rapier3d-compat": "^0.19.3",
     "@dobuki/phaser-game": "^1.0.36",
     "@floating-ui/react": "^0.27.16",
     "@gltf-transform/core": "^4.3.0",

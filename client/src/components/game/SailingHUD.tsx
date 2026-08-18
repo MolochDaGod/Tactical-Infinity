@@ -66,10 +66,8 @@ function cap(s: string): string {
 }
 
 /**
- * Unified boat HUD used in every boat context (world-map sailing, open water,
- * boat combat). Composes the shared GameHUD (vitals + ability/ammo hotbar) with
- * the WindCompass and a sea-state readout so there is a single source of truth
- * for the sailing UI rather than per-page JSX.
+ * RETIRED — open-sea chrome is `RtsSeaHud` (RTS-Grudge 5 command card).
+ * This file remains only so old imports do not break. Do not add overlays here.
  */
 export function SailingHUD({
   vitals,

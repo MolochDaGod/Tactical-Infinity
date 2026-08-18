@@ -566,8 +566,12 @@ export class IslandBuildingSystem {
       void this.seedFarmLivestock(buildingId, position);
     }
 
-    // Boat Dock RTS → unlocks dock hull construction (skiff…manOWar)
-    if (this.selectedBuildingType === 'boat_dock') {
+    // Shipyard docks unlock hull construction (skiff…manOWar)
+    if (
+      this.selectedBuildingType === 'boat_dock' ||
+      this.selectedBuildingType === 'war_dock' ||
+      this.selectedBuildingType === 'capital_dock'
+    ) {
       markBoatDockBuilt();
     }
 

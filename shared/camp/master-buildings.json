@@ -1,0 +1,6 @@
+{
+  "schema": "grudge.master-buildings/v1",
+  "description": "Canonical camp/RTS buildings — SSOT for TI + RTS-Grudge. Expand via shared/camp/masterBuildings.ts",
+  "cdnBase": "https://assets.grudge-studio.com",
+  "note": "TypeScript SSOT is authoritative; this JSON is a fleet mirror for ObjectStore/info."
+}

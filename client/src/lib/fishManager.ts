@@ -15,6 +15,7 @@ import {
 import { getFishWeightOverrides } from './adminOverrides';
 import {
   QUATERNIUS_FISH,
+  FISH_DISPLAY_COLOR,
   type QuaterniusFishDef,
 } from './quaterniusFish';
 import {
@@ -120,6 +121,11 @@ export class FishManager {
             child.castShadow = false;
             child.receiveShadow = false;
             child.frustumCulled = true;
+            child.material = new THREE.MeshLambertMaterial({
+              color: FISH_DISPLAY_COLOR[species.name] ?? 0x2ec4b6,
+              emissive: FISH_DISPLAY_COLOR[species.name] ?? 0x2ec4b6,
+              emissiveIntensity: 0.12,
+            });
           }
         });
 

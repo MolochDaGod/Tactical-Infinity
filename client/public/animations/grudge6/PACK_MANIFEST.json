@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "note": "Same-origin SSOT for grudge character animation packs. Loaded by client/src/lib/character/grudgeClips.ts. Do NOT rely on assets CDN for these paths (historical 404s).",
+  "sourceZips": [
+    "grudge6Locomotion Pack.zip",
+    "grudge6Magic Locomotion Pack.zip",
+    "grudge6gun.zip",
+    "grudgepistol.zio.zip",
+    "grudge6wandandpistols.zip",
+    "grudgeAction Adventure Pack.zip",
+    "grudgeFarming Pack.zip",
+    "grudge  8-Way Locomotion Pack.zip",
+    "25boneSlim Shooter Pack.zip (reloading only)",
+    "grudge6-creator.zip (melee GLB + Synty)"
+  ],
+  "packs": {
+    "locomotion": {
+      "role": "base idle/walk/run/jump/strafe",
+      "rig": "Mixamo",
+      "files": 12
+    },
+    "magic": {
+      "role": "staff/mage locomotion (weapon style staff)",
+      "rig": "Mixamo",
+      "files": 16
+    },
+    "gun": {
+      "role": "rifle aim/walk/run/fire/reload (weapon style gun)",
+      "rig": "Mixamo",
+      "files": 15
+    },
+    "pistol": {
+      "role": "handgun locomotion (optional pistol style)",
+      "rig": "Mixamo",
+      "files": 12
+    },
+    "action": {
+      "role": "melee default loco + parkour (sword_shield/greatsword/axe)",
+      "rig": "Mixamo",
+      "files": 16
+    },
+    "farming": {
+      "role": "harvest / plant / carry",
+      "rig": "Mixamo",
+      "files": 15
+    },
+    "8way": {
+      "role": "full 8-direction walk/run/sprint + crouch + deaths",
+      "rig": "Mixamo",
+      "files": 41
+    },
+    "melee": {
+      "role": "attack/death one-shots (creator GLB) + Synty loco fallbacks",
+      "rig": "Mixamo/Synty",
+      "files": 9
+    }
+  },
+  "weaponStyleMap": {
+    "sword_shield": "sword_shield Mixamo pack (idle/walk/run/slash/block/cast/death)",
+    "greatsword": "greatsword pack (idle/walk/run/slash) + sword_shield death",
+    "axe": "sword_shield pack (melee_1h)",
+    "spear": "greatsword pack (melee_2h)",
+    "mace_shield": "sword_shield pack (melee_1h)",
+    "staff": "magic loco + sword_shield casting",
+    "gun": "gun pack fire/reload",
+    "bow": "base loco + sword slash until longbow pack"
+  },
+  "extraSources": {
+    "sword_shield": "D:\\Games\\Models\\Sword and Shield Pack.zip + Lite Sword and Shield Pack.zip",
+    "greatsword": "D:\\Games\\Models\\Great Sword Pack.zip + root Great Sword *.fbx"
+  },
+  "notes": [
+    "25bone* packs are reduced-skeleton variants of pistol/gun — full Mixamo packs preferred for Bip001 retarget.",
+    "grudge6-creator is an app bundle; only GLB melee clips + Synty FBX staged as fallbacks.",
+    "Upload this tree to R2 under animations/grudge6/ only after verifying same-origin load works."
+  ]
+}

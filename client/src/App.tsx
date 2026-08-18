@@ -47,6 +47,9 @@ const TurretDemo = lazy(() => import("@/pages/TurretDemo"));
 const PlayerArena = lazy(() => import("@/pages/PlayerArena"));
 const IslandEditorPage = lazy(() => import("@/pages/IslandEditorPage"));
 const ProductionIsland = lazy(() => import("@/pages/ProductionIsland"));
+const FleetAssetViewer = lazy(() => import("@/pages/FleetAssetViewer"));
+const BoatDockWorkshop = lazy(() => import("@/pages/BoatDockWorkshop"));
+const FishCodexPage = lazy(() => import("@/pages/FishCodexPage"));
 const EquipmentDemo = lazy(() => import("@/pages/EquipmentDemo"));
 const ClassTree = lazy(() => import("@/pages/ClassTree"));
 
@@ -199,6 +202,8 @@ function GameApp() {
       <ProductionIsland
         onBack={() => game.setPhase(canSailWorldMap() ? "worldmap" : "menu")}
         onSetSail={() => game.setPhase("worldmap")}
+        onOpenDockWorkshop={() => game.setPhase("dockworkshop")}
+        onOpenFishCodex={() => game.setPhase("fishcodex")}
       />
     );
   }
@@ -318,6 +323,23 @@ function GameApp() {
 
   if (game.phase === "shipeditor") {
     return <ShipEditor onBack={() => game.setPhase("menu")} />;
+  }
+
+  if (game.phase === "fleetviewer") {
+    return <FleetAssetViewer onBack={() => game.setPhase("admin")} />;
+  }
+
+  if (game.phase === "dockworkshop") {
+    return (
+      <BoatDockWorkshop
+        onBack={() => game.setPhase("productionisland")}
+        onLaunch={() => game.setPhase("worldmap")}
+      />
+    );
+  }
+
+  if (game.phase === "fishcodex") {
+    return <FishCodexPage onBack={() => game.setPhase("productionisland")} />;
   }
 
   if (game.phase === "intro") {

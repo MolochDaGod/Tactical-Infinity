@@ -60,11 +60,17 @@ const STATE_BLEND: Partial<Record<CharState, Partial<BlendConfig>>> = {
   idle: { fadeIn: 0.3, loop: true },
   walk: { fadeIn: 0.2, loop: true },
   run: { fadeIn: 0.15, loop: true },
+  sprint: { fadeIn: 0.12, loop: true, timeScale: 1.05 },
   attack: { fadeIn: 0.12, fadeOut: 0.2, loop: false, timeScale: 1.1, clamp: true },
+  attack_heavy: { fadeIn: 0.1, fadeOut: 0.22, loop: false, timeScale: 1.0, clamp: true },
   block: { fadeIn: 0.1, loop: false, clamp: true },
   cast: { fadeIn: 0.15, loop: false, clamp: true },
   jump: { fadeIn: 0.12, loop: false, clamp: true },
   death: { fadeIn: 0.3, loop: false, clamp: true, timeScale: 0.8 },
+  harvest: { fadeIn: 0.15, fadeOut: 0.2, loop: false, timeScale: 1.0, clamp: true },
+  reload: { fadeIn: 0.12, fadeOut: 0.2, loop: false, clamp: true },
+  strafe_left: { fadeIn: 0.15, loop: true },
+  strafe_right: { fadeIn: 0.15, loop: true },
 };
 function blendFor(state: CharState): BlendConfig {
   return { ...DEFAULT_BLEND, ...(STATE_BLEND[state] ?? {}) };
@@ -241,16 +247,27 @@ export class CharacterBuilder {
     return this.actions.keys().next().value ?? '';
   }
 
-  play(state: CharState): void {
+  /**
+   * Play a semantic state. One-shots (attack/cast/block/jump) re-fire even when
+   * already on that clip so combos and skill presses always read.
+   */
+  play(state: CharState, opts?: { force?: boolean }): void {
     if (!this.mixer) return;
     const key = this.resolveKey(state);
-    if (!key || this.currentKey === key) { this.currentState = state; return; }
+    if (!key) { this.currentState = state; return; }
+    const cfg = blendFor(state);
+    const isOneShot = !cfg.loop;
+    // Looping loco: skip if already playing same clip (unless forced)
+    if (!opts?.force && !isOneShot && this.currentKey === key) {
+      this.currentState = state;
+      return;
+    }
     const action = this.actions.get(key);
     if (!action) return;
 
-    const cfg = blendFor(state);
     const prev = this.actions.get(this.currentKey);
-    if (prev) prev.fadeOut(cfg.fadeOut);
+    if (prev && prev !== action) prev.fadeOut(cfg.fadeOut);
+    else if (prev === action) prev.fadeOut(0.05);
 
     action.reset();
     action.setLoop(cfg.loop ? THREE.LoopRepeat : THREE.LoopOnce, cfg.loop ? Infinity : 1);
@@ -265,7 +282,8 @@ export class CharacterBuilder {
       const onFinished = (e: { action: THREE.AnimationAction }) => {
         if (e.action === action) {
           this.mixer?.removeEventListener('finished', onFinished);
-          this.play('idle');
+          // Only return to idle if nothing else took over
+          if (this.currentKey === key) this.play('idle');
         }
       };
       this.mixer.addEventListener('finished', onFinished);

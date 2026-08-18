@@ -15,7 +15,9 @@
 
 import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-// @ts-ignore
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+// @ts-ignore — locomotion capsule (terrain heightfield). Combat open-sea uses Rapier.
 import * as CANNON from 'cannon-es';
 import {
   VectorSpringSimulator,
@@ -84,9 +86,17 @@ export type IslandCharacterState =
   | 'jumpIdle' | 'jumpRunning' | 'falling'
   | 'dropIdle' | 'land';
 
-// ─── Mixamo animation paths ───────────────────────────────────────────────────
+// ─── Production hero (CDN grudge6) + optional Mixamo FBX anim fallback ───────
 
-const MODEL_PATH = '/models/player/Meshy_AI_Orc_Warlord_Render_1220104017_texture_fbx.fbx';
+const GRUDGE6_HERO_CANDIDATES = [
+  'https://assets.grudge-studio.com/models/heroes/grudge6/western-kingdoms_warrior.glb',
+  'https://assets.grudge-studio.com/models/heroes/grudge6/orcs_warrior.glb',
+  'https://assets.grudge-studio.com/models/heroes/grudge6/barbarians_warrior.glb',
+  'https://assets.grudge-studio.com/models/heroes/grudge6/elves_warrior.glb',
+];
+
+/** Legacy Meshy path — only if CDN grudge6 fails. */
+const MODEL_PATH_FALLBACK = '/models/player/Meshy_AI_Orc_Warlord_Render_1220104017_texture_fbx.fbx';
 const ANIM_PATHS: Record<string, string> = {
   idle:        '/models/player/sword and shield idle.fbx',
   walk:        '/models/player/sword and shield walk.fbx',
@@ -97,6 +107,19 @@ const ANIM_PATHS: Record<string, string> = {
   falling:     '/models/player/sword and shield jump (2).fbx',
   drop_idle:   '/models/player/sword and shield crouch.fbx',
 };
+
+/** Fit mesh to SI human height (~1.8 m). */
+function fitRootToHeight(root: THREE.Object3D, targetM = 1.8): void {
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3().setFromObject(root);
+  const h = Math.max(box.getSize(new THREE.Vector3()).y, 0.01);
+  let s = targetM / h;
+  if (h > 50) s = targetM / (h * 0.01); // cm disaster
+  root.scale.multiplyScalar(s);
+  root.updateMatrixWorld(true);
+  const box2 = new THREE.Box3().setFromObject(root);
+  root.position.y -= box2.min.y;
+}
 
 // Max dt to consume per frame — prevents physics explosion after tab switch (frame skip)
 const MAX_FRAME_DT = 1 / 20; // 50 ms — skip rather than simulate a huge gap
@@ -272,40 +295,105 @@ export class SketchbookIslandController {
 
   async load(scene: THREE.Scene): Promise<void> {
     scene.add(this.tiltContainer);
-    const loader = new FBXLoader();
 
-    const fbx = await this._loadFBX(loader, MODEL_PATH);
-    fbx.scale.setScalar(this.config.modelScale);
-    fbx.traverse((c) => {
-      if ((c as THREE.Mesh).isMesh) {
-        (c as THREE.Mesh).castShadow = true;
-        (c as THREE.Mesh).receiveShadow = true;
-      }
-    });
-    this.model = fbx;
-    this.mixer = new THREE.AnimationMixer(fbx);
-    this.modelContainer.add(fbx);
+    // Prefer production grudge6 GLB from CDN (real assets, SI scale)
+    let usedGrudge6 = false;
+    const gltfLoader = new GLTFLoader();
+    try {
+      gltfLoader.setMeshoptDecoder(MeshoptDecoder);
+    } catch { /* optional */ }
 
-    const animKeys = Object.keys(ANIM_PATHS);
-    let loaded = 0;
-    for (const [key, path] of Object.entries(ANIM_PATHS)) {
+    for (const url of GRUDGE6_HERO_CANDIDATES) {
       try {
-        const animFbx = await this._loadFBX(loader, path);
-        if (animFbx.animations.length > 0) {
-          const clip = animFbx.animations[0];
-          clip.name  = key;
-          const act  = this.mixer.clipAction(clip);
+        const gltf = await gltfLoader.loadAsync(url);
+        const root = gltf.scene as THREE.Group;
+        fitRootToHeight(root, 1.8);
+        root.traverse((c) => {
+          if ((c as THREE.Mesh).isMesh) {
+            (c as THREE.Mesh).castShadow = true;
+            (c as THREE.Mesh).receiveShadow = true;
+          }
+        });
+        this.model = root;
+        this.mixer = new THREE.AnimationMixer(root);
+        this.modelContainer.add(root);
+
+        // Clips embedded in GLB
+        const clips = gltf.animations ?? [];
+        const pick = (re: RegExp, fallback?: THREE.AnimationClip) =>
+          clips.find((c) => re.test(c.name)) || fallback;
+
+        const idleClip = pick(/idle|stand|breath/i, clips[0]);
+        const walkClip = pick(/walk|locomotion/i);
+        const runClip = pick(/run|sprint|jog/i, walkClip);
+        const jumpClip = pick(/jump/i);
+
+        const map: Array<[string, THREE.AnimationClip | undefined]> = [
+          ['idle', idleClip],
+          ['walk', walkClip || idleClip],
+          ['sprint', runClip || walkClip || idleClip],
+          ['run', runClip || walkClip || idleClip],
+          ['jump_idle', jumpClip || idleClip],
+          ['jump_run', jumpClip || idleClip],
+          ['falling', jumpClip || idleClip],
+          ['drop_idle', idleClip],
+        ];
+        for (const [key, clip] of map) {
+          if (!clip || !this.mixer) continue;
+          const named = clip.clone();
+          named.name = key;
+          const act = this.mixer.clipAction(named);
           const loop = !key.includes('jump') && key !== 'drop_idle' && key !== 'land';
           act.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
           if (!loop) act.clampWhenFinished = true;
           this.actionMap.set(key, act);
         }
-      } catch (_) { /* non-fatal */ }
-      loaded++;
-      this._onProgress?.(loaded / animKeys.length);
+
+        usedGrudge6 = true;
+        this._onProgress?.(1);
+        console.info('[SketchbookIsland] Loaded grudge6 hero', url);
+        break;
+      } catch {
+        /* try next candidate */
+      }
     }
 
-    this.mixer.addEventListener('finished', (e: any) => {
+    if (!usedGrudge6) {
+      // Fallback: local Meshy FBX + Mixamo packs (dev only path)
+      const loader = new FBXLoader();
+      const fbx = await this._loadFBX(loader, MODEL_PATH_FALLBACK);
+      fbx.scale.setScalar(this.config.modelScale);
+      fbx.traverse((c) => {
+        if ((c as THREE.Mesh).isMesh) {
+          (c as THREE.Mesh).castShadow = true;
+          (c as THREE.Mesh).receiveShadow = true;
+        }
+      });
+      this.model = fbx;
+      this.mixer = new THREE.AnimationMixer(fbx);
+      this.modelContainer.add(fbx);
+
+      const animKeys = Object.keys(ANIM_PATHS);
+      let loaded = 0;
+      for (const [key, path] of Object.entries(ANIM_PATHS)) {
+        try {
+          const animFbx = await this._loadFBX(loader, path);
+          if (animFbx.animations.length > 0) {
+            const clip = animFbx.animations[0];
+            clip.name = key;
+            const act = this.mixer.clipAction(clip);
+            const loop = !key.includes('jump') && key !== 'drop_idle' && key !== 'land';
+            act.setLoop(loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+            if (!loop) act.clampWhenFinished = true;
+            this.actionMap.set(key, act);
+          }
+        } catch { /* non-fatal */ }
+        loaded++;
+        this._onProgress?.(loaded / animKeys.length);
+      }
+    }
+
+    this.mixer?.addEventListener('finished', (e: any) => {
       const name = e.action.getClip().name;
       if (name === 'drop_idle' || name === 'jump_idle') this._setState('idle');
     });

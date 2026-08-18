@@ -1,3 +1,11 @@
+/**
+ * Island editor + terrain splat textures.
+ *
+ * SSOT: Poly Haven CC0 packs staged under public/textures/terrain/
+ * (downloaded 2026-08-01, magic-byte JPEG verified).
+ * Broken legacy paths (grass_3_albedo.png etc. on R2 404) removed.
+ */
+
 import * as THREE from 'three';
 
 export interface TerrainTextureSet {
@@ -7,64 +15,110 @@ export interface TerrainTextureSet {
   normalPath?: string;
   heightPath?: string;
   tileScale: number;
+  /** Attribution for UI */
+  source?: string;
 }
 
+/** Real staged PBR albedos — sand + stone included. */
 export const TERRAIN_TEXTURES: TerrainTextureSet[] = [
   {
-    id: 'grass_3',
+    id: 'grass',
     label: 'Grass',
-    albedoPath: '/textures/terrain/grass_3_albedo.png',
-    normalPath: '/textures/terrain/grass_3_normal.png',
-    heightPath: '/textures/terrain/grass_3_height.png',
+    albedoPath: '/textures/terrain/grass_albedo.jpg',
+    normalPath: '/textures/terrain/grass_normal.jpg',
+    tileScale: 10,
+    source: 'Poly Haven aerial_grass_rock · CC0',
+  },
+  {
+    id: 'soil',
+    label: 'Soil / Forest Floor',
+    albedoPath: '/textures/terrain/soil_albedo.jpg',
+    normalPath: '/textures/terrain/soil_normal.jpg',
+    tileScale: 10,
+    source: 'Poly Haven forrest_ground_01 · CC0',
+  },
+  {
+    id: 'sand',
+    label: 'Coast Sand',
+    albedoPath: '/textures/terrain/sand_albedo.jpg',
+    normalPath: '/textures/terrain/sand_normal.jpg',
+    tileScale: 12,
+    source: 'Poly Haven coast_sand_01 · CC0',
+  },
+  {
+    id: 'stone',
+    label: 'Stone / Rock',
+    albedoPath: '/textures/terrain/stone_albedo.jpg',
+    normalPath: '/textures/terrain/stone_normal.jpg',
     tileScale: 8,
+    source: 'Poly Haven rock_pitted_mossy · CC0',
+  },
+  // Aliases so older call sites that passed grass_3 / mud_1 / tile_2 still resolve
+  {
+    id: 'grass_3',
+    label: 'Grass (legacy id)',
+    albedoPath: '/textures/terrain/grass_albedo.jpg',
+    normalPath: '/textures/terrain/grass_normal.jpg',
+    tileScale: 10,
   },
   {
     id: 'mud_1',
-    label: 'Mud',
-    albedoPath: '/textures/terrain/mud_1_albedo.png',
-    normalPath: '/textures/terrain/mud_1_normal.png',
-    heightPath: '/textures/terrain/mud_1_height.png',
-    tileScale: 8,
+    label: 'Mud (legacy → soil)',
+    albedoPath: '/textures/terrain/soil_albedo.jpg',
+    normalPath: '/textures/terrain/soil_normal.jpg',
+    tileScale: 10,
   },
   {
     id: 'dark_mud_1',
-    label: 'Dark Mud',
-    albedoPath: '/textures/terrain/dark_mud_1_albedo.png',
+    label: 'Dark Mud (legacy → soil)',
+    albedoPath: '/textures/terrain/soil_albedo.jpg',
+    normalPath: '/textures/terrain/soil_normal.jpg',
     tileScale: 8,
   },
   {
     id: 'dark_mud_2',
-    label: 'Dark Mud 2',
-    albedoPath: '/textures/terrain/dark_mud_2_albedo.png',
+    label: 'Dark Mud 2 (legacy → soil)',
+    albedoPath: '/textures/terrain/soil_albedo.jpg',
     tileScale: 8,
   },
   {
     id: 'mud_6',
-    label: 'Wet Mud',
-    albedoPath: '/textures/terrain/mud_6_albedo.png',
-    normalPath: '/textures/terrain/mud_6_normal.png',
-    heightPath: '/textures/terrain/mud_6_height.png',
+    label: 'Wet Mud (legacy → soil)',
+    albedoPath: '/textures/terrain/soil_albedo.jpg',
+    normalPath: '/textures/terrain/soil_normal.jpg',
     tileScale: 8,
   },
   {
     id: 'tile_2',
-    label: 'Stone Tile',
-    albedoPath: '/textures/terrain/tile_2_albedo.png',
-    normalPath: '/textures/terrain/tile_2_normal.png',
-    heightPath: '/textures/terrain/tile_2_height.png',
+    label: 'Stone Tile (legacy → stone)',
+    albedoPath: '/textures/terrain/stone_albedo.jpg',
+    normalPath: '/textures/terrain/stone_normal.jpg',
     tileScale: 6,
   },
 ];
 
+/** Canonical 4-channel editor pack: grass · soil · sand · stone */
+export const EDITOR_SPLAT_CHANNELS: [string, string, string, string] = [
+  'grass',
+  'soil',
+  'sand',
+  'stone',
+];
+
 const loader = new THREE.TextureLoader();
+const texCache = new Map<string, THREE.Texture>();
 
 function loadTex(path: string, repeat: number): THREE.Texture {
+  const key = `${path}@${repeat}`;
+  const hit = texCache.get(key);
+  if (hit) return hit;
   const tex = loader.load(path);
   tex.wrapS = THREE.RepeatWrapping;
   tex.wrapT = THREE.RepeatWrapping;
   tex.repeat.set(repeat, repeat);
   tex.colorSpace = THREE.SRGBColorSpace;
   tex.anisotropy = 4;
+  texCache.set(key, tex);
   return tex;
 }
 
@@ -120,7 +174,10 @@ void main() {
   vec4 c2 = texture2D(uTex2, tUv2);
   vec4 c3 = texture2D(uTex3, tUv3);
 
-  vec4 color = c0 * splat.r + c1 * splat.g + c2 * splat.b + c3 * splat.a;
+  // Normalize splat weights so missing paint still looks solid
+  float sum = splat.r + splat.g + splat.b + splat.a + 1e-4;
+  vec4 w = splat / sum;
+  vec4 color = c0 * w.r + c1 * w.g + c2 * w.b + c3 * w.a;
 
   float light = max(dot(vNormal, normalize(vec3(0.5, 1.0, 0.3))), 0.0);
   float ambient = 0.35;
@@ -141,13 +198,17 @@ export function createSplatmapData(width: number, height: number): Uint8Array {
   return data;
 }
 
-export function createSplatmapTexture(width: number, height: number): THREE.DataTexture {
+export function createSplatmapTexture(width: number, height: number): {
+  texture: THREE.DataTexture;
+  data: Uint8Array;
+} {
+  // Own the Uint8Array — never read splatMap.image.data (Three Source proxy can be undefined).
   const data = createSplatmapData(width, height);
-  const tex = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
-  tex.needsUpdate = true;
-  tex.magFilter = THREE.LinearFilter;
-  tex.minFilter = THREE.LinearFilter;
-  return tex;
+  const texture = new THREE.DataTexture(data, width, height, THREE.RGBAFormat);
+  texture.needsUpdate = true;
+  texture.magFilter = THREE.LinearFilter;
+  texture.minFilter = THREE.LinearFilter;
+  return { texture, data };
 }
 
 export interface TerrainSplatMaterial {
@@ -158,14 +219,31 @@ export interface TerrainSplatMaterial {
 }
 
 export function createTerrainSplatMaterial(
-  texIds: [string, string, string, string]
+  texIds?: [string, string, string, string] | string[] | null,
 ): TerrainSplatMaterial {
-  const sets = texIds.map(id => TERRAIN_TEXTURES.find(t => t.id === id) || TERRAIN_TEXTURES[0]);
-  const textures = sets.map(s => loadTerrainTexture(s));
+  const ids = (texIds && texIds.length >= 4
+    ? texIds
+    : EDITOR_SPLAT_CHANNELS) as [string, string, string, string];
+
+  const fallback: TerrainTextureSet = TERRAIN_TEXTURES[0] ?? {
+    id: 'grass',
+    label: 'Grass',
+    albedoPath: '/textures/terrain/grass_albedo.jpg',
+    tileScale: 10,
+  };
+
+  const sets = ids.map(
+    (id) => TERRAIN_TEXTURES.find((t) => t.id === id) || fallback,
+  );
+  const textures = sets.map((s) => loadTerrainTexture(s));
 
   const splatSize = 128;
-  const splatMap = createSplatmapTexture(splatSize, splatSize);
-  const splatData = splatMap.image.data as Uint8Array;
+  const { texture: splatMap, data: splatData } = createSplatmapTexture(splatSize, splatSize);
+
+  const tile = (i: number) => {
+    const ts = Math.max(0.5, sets[i]?.tileScale ?? 8);
+    return new THREE.Vector2(1.0 / ts, 1.0 / ts);
+  };
 
   const material = new THREE.ShaderMaterial({
     vertexShader: splatVertShader,
@@ -176,17 +254,18 @@ export function createTerrainSplatMaterial(
       uTex2: { value: textures[2].albedo },
       uTex3: { value: textures[3].albedo },
       uSplatMap: { value: splatMap },
-      uTile0: { value: new THREE.Vector2(1.0 / sets[0].tileScale, 1.0 / sets[0].tileScale) },
-      uTile1: { value: new THREE.Vector2(1.0 / sets[1].tileScale, 1.0 / sets[1].tileScale) },
-      uTile2: { value: new THREE.Vector2(1.0 / sets[2].tileScale, 1.0 / sets[2].tileScale) },
-      uTile3: { value: new THREE.Vector2(1.0 / sets[3].tileScale, 1.0 / sets[3].tileScale) },
+      uTile0: { value: tile(0) },
+      uTile1: { value: tile(1) },
+      uTile2: { value: tile(2) },
+      uTile3: { value: tile(3) },
     },
   });
 
   function paintSplat(u: number, v: number, channel: number, radius: number, strength: number) {
+    if (!splatData || splatData.length < 4) return;
     const cx = Math.floor(u * splatSize);
     const cy = Math.floor(v * splatSize);
-    const r = Math.ceil(radius * splatSize);
+    const r = Math.max(1, Math.ceil(radius * splatSize));
     for (let dy = -r; dy <= r; dy++) {
       for (let dx = -r; dx <= r; dx++) {
         const px = cx + dx;
@@ -212,34 +291,52 @@ export function createTerrainSplatMaterial(
   return { material, splatMap, splatData, paintSplat };
 }
 
+/**
+ * Height → splat: beach=sand (ch2), lowland=grass (ch0), mid=soil (ch1), high=stone (ch3).
+ */
 export function autoSplatFromHeight(
-  splatData: Uint8Array,
-  splatMap: THREE.DataTexture,
-  geometry: THREE.BufferGeometry,
-  splatSize: number
+  splatData: Uint8Array | null | undefined,
+  splatMap: THREE.DataTexture | null | undefined,
+  geometry: THREE.BufferGeometry | null | undefined,
+  splatSize: number,
 ) {
+  if (!splatData || !splatMap || !geometry?.attributes?.position) {
+    console.warn('[terrainTextures] autoSplatFromHeight skipped — missing splat/geometry');
+    return;
+  }
   const pos = geometry.attributes.position;
-  const N = Math.round(Math.sqrt(pos.count));
-  for (let row = 0; row < splatSize; row++) {
-    for (let col = 0; col < splatSize; col++) {
-      const vRow = Math.floor(row * (N - 1) / (splatSize - 1));
-      const vCol = Math.floor(col * (N - 1) / (splatSize - 1));
+  const N = Math.max(2, Math.round(Math.sqrt(pos.count)));
+  const size = Math.max(2, splatSize | 0);
+  for (let row = 0; row < size; row++) {
+    for (let col = 0; col < size; col++) {
+      const vRow = Math.floor((row * (N - 1)) / (size - 1));
+      const vCol = Math.floor((col * (N - 1)) / (size - 1));
       const vi = vRow * N + vCol;
       const h = vi < pos.count ? pos.getY(vi) : 0;
-      const idx = (row * splatSize + col) * 4;
+      const idx = (row * size + col) * 4;
+      if (idx + 3 >= splatData.length) continue;
 
-      if (h <= 1) {
-        splatData[idx] = 0; splatData[idx + 1] = 0;
-        splatData[idx + 2] = 255; splatData[idx + 3] = 0;
-      } else if (h < 8) {
-        splatData[idx] = 255; splatData[idx + 1] = 0;
-        splatData[idx + 2] = 0; splatData[idx + 3] = 0;
-      } else if (h < 25) {
-        splatData[idx] = 0; splatData[idx + 1] = 255;
-        splatData[idx + 2] = 0; splatData[idx + 3] = 0;
+      // ch0 grass, ch1 soil, ch2 sand, ch3 stone
+      if (h <= 1.8) {
+        splatData[idx] = 0;
+        splatData[idx + 1] = 0;
+        splatData[idx + 2] = 255;
+        splatData[idx + 3] = 0;
+      } else if (h < 10) {
+        splatData[idx] = 255;
+        splatData[idx + 1] = 0;
+        splatData[idx + 2] = 0;
+        splatData[idx + 3] = 0;
+      } else if (h < 22) {
+        splatData[idx] = 0;
+        splatData[idx + 1] = 255;
+        splatData[idx + 2] = 0;
+        splatData[idx + 3] = 0;
       } else {
-        splatData[idx] = 0; splatData[idx + 1] = 0;
-        splatData[idx + 2] = 0; splatData[idx + 3] = 255;
+        splatData[idx] = 0;
+        splatData[idx + 1] = 0;
+        splatData[idx + 2] = 0;
+        splatData[idx + 3] = 255;
       }
     }
   }

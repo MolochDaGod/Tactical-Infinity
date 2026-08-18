@@ -5,3 +5,16 @@ server/public
 vite.config.ts.*
 *.tar.gz
 .vercel
+tmp/
+
+# CDN-backed dumps — stay on assets.grudge-studio.com, not git
+client/public/models/nature/
+client/public/models/buildings/
+client/public/models/events/
+client/public/models/islands/
+client/public/models/creatures/
+client/public/models/cinema/
+client/public/models/pirate/
+client/public/models/ships/
+client/public/models/survival/
+client/public/textures/grudge6/

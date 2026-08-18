@@ -16,6 +16,9 @@ import { IslandBuildingSystem, type BuildingMode, type PlayerResources } from '@
 import { BuildHammerUI } from '@/components/game/BuildHammerUI';
 import { type PlaceableBuildingType } from '@/lib/buildableObjectsRegistry';
 import { IslandStarterMission, type MissionResources, RAFT_RECIPE } from '@/lib/islandStarterMission';
+import { TutorialIslandOpening } from '@/lib/tutorialIslandOpening';
+import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
+import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 
 // ── NPC patrol agent ─────────────────────────────────────────────────────────
 interface NpcAgent {
@@ -32,7 +35,7 @@ interface BeachSpawnSceneProps {
   onBackToMenu: () => void;
 }
 
-type SpawnState = 'loading' | 'ready' | 'exploring';
+type SpawnState = 'loading' | 'cinema' | 'ready' | 'exploring';
 
 const STATE_ICONS: Record<IslandCharacterState, string> = {
   idle:        '🧍',
@@ -67,10 +70,14 @@ export default function BeachSpawnScene({ onExitToWorldMap, onBackToMenu }: Beac
   const timeScaleRef   = useRef(1.0);
   // Starter mission
   const missionRef     = useRef<IslandStarterMission | null>(null);
+  const cinemaRef      = useRef<TutorialIslandOpening | null>(null);
+  const cinemaDoneRef  = useRef(false);
 
   const [spawnState, setSpawnState]   = useState<SpawnState>('loading');
   const [charState, setCharState]     = useState<IslandCharacterState>('idle');
   const [loadProgress, setLoadProgress] = useState(0);
+  const [cinemaCaption, setCinemaCaption] = useState('');
+  const [showCinemaSkip, setShowCinemaSkip] = useState(false);
   const [showDebug, setShowDebug]     = useState(false);
   const [debugInfo, setDebugInfo]     = useState('');
   const [isPointerLocked, setIsPointerLocked] = useState(false);
@@ -132,15 +139,27 @@ export default function BeachSpawnScene({ onExitToWorldMap, onBackToMenu }: Beac
     camera.position.set(0, 12, 20);
     cameraRef.current = camera;
 
-    // ── FXAA post-processing (EffectComposer) ─────────────────────────────────
+    // ── Post: Render → soft bloom → FXAA → Output (ACES via renderer) ────────
     const composer = new EffectComposer(renderer);
     composer.addPass(new RenderPass(scene, camera));
+    const bloom = new UnrealBloomPass(
+      new THREE.Vector2(container.clientWidth, container.clientHeight),
+      0.22,
+      0.55,
+      0.88,
+    );
+    composer.addPass(bloom);
     const fxaaPass = new FXAAPass();
     fxaaPass.material.uniforms['resolution'].value.set(
       1 / (container.clientWidth  * Math.min(window.devicePixelRatio, 2)),
       1 / (container.clientHeight * Math.min(window.devicePixelRatio, 2))
     );
     composer.addPass(fxaaPass);
+    try {
+      composer.addPass(new OutputPass());
+    } catch {
+      /* three r versions without OutputPass */
+    }
     composerRef.current = composer;
     fxaaPassRef.current = fxaaPass;
 
@@ -206,14 +225,51 @@ export default function BeachSpawnScene({ onExitToWorldMap, onBackToMenu }: Beac
 
       try {
         await ctrl.load(scene);
-        ctrl.setupInput(container);
+        // Input unlocked only after opening cinema handoff
         controllerRef.current = ctrl;
 
-        setSpawnState('ready');
-        setTimeout(() => setSpawnState('exploring'), 500);
+        // ── Tutorial island opening cinema (real assets + Rapier shore debris) ─
+        setSpawnState('cinema');
+        cinemaDoneRef.current = false;
+        let heroRace = 'human';
+        let heroName = '';
+        try {
+          const q = new URLSearchParams(window.location.search);
+          heroRace = q.get('race') || heroRace;
+          heroName = q.get('hero') || q.get('name') || '';
+        } catch { /* ignore */ }
+
+        // Hide gameplay avatar during cinema (cinema loads its own grudge6 hero)
+        if (ctrl.tiltContainer) ctrl.tiltContainer.visible = false;
+
+        const cinema = new TutorialIslandOpening({
+          scene,
+          camera,
+          spawn: spawnPos,
+          islandLook: spawnPos.clone().add(new THREE.Vector3(-15, 2, -20)),
+          heroRace,
+          heroName: heroName || undefined,
+          onCaption: (t) => setCinemaCaption(t),
+          onComplete: () => {
+            cinemaDoneRef.current = true;
+            if (ctrl.tiltContainer) ctrl.tiltContainer.visible = true;
+            ctrl.setupInput(container);
+            setSpawnState('ready');
+            setShowCinemaSkip(false);
+            setCinemaCaption('');
+            setTimeout(() => setSpawnState('exploring'), 400);
+          },
+        });
+        cinemaRef.current = cinema;
+        cinema.mountLetterbox(container);
+        await cinema.prepare();
+        setShowCinemaSkip(true);
       } catch (err) {
-        console.error('[BeachSpawnScene] Controller load failed:', err);
+        console.error('[BeachSpawnScene] Controller / cinema load failed:', err);
         // Even on failure we can explore the island without a character
+        try {
+          controllerRef.current?.setupInput(container);
+        } catch { /* */ }
         setSpawnState('exploring');
       }
 
@@ -530,19 +586,32 @@ export default function BeachSpawnScene({ onExitToWorldMap, onBackToMenu }: Beac
       const elapsed = clockRef.current.getElapsedTime();
       frameCount++;
 
-      const ctrl = controllerRef.current;
-      if (ctrl && ctrl.isLoaded) {
-        ctrl.update(rawDt);   // controller has its own timescale applied internally
-        ctrl.applyCamera(camera);
+      // Opening cinema owns camera until handoff
+      const cinema = cinemaRef.current;
+      if (cinema && !cinemaDoneRef.current && !cinema.isLoading) {
+        if (cinema.elapsed >= cinema.skippableAfterSec) {
+          setShowCinemaSkip(true);
+        }
+        const finished = cinema.update(rawDt);
+        if (finished) cinemaDoneRef.current = true;
+      } else {
+        const ctrl = controllerRef.current;
+        if (ctrl && ctrl.isLoaded) {
+          ctrl.update(rawDt);   // controller has its own timescale applied internally
+          ctrl.applyCamera(camera);
+        }
       }
 
-      // Update NPC patrol AI
-      updateNpcs(dt);
+      // Update NPC patrol AI (after cinema)
+      if (cinemaDoneRef.current || spawnStateRef.current === 'exploring') {
+        updateNpcs(dt);
+      }
 
       // Update starter mission (highlight rings, shake, depletion anim, raft bob)
       const mission = missionRef.current;
-      if (mission) {
-        if (ctrl?.isLoaded) mission.setPlayerPosition(ctrl.position);
+      const ctrlLive = controllerRef.current;
+      if (mission && (cinemaDoneRef.current || spawnStateRef.current === 'exploring')) {
+        if (ctrlLive?.isLoaded) mission.setPlayerPosition(ctrlLive.position);
         mission.update(dt);
         mission.updateRaft(elapsed);
       }
@@ -564,15 +633,15 @@ export default function BeachSpawnScene({ onExitToWorldMap, onBackToMenu }: Beac
       });
 
       // Debug every 15 frames
-      if (ctrl && frameCount % 15 === 0) {
-        const p = ctrl.position;
-        const v = ctrl.velocity;
+      if (ctrlLive && frameCount % 15 === 0) {
+        const p = ctrlLive.position;
+        const v = ctrlLive.velocity;
         setDebugInfo(
-          `State:   ${ctrl.state}\n` +
+          `State:   ${ctrlLive.state}\n` +
           `Pos:     (${p.x.toFixed(1)}, ${p.y.toFixed(1)}, ${p.z.toFixed(1)})\n` +
           `Speed:   ${v.length().toFixed(2)} m/s\n` +
-          `Theta:   ${ctrl.cameraTheta.toFixed(0)}°  Phi: ${ctrl.cameraPhi.toFixed(0)}°\n` +
-          `Ground:  ${ctrl.isGrounded ? '✓' : '✗'}  Grass: ${grassSystemRef.current ? '✓' : '…'}\n` +
+          `Theta:   ${ctrlLive.cameraTheta.toFixed(0)}°  Phi: ${ctrlLive.cameraPhi.toFixed(0)}°\n` +
+          `Ground:  ${ctrlLive.isGrounded ? '✓' : '✗'}  Grass: ${grassSystemRef.current ? '✓' : '…'}\n` +
           `NavMesh: ${navMeshRef.current ? '✓ ready' : '…generating'}\n` +
           `NPCs:    ${npcAgentsRef.current.length}  TimeScale: ${ts.toFixed(2)}x`
         );
@@ -610,6 +679,8 @@ export default function BeachSpawnScene({ onExitToWorldMap, onBackToMenu }: Beac
       controllerRef.current = null;
       grassSystemRef.current?.dispose();
       grassSystemRef.current = null;
+      cinemaRef.current?.dispose();
+      cinemaRef.current = null;
       islandLoaderRef.current?.dispose();
       islandLoaderRef.current = null;
       if (sanctuaryRef.current) {
@@ -692,11 +763,39 @@ export default function BeachSpawnScene({ onExitToWorldMap, onBackToMenu }: Beac
             </div>
             <p className="text-sm text-white/60">
               {loadProgress < 30  ? 'Loading island…'
-             : loadProgress < 60  ? 'Loading character model…'
+             : loadProgress < 60  ? 'Loading grudge6 hero…'
              : loadProgress < 90  ? 'Loading animations…'
              : 'Finalising…'}
             </p>
           </div>
+        </div>
+      )}
+
+      {/* Opening cinema captions + skip */}
+      {spawnState === 'cinema' && (
+        <div className="absolute inset-0 pointer-events-none z-50 flex flex-col justify-end pb-[14%]">
+          {cinemaCaption ? (
+            <p
+              className="text-center text-lg md:text-xl text-white/95 font-serif px-6"
+              style={{ textShadow: '0 2px 12px #000, 0 0 4px #000', fontFamily: 'Cinzel, serif' }}
+              data-testid="text-tutorial-cinema-caption"
+            >
+              {cinemaCaption}
+            </p>
+          ) : null}
+          {showCinemaSkip ? (
+            <div className="pointer-events-auto absolute top-6 right-6">
+              <Button
+                size="sm"
+                variant="secondary"
+                className="bg-black/60 border border-white/20 text-white hover:bg-black/80"
+                data-testid="button-skip-tutorial-cinema"
+                onClick={() => cinemaRef.current?.skip()}
+              >
+                Skip
+              </Button>
+            </div>
+          ) : null}
         </div>
       )}
 

@@ -69,6 +69,9 @@ export const PAGE_REGISTRY: PageMeta[] = [
   { phase: "turretdemo",      slug: "/admin/turret-demo",   title: "Admin · Turret Demo",         description: "Turret targeting demo",                      category: "admin",     publicNav: false },
   { phase: "videogen",        slug: "/admin/video-gen",     title: "Admin · Video Generator",     description: "AI video generation",                        category: "admin",     publicNav: false },
   { phase: "shipeditor",      slug: "/ship-editor",         title: "Ship Editor",                 description: "Ship loadout editor",                        category: "dev",       publicNav: false },
+  { phase: "fleetviewer",     slug: "/fleet-assets",        title: "Fleet Assets",                description: "Boats · rafts · airships · mounts · back slots", category: "dev",    publicNav: false },
+  { phase: "dockworkshop",    slug: "/dock-workshop",       title: "Boat Dock Workshop",          description: "Build · attach · upgrade · load rafts",      category: "overworld", publicNav: true },
+  { phase: "fishcodex",       slug: "/fish-codex",          title: "Ocean Bestiary",              description: "Quaternius fish · lure · weight · difficulty", category: "overworld", publicNav: true },
   { phase: "grudgetest",      slug: "/grudge-controller-test", title: "Grudge Controller Test",   description: "Grudge SDK harness",                         category: "dev",       publicNav: false },
 ];
 

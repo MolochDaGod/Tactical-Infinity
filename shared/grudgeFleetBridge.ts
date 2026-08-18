@@ -1,7 +1,23 @@
 /**
  * Bridge between Tethical (Tactical-Infinity) and the Grudge Warlords fleet.
  * Maps world-map islands, boats, and navigation to grudgewarlords.com routes.
+ *
+ * Play systems (mount N/2s, combat hotkeys, cursors): see `fleetPlaySystems.ts`
+ * (mirrors GrudgeBuilder FLEET_PLAY_SYSTEMS 1.3.0).
  */
+
+export {
+  FLEET_PLAY_SYSTEMS,
+  FLEET_PLAY_SYSTEMS_VERSION,
+  FLEET_PLAY_HOTKEYS,
+  FLEET_PLAY_RULES,
+  MOUNT_SUMMON_KEY,
+  MOUNT_SUMMON_CAST_SEC,
+  defaultMountForRace,
+  resolveMountUrl,
+} from './fleetPlaySystems';
+
+export { PRODUCTION_SHARE } from './productionShare';
 
 /** Canonical fleet URLs — mirrors GrudgeBuilder `shared/fleet/manifest.ts`. */
 export const GRUDGE_FLEET = {

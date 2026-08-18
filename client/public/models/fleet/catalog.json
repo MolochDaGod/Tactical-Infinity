@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "note": "Mirror of shared/gameDefinitions/fleetAssetCatalog.ts — viewer reads the TS module.",
+  "kinds": ["raft", "boat", "airship", "mount", "back_slot"]
+}

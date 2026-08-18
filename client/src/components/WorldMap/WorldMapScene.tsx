@@ -10,8 +10,7 @@ import { FishingSettingsPanel } from '@/components/game/FishingSettingsPanel';
 import { AdminPanel, type GizmoMode, type EditableObject } from '@/components/game/AdminPanel';
 import { WorldMapOverlay } from '@/components/WorldMap/WorldMapOverlay';
 import { Minimap } from '@/components/game/Minimap';
-import { type SlotDef, type VitalBarDef } from '@/components/game/GameHUD';
-import { SailingHUD } from '@/components/game/SailingHUD';
+import { RtsSeaHud, type RtsSeaCommand } from '@/components/hud/RtsSeaHud';
 import { useToast } from '@/hooks/use-toast';
 import type { Race } from '@shared/schema';
 import { WORLD_ISLANDS, WORLD_ENEMY_SHIPS, type WorldIslandData, type EnemyShipData } from '@/lib/worldMapData';
@@ -761,10 +760,13 @@ export function WorldMapScene({ onBackToMenu, onLandOnIsland }: WorldMapScenePro
   
   const useRepairAbility = useCallback(() => {
     const state = mutableStateRef.current;
+    const manager = managerRef.current;
     if (abilityCooldownsRef.current[0] > 0) return;
     if (state.playerHealth >= 100) return;
     
+    // Hull HP + ShipPartsManager repair (Rapier debris boats are repairable mid-fight)
     state.playerHealth = Math.min(100, state.playerHealth + 20);
+    manager?.repairShip(20);
     abilityCooldownsRef.current[0] = 120;
   }, []);
 
@@ -960,9 +962,15 @@ export function WorldMapScene({ onBackToMenu, onLandOnIsland }: WorldMapScenePro
           fireCannon();
         }
       } else if (key === '1') {
-        useRepairAbility();
+        fireCannon();
       } else if (key === '2') {
+        fireCannon();
+      } else if (key === '3') {
+        fireCannon();
+      } else if (key === '4') {
         useWindMagic();
+      } else if (key === '5') {
+        useRepairAbility();
       } else if (key === 's' || key === 'arrowup') {
         // S raises (hoists) sails one step (0 → 1 → 2). Wind — not the key —
         // then drives the boat forward.
@@ -1076,28 +1084,14 @@ export function WorldMapScene({ onBackToMenu, onLandOnIsland }: WorldMapScenePro
     };
   }, [handleKeyDown, handleKeyUp, handleMouseDown, handleMouseUp, handleMouseMove, handleClick, handleContextMenu]);
   
-  const healthPercent = (hudState.playerHealth / hudState.playerMaxHealth) * 100;
-  const healthColor = healthPercent > 50 ? 'bg-green-500' : healthPercent > 25 ? 'bg-yellow-500' : 'bg-red-500';
-  
-  // ── Unified boat HUD payloads (shared GameHUD + WindCompass, same as all boat contexts) ──
-  const hudVitals: VitalBarDef[] = [
-    { id: 'hull', label: 'Hull', current: hudState.playerHealth, max: hudState.playerMaxHealth, color: '#ef4444', icon: 'heart' },
-    { id: 'stability', label: 'Stability', current: hudState.shipStability, max: 100, color: '#38bdf8', icon: 'anchor' },
+  const boatId = resolvePlayerBoatId();
+  const seaCommands: RtsSeaCommand[] = [
+    { id: 'cannon', label: 'Cannon', crew: 'gunner', hotkey: '1', cooldown: hudState.cannonCooldown, maxCooldown: 0.8, onClick: () => fireCannon() },
+    { id: 'harpoon', label: 'Harpoon', crew: 'sailor', hotkey: '2', cooldown: hudState.cannonCooldown, maxCooldown: 0.8, onClick: () => fireCannon() },
+    { id: 'sniper_nest', label: 'Nest', crew: 'sailor', hotkey: '3', cooldown: hudState.cannonCooldown, maxCooldown: 0.8, onClick: () => fireCannon() },
+    { id: 'mage_spot', label: 'Wind', crew: 'weatherman', hotkey: '4', cooldown: hudState.abilities.find((a) => a.id === 'windmagic')?.cooldown, maxCooldown: 60, onClick: useWindMagic },
+    { id: 'repair', label: 'Repair', crew: 'sailor', hotkey: '5', cooldown: hudState.abilities.find((a) => a.id === 'repair')?.cooldown, maxCooldown: 120, onClick: useRepairAbility },
   ];
-  const hudSlots: SlotDef[] = hudState.abilities.map((a) => ({
-    id: a.id,
-    label: a.name,
-    icon: a.id === 'repair' ? '🔧' : a.id === 'windmagic' ? '💨' : a.id === 'shield' ? '🛡️' : a.id === 'multishot' ? '🎯' : '✨',
-    hotkey: a.key,
-    cooldown: a.cooldown,
-    maxCooldown: a.maxCooldown,
-    onClick: a.id === 'repair' ? useRepairAbility : a.id === 'windmagic' ? useWindMagic : undefined,
-  }));
-  const cannonSlot: SlotDef = {
-    id: 'cannon', label: 'Fire', icon: '💥', hotkey: 'Spc',
-    cooldown: hudState.cannonCooldown, maxCooldown: 3, description: 'Cannon',
-    onClick: () => fireCannon(),
-  };
 
   if (webglError) {
     return (
@@ -1142,156 +1136,21 @@ export function WorldMapScene({ onBackToMenu, onLandOnIsland }: WorldMapScenePro
         data-testid="canvas-world-map-3d"
       />
       
-      <Card className="absolute top-4 left-4 p-4 bg-background/90 backdrop-blur-sm" data-testid="panel-hud-3d">
-        <div className="flex items-center gap-2 mb-2">
-          <Anchor className="w-5 h-5 text-primary" />
-          <span className="font-serif font-bold">Captain</span>
-          <Badge variant="secondary">Lv.1</Badge>
-        </div>
-        
-        <div className="space-y-2 text-sm">
-          <div className="flex items-center gap-2">
-            <Heart className="w-4 h-4 text-red-500" />
-            <div className="w-32 h-3 bg-muted rounded-full overflow-hidden">
-              <div 
-                className={`h-full ${healthColor} transition-all`}
-                style={{ width: `${healthPercent}%` }}
-              />
-            </div>
-            <span className="text-xs">{hudState.playerHealth}/{hudState.playerMaxHealth}</span>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Coins className="w-4 h-4 text-yellow-500" />
-            <span>{hudState.gold}</span>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Swords className="w-4 h-4 text-primary" />
-            <span>Combat XP: {hudState.combatXP}</span>
-          </div>
-          
-          <div className="flex items-center gap-2">
-            <Fish className="w-4 h-4 text-blue-400" />
-            <span>Fishing XP: {hudState.fishingXP}</span>
-          </div>
-          
-          {hudState.cannonCooldown > 0 && (
-            <div className="text-orange-400">Reloading...</div>
-          )}
-          
-          {hudState.combatTimer > 0 && (
-            <div className="text-red-400">In Combat ({Math.ceil(hudState.combatTimer)}s)</div>
-          )}
-        </div>
-      </Card>
-      
-      <SailingHUD
-        vitals={hudVitals}
-        slots={hudSlots}
-        cannonSlot={cannonSlot}
-        hint="Space Fire · RMB Aim · S Raise / W Lower Sails · A/D Turn · Q/E Rotate · M Map"
-        showHotbar={cameraMode !== 'chase'}
-        wind={{
-          windAngleDeg: hudState.windAngleDegrees,
-          windSpeedKts: hudState.wind.speed,
-          shipHeadingDeg: mutableStateRef.current.playerRotation * 180 / Math.PI,
-          shipSpeedKts: hudState.speedMultiplier * 12,
-          sailTrim01: hudState.sailsDeployed ? hudState.sailEfficiency : 0,
-          fullSailActive: hudState.sailsDeployed && hudState.optimalAngle,
-        }}
-        seaState={{
-          weather: hudState.weather,
-          weatherSeverity: hudState.weatherSeverity,
-          timeOfDay: hudState.timeOfDay,
-          shipStability: hudState.shipStability,
-          shipWarnings: hudState.shipWarnings,
-        }}
+      <RtsSeaHud
+        boatId={boatId}
+        boatName={boatId}
+        hull={hudState.playerHealth}
+        hullMax={hudState.playerMaxHealth}
+        stability={hudState.shipStability}
+        headingDeg={mutableStateRef.current.playerRotation * 180 / Math.PI}
+        speedKts={hudState.speedMultiplier * 12}
+        windDeg={hudState.windAngleDegrees}
+        windKts={hudState.wind.speed}
+        commands={seaCommands}
+        targetName={targetInfo?.name}
+        targetHp={targetInfo?.health}
+        targetHpMax={targetInfo?.maxHealth}
       />
-      
-      <div className="absolute top-4 right-4 flex flex-col gap-2">
-        <Card className="p-3 bg-background/90 backdrop-blur-sm" data-testid="panel-controls-3d">
-          <div className="text-sm space-y-1">
-            <div className="font-bold mb-2">Sailing Controls</div>
-            <div>S - Raise Sails (wind moves you)</div>
-            <div>W - Lower Sails (Stop)</div>
-            <div>A/D - Turn Left/Right</div>
-            <div>Q/E - Rotate Sails</div>
-            <div className="pt-2 border-t border-border mt-2">
-              <div className="font-bold mb-1">Combat</div>
-              <div>Space - Fire Cannon</div>
-              <div>Right-Click - Aim</div>
-              <div>1 - Repair</div>
-            </div>
-            <div className="pt-2 border-t border-border mt-2 text-xs text-muted-foreground">
-              <div>Best speed: 90-135° from wind</div>
-              <div>No-sail zone: 0-45° into wind</div>
-            </div>
-          </div>
-        </Card>
-        
-        <Card className="p-2 bg-background/80 backdrop-blur-sm" data-testid="panel-fps">
-          <div className="text-xs font-mono flex items-center gap-3">
-            <span className={
-              hudState.fps >= 50 ? 'text-green-400' :
-              hudState.fps >= 30 ? 'text-yellow-400' : 'text-red-400'
-            }>
-              {hudState.fps} FPS
-            </span>
-            <span className="text-muted-foreground">
-              {hudState.frameTime.toFixed(1)}ms
-            </span>
-          </div>
-        </Card>
-        
-        {targetInfo && (
-          <Card className="p-3 bg-background/90 backdrop-blur-sm" data-testid="panel-target-info">
-            <div className="flex items-center gap-2 mb-2">
-              {targetInfo.type === 'island' && <MapPin className="w-4 h-4 text-green-500" />}
-              {targetInfo.type === 'ship' && <Ship className="w-4 h-4 text-red-500" />}
-              {targetInfo.type === 'treasure' && <Gem className="w-4 h-4 text-yellow-500" />}
-              <span className="font-bold text-sm">{targetInfo.name}</span>
-            </div>
-            <div className="text-xs space-y-1">
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">Type:</span>
-                <Badge variant="secondary" className="text-xs capitalize">{targetInfo.type}</Badge>
-              </div>
-              <div className="flex items-center justify-between gap-4">
-                <span className="text-muted-foreground">Distance:</span>
-                <span>{targetInfo.distance}m</span>
-              </div>
-              {targetInfo.biome && (
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Biome:</span>
-                  <span className="capitalize">{targetInfo.biome}</span>
-                </div>
-              )}
-              {targetInfo.health !== undefined && (
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Health:</span>
-                  <span>{targetInfo.health}/{targetInfo.maxHealth}</span>
-                </div>
-              )}
-              {targetInfo.value !== undefined && (
-                <div className="flex items-center justify-between gap-4">
-                  <span className="text-muted-foreground">Value:</span>
-                  <span className="text-yellow-500">{targetInfo.value} gold</span>
-                </div>
-              )}
-            </div>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="w-full mt-2 text-xs"
-              onClick={() => setTargetInfo(null)}
-              data-testid="button-clear-target"
-            >
-              Clear Target
-            </Button>
-          </Card>
-        )}
-      </div>
       
       <div className="absolute top-4 left-1/2 -translate-x-1/2 flex gap-2">
         <Button

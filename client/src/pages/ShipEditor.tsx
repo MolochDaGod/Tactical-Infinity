@@ -54,6 +54,8 @@ import {
   type ShipCannonConfig
 } from '@shared/gameDefinitions/sailing';
 import { resolveBoatId, type BoatId } from '@shared/gameDefinitions/boatRegistry';
+import { defaultDeckLoadout, getHullDeckBudget } from '@shared/gameDefinitions/waterEngagement';
+import { mountDeckStations, disposeDeckStations, type MountedDeckStations } from '@/lib/deckPlacement';
 
 interface ShipMeshInfo {
   name: string;
@@ -433,6 +435,7 @@ export default function ShipEditor({ onBack }: { onBack: () => void }) {
 
   const [cannonMeshes, setCannonMeshes] = useState<CannonMeshEntry[]>([]);
   const cannonMeshesRef = useRef<CannonMeshEntry[]>([]);
+  const deckStationsRef = useRef<MountedDeckStations | null>(null);
   const [showCannons, setShowCannons] = useState(true);
   const [showCannonArcs, setShowCannonArcs] = useState(false);
   const [selectedCannonId, setSelectedCannonId] = useState<string | null>(null);
@@ -813,6 +816,14 @@ export default function ShipEditor({ onBack }: { onBack: () => void }) {
     cannonMeshesRef.current = [];
 
     const gameId = EDITOR_TO_GAME_SHIP[editorShipId] || 'sloop';
+    disposeDeckStations(deckStationsRef.current);
+    deckStationsRef.current = mountDeckStations(
+      shipGroup,
+      gameId,
+      defaultDeckLoadout(gameId),
+      { name: `editor_deck_${gameId}` },
+    );
+
     const config = SHIP_CANNON_CONFIGS[gameId];
     if (!config || config.mounts.length === 0) {
       setCannonMeshes([]);
@@ -2403,7 +2414,7 @@ export default function ShipEditor({ onBack }: { onBack: () => void }) {
           <TabsList className="grid w-full grid-cols-5 m-2 mb-0">
             <TabsTrigger value="ships" data-testid="tab-ships">Ship</TabsTrigger>
             <TabsTrigger value="cannons" data-testid="tab-cannons">
-              <Crosshair className="w-3 h-3 mr-1" />Cannons
+              <Crosshair className="w-3 h-3 mr-1" />Deck
             </TabsTrigger>
             <TabsTrigger value="stats" data-testid="tab-stats">
               <Gauge className="w-3 h-3 mr-1" />Stats
@@ -2522,6 +2533,13 @@ export default function ShipEditor({ onBack }: { onBack: () => void }) {
                 }
                 return (
                   <div className="space-y-4">
+                    <div className="rounded-md border border-border/60 bg-muted/30 p-2 text-xs text-muted-foreground">
+                      Deck budget for {gameId}: {(() => {
+                        const b = getHullDeckBudget(gameId);
+                        return `${b.cannon} cannon · ${b.harpoon} harpoon · ${b.sniperNest} nest · ${b.mageSpot} mage`;
+                      })()}
+                    </div>
+
                     <div className="flex items-center justify-between">
                       <Label>Cannon Mounts ({config.mounts.length})</Label>
                       <div className="flex gap-1">

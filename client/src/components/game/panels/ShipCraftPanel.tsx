@@ -10,11 +10,15 @@ import { Badge } from '@/components/ui/badge';
 import { Progress } from '@/components/ui/progress';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Separator } from '@/components/ui/separator';
-import { Anchor, Hammer, Ship, Check, Lock } from 'lucide-react';
+import { Anchor, Hammer, Ship, Check, Lock, Crosshair } from 'lucide-react';
 import {
   RAFT_QUICK_CRAFT,
   DOCK_SHIP_RECIPES,
+  DECK_STATIONS,
+  DOCK_KINDS,
   attachmentsForSlot,
+  budgetForKind,
+  getHullDeckBudget,
   getRaftAttachment,
   type RaftAttachmentSlot,
   type RaftAttachmentId,
@@ -22,13 +26,16 @@ import {
 import type { BoatId } from '@shared/gameDefinitions/boatRegistry';
 import {
   canBuildBoat,
+  getDeckLoadout,
   getRaftLoadout,
   isBoatDockBuilt,
   isRaftBuilt,
   loadProgression,
   markBoatBuilt,
   markRaftBuilt,
+  resolveActiveBoatId,
   setActiveBoat,
+  setDeckStationEnabled,
   setRaftAttachment,
 } from '@/lib/playerProgression';
 
@@ -294,6 +301,99 @@ export function ShipCraftPanel({
                 </div>
               );
             })}
+          </div>
+        </section>
+
+        <Separator className="bg-white/10" />
+
+        {/* ── Deck stations on the active hull ─────────────────────────── */}
+        <section>
+          <div className="flex items-center gap-2 mb-2">
+            <Crosshair className="w-4 h-4 text-orange-400" />
+            <h3 className="text-sm font-semibold text-orange-100">Deck stations</h3>
+          </div>
+          <p className="text-xs text-slate-400 mb-3">
+            Place cannons, harpoons, a sniper nest, and mage spots on the active hull.
+            Crew: Gunner · Sailor · Weatherman.
+          </p>
+          {(() => {
+            const hull = resolveActiveBoatId();
+            const budget = getHullDeckBudget(hull);
+            const placed = getDeckLoadout(hull);
+            return (
+              <div className="space-y-2" data-testid="panel-deck-stations">
+                <p className="text-[11px] text-slate-500">
+                  Active hull: <span className="text-slate-200">{hull}</span>
+                </p>
+                {DECK_STATIONS.map((st) => {
+                  const cap = budgetForKind(budget, st.id);
+                  if (cap <= 0) {
+                    return (
+                      <div
+                        key={st.id}
+                        className="rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-[11px] text-slate-500"
+                      >
+                        {st.name} — not on this hull
+                      </div>
+                    );
+                  }
+                  const slots = placed.filter((p) => p.kind === st.id);
+                  return (
+                    <div key={st.id} className="rounded-md border border-white/10 bg-slate-900/50 p-2">
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[12px] text-slate-100">{st.name}</span>
+                        <span className="text-[10px] uppercase tracking-wide text-slate-500">
+                          {st.crewRole} · {cap}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-slate-500 mb-1.5">{st.description}</p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {Array.from({ length: cap }, (_, i) => {
+                          const on = slots.find((s) => s.slotIndex === i)?.enabled ?? true;
+                          return (
+                            <button
+                              key={`${st.id}-${i}`}
+                              type="button"
+                              onClick={() => {
+                                setDeckStationEnabled(hull, st.id, i, !on);
+                                refresh();
+                              }}
+                              className={`text-[11px] px-2 py-1 rounded border ${
+                                on
+                                  ? 'border-orange-400 bg-orange-900/40 text-orange-100'
+                                  : 'border-white/15 bg-black/30 text-slate-400'
+                              }`}
+                              data-testid={`deck-slot-${st.id}-${i}`}
+                            >
+                              {st.name} {i + 1}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            );
+          })()}
+        </section>
+
+        <Separator className="bg-white/10" />
+
+        <section>
+          <h3 className="text-sm font-semibold text-slate-200 mb-2">Harbor docks</h3>
+          <div className="grid grid-cols-1 gap-1.5">
+            {DOCK_KINDS.map((d) => (
+              <div
+                key={d.id}
+                className="rounded-md border border-white/10 bg-black/30 px-2 py-1.5 text-[11px] text-slate-400"
+              >
+                <span className="text-slate-200">{d.name}</span>
+                {' — '}
+                {d.berths} berth{d.berths === 1 ? '' : 's'}
+                {d.allowsShipConstruction ? ' · shipyard' : ' · no hull build'}
+              </div>
+            ))}
           </div>
         </section>
       </div>

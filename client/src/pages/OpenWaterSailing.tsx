@@ -21,13 +21,9 @@ import { Minimap, type MinimapMarker } from '@/components/game/Minimap';
 import { IslandGenerator, type IslandConfig } from '@/lib/islandGenerator';
 import { createIslandDefenses, type IslandDefenseSystem, type DefenseHitResult } from '@/lib/islandDefenseSystem';
 import { CannonballEffects } from '@/lib/cannonballEffects';
-import { GameHUD } from '@/components/game/GameHUD';
-import type { SlotDef } from '@/components/game/GameHUD';
-import { CinzelOverlay, buildHudOverride, isCinzelHudEnabled } from '@/components/hud/CinzelOverlay';
-import { loadCaptainBuild, CLASS_LABELS, resolvePlayerBoatId } from '@/lib/captainBuild';
+import { RtsSeaHud, type RtsSeaCommand } from '@/components/hud/RtsSeaHud';
+import { resolvePlayerBoatId } from '@/lib/captainBuild';
 import { getBoat } from '@shared/gameDefinitions/boatRegistry';
-import type { Race } from '@/components/hud/CinzelOverlay/types';
-import { WindCompass } from '@/components/game/WindCompass';
 import { shipAudio } from '@/lib/shipAudio';
 import '@/styles/sailingFx.css';
 import { SailingScenics } from '@/lib/sailingScenics';
@@ -1136,6 +1132,11 @@ export default function OpenWaterSailing({ onBack, onLandOnIsland }: OpenWaterSa
           }
         }
       }
+      if (key === '1') fireCannonFromState(state, 'port');
+      if (key === '2') fireCannonFromState(state, 'starboard');
+      if (key === '3') fireSniperShot(state);
+      if (key === '4') activateAbility(state, 'fullsail');
+      if (key === '5') activateAbility(state, 'repair');
       if (key === 't' && !state.abilityKeyLock.has('t')) {
         state.abilityKeyLock.add('t');
         (state as any)._autoFireEnabled = !(state as any)._autoFireEnabled;
@@ -2083,183 +2084,30 @@ export default function OpenWaterSailing({ onBack, onLandOnIsland }: OpenWaterSa
         </div>
       )}
 
-      <div className="absolute top-4 left-1/2 -translate-x-1/2 z-10 pointer-events-none">
-        <div className="bg-black/60 backdrop-blur rounded-lg px-6 py-2 text-center">
-          <div className="text-amber-400 font-serif text-lg" data-testid="text-ship-speed">
-            {sailingState.speed.toFixed(1)} kts
-            {sailingState.fullSailActive && <span className="ml-2 text-yellow-300 text-sm animate-pulse">⚡ FULL SAIL</span>}
-          </div>
-          <div className="flex gap-4 text-xs text-white/60 mt-0.5">
-            <span data-testid="text-heading">HDG {((sailingState.heading % 360 + 360) % 360).toFixed(0)}°</span>
-            <span data-testid="text-wind">WIND {((sailingState.windAngle % 360 + 360) % 360).toFixed(0)}° @ {sailingState.windSpeed.toFixed(0)}kts</span>
-            <span>WAVE {sailingState.waveNumber}</span>
-            <span data-testid="text-kills" className="text-amber-300">⚔ {sailingState.kills}</span>
-          </div>
-        </div>
-      </div>
-
-      <div className="absolute top-16 left-4 z-10 space-y-2 origin-top-left scale-[0.82]" style={{ width: 240 }}>
-        <WindCompass
-          windAngleDeg={sailingState.windAngle}
-          windSpeedKts={sailingState.windSpeed}
-          shipHeadingDeg={sailingState.heading}
-          shipSpeedKts={sailingState.speed}
-          sailTrim01={Math.max(0, Math.min(1, sailingState.sailAngle / 100))}
-          fullSailActive={sailingState.fullSailActive}
-        />
-        <div className="bg-black/70 backdrop-blur rounded-lg p-3">
-          <div className="flex justify-between text-xs text-white/50 mb-1">
-            <span>Hull Integrity</span>
-            <span data-testid="text-health">{Math.ceil(sailingState.playerHealth)} / {sailingState.playerMaxHealth}</span>
-          </div>
-          <div className="w-full h-2.5 bg-white/10 rounded-full overflow-hidden">
-            <div
-              className={`h-full rounded-full transition-all ${healthColor}`}
-              style={{ width: `${Math.max(0, healthPct)}%` }}
-              data-testid="bar-health"
-            />
-          </div>
-        </div>
-
-        <div className="bg-black/70 backdrop-blur rounded-lg p-3">
-          <div className="text-xs text-white/50 mb-1.5">Cannon Reload</div>
-          <div className="flex gap-2 items-center">
-            <span className="text-xs text-white/40 w-6">Port</span>
-            <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-red-400 rounded-full transition-all"
-                style={{ width: `${sailingState.portCooldown <= 0 ? 100 : (1 - sailingState.portCooldown / PORT_COOLDOWN_MAX) * 100}%` }}
-                data-testid="bar-port-reload"
-              />
-            </div>
-            {sailingState.portCooldown <= 0 && <span className="text-green-400 text-xs">✓</span>}
-          </div>
-          <div className="flex gap-2 items-center mt-1">
-            <span className="text-xs text-white/40 w-6">Stbd</span>
-            <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-              <div
-                className="h-full bg-red-400 rounded-full transition-all"
-                style={{ width: `${sailingState.starboardCooldown <= 0 ? 100 : (1 - sailingState.starboardCooldown / STARBOARD_COOLDOWN_MAX) * 100}%` }}
-                data-testid="bar-starboard-reload"
-              />
-            </div>
-            {sailingState.starboardCooldown <= 0 && <span className="text-green-400 text-xs">✓</span>}
-          </div>
-        </div>
-
-        <div className="bg-black/70 backdrop-blur rounded-lg p-3">
-          <div className="text-xs text-white/50 mb-1">Enemies: {sailingState.enemies.length}</div>
-          {sailingState.enemies.slice(0, 4).map(e => (
-            <div key={e.id} className="flex items-center gap-2 mt-1">
-              <span className="text-xs text-white/40 w-10 shrink-0">{e.dist}m</span>
-              <div className="flex-1 h-1.5 bg-white/10 rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-orange-500 rounded-full transition-all"
-                  style={{ width: `${(e.health / e.maxHealth) * 100}%` }}
-                />
-              </div>
-            </div>
-          ))}
-          {sailingState.enemies.length > 4 && (
-            <div className="text-xs text-white/30 mt-1">+{sailingState.enemies.length - 4} more</div>
-          )}
-        </div>
-      </div>
-
-      {/* ── Bottom combat HUD ────────────────────────────────────────────── */}
-      <GameHUD
-        mode="ship"
-        slots={(() => {
-          const abilityDefs: SlotDef[] = [
-            { id: 'repair',     label: 'Repair',      icon: '🔧', hotkey: 'R', cooldown: sailingState.abilities.repair,     maxCooldown: 45, onClick: () => handleAbility('repair'), disabled: sailingState.gamePhase !== 'sailing' },
-            { id: 'fullsail',   label: 'Full Sail',   icon: '💨', hotkey: 'V', cooldown: sailingState.abilities.fullsail,   maxCooldown: 30, onClick: () => handleAbility('fullsail'), disabled: sailingState.gamePhase !== 'sailing' },
-            { id: 'broadside',  label: 'Broadside',   icon: '💥', hotkey: 'G', cooldown: sailingState.abilities.broadside,  maxCooldown: 20, onClick: () => handleAbility('broadside'), disabled: sailingState.gamePhase !== 'sailing' },
-            { id: 'sniperShot', label: "Crow's Nest", icon: '🎯', hotkey: 'F', cooldown: sailingState.abilities.sniperShot, maxCooldown: 12, onClick: handleSniperShot, disabled: sailingState.gamePhase !== 'sailing' },
-          ];
-          return abilityDefs;
-        })()}
-        secondarySlots={(() => {
-          return (Object.entries(CANNON_SKILLS) as [CannonSkillId, typeof CANNON_SKILLS[CannonSkillId]][]).map(([id, skill]) => ({
-            id,
-            label: skill.name,
-            icon: skill.icon,
-            hotkey: skill.key,
-            active: sailingState.currentAmmo === id,
-            description: skill.description,
-            onClick: () => {
-              const s = sceneRef.current;
-              if (s) s.currentAmmo = id;
-              setSailingState(prev => ({ ...prev, currentAmmo: id }));
-            },
-          }));
-        })()}
-        secondaryLabel="Cannon Skills"
-        vitals={[
-          { id: "hull", label: "Hull", current: sailingState.playerHealth, max: sailingState.playerMaxHealth, color: "#f59e0b", icon: "shield" },
-        ]}
-        sideLeft={{
-          id: "port", label: "PORT", icon: "💥", hotkey: "Space",
-          cooldown: sailingState.portCooldown, maxCooldown: PORT_COOLDOWN_MAX,
-          description: "Port",
-          disabled: sailingState.gamePhase !== 'sailing',
-          onClick: () => fireCannon('port'),
-        }}
-        sideRight={{
-          id: "starboard", label: "STBD", icon: "💥", hotkey: "Space",
-          cooldown: sailingState.starboardCooldown, maxCooldown: STARBOARD_COOLDOWN_MAX,
-          description: "Stbd",
-          disabled: sailingState.gamePhase !== 'sailing',
-          onClick: () => fireCannon('starboard'),
-        }}
-        hint="WASD sail · A/D turn · Q/E trim · Space fire · 1-6 skills · R/V/G/F abilities · T auto-fire · Z sniper · RMB aim · Tab debug"
-      />
-
-      {isCinzelHudEnabled() && (() => {
-        const WEAPON_NAMES: Record<string, { name: string; icon: string }> = {
-          staff: { name: 'Arcane Staff', icon: '🪄' },
-          sword_shield: { name: 'Longsword & Shield', icon: '⚔' },
-          bow: { name: 'Recurve Bow', icon: '🏹' },
-          axe: { name: 'War Axe', icon: '🪓' },
-        };
-        let fallback = { name: 'Captain', race: 'human' as Race, className: 'Sea Lord', level: 5 };
-        let equipped: Array<{ slot: 'weapon' | 'armor'; name: string; icon: string }> | undefined;
-        try {
-          const build = loadCaptainBuild();
-          if (build) {
-            fallback = {
-              name: build.race.charAt(0).toUpperCase() + build.race.slice(1) + ' Captain',
-              race: build.race as Race,
-              className: CLASS_LABELS[build.classKey] ?? 'Warlord',
-              level: 5,
-            };
-            const wpn = WEAPON_NAMES[build.weaponStyle] ?? { name: 'Fists', icon: '👊' };
-            equipped = [
-              { slot: 'weapon', name: wpn.name, icon: wpn.icon },
-              { slot: 'armor', name: 'Sailor\'s Garb', icon: '🛡' },
-            ];
-          } else {
-            const saved = localStorage.getItem('tethical_captain');
-            if (saved) {
-              const data = JSON.parse(saved);
-              fallback = {
-                name: data.name || 'Captain',
-                race: (data.race || 'human') as Race,
-                className: data.characterClass || 'Warlord',
-                level: 5,
-              };
-            }
-          }
-        } catch {}
-        const override = buildHudOverride({
-          hp: { current: sailingState.playerHealth, max: sailingState.playerMaxHealth },
-          fallback,
-        });
-        if (equipped) override.equipped = equipped;
+      {(() => {
+        const boatId = resolvePlayerBoatId();
+        const cmds: RtsSeaCommand[] = [
+          { id: 'cannon', label: 'Cannon', crew: 'gunner', hotkey: '1', cooldown: sailingState.portCooldown, maxCooldown: PORT_COOLDOWN_MAX, onClick: () => fireCannon('port'), disabled: sailingState.gamePhase !== 'sailing' },
+          { id: 'harpoon', label: 'Harpoon', crew: 'sailor', hotkey: '2', cooldown: sailingState.starboardCooldown, maxCooldown: STARBOARD_COOLDOWN_MAX, onClick: () => fireCannon('starboard'), disabled: sailingState.gamePhase !== 'sailing' },
+          { id: 'sniper_nest', label: 'Nest', crew: 'sailor', hotkey: '3', cooldown: sailingState.abilities.sniperShot, maxCooldown: 12, onClick: handleSniperShot, disabled: sailingState.gamePhase !== 'sailing' },
+          { id: 'mage_spot', label: 'Wind', crew: 'weatherman', hotkey: '4', cooldown: sailingState.abilities.fullsail, maxCooldown: 30, onClick: () => handleAbility('fullsail'), disabled: sailingState.gamePhase !== 'sailing' },
+          { id: 'repair', label: 'Repair', crew: 'sailor', hotkey: '5', cooldown: sailingState.abilities.repair, maxCooldown: 45, onClick: () => handleAbility('repair'), disabled: sailingState.gamePhase !== 'sailing' },
+        ];
+        const aim = sailingState.aimTarget;
         return (
-          <CinzelOverlay
-            state={override}
-            hideChat
-            hideHotbar
+          <RtsSeaHud
+            boatId={boatId}
+            boatName={getBoat(boatId).name}
+            hull={sailingState.playerHealth}
+            hullMax={sailingState.playerMaxHealth}
+            headingDeg={sailingState.heading}
+            speedKts={sailingState.speed}
+            windDeg={sailingState.windAngle}
+            windKts={sailingState.windSpeed}
+            commands={cmds}
+            targetName={aim?.name}
+            targetHp={aim?.hp}
+            targetHpMax={aim?.maxHp}
           />
         );
       })()}

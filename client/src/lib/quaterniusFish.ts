@@ -43,6 +43,8 @@ export interface QuaterniusFishDef {
 
 /** Prefer catalog / CDN r2 keys (hyphenated Manta-ray first). */
 const fishUrl = (file: string) => resolveWarlordsUrl(`models/fauna/fish/${file}`);
+/** Same-origin copies shipped under public/models/fleet/fish/ */
+const localFish = (file: string) => `/models/fleet/fish/${file}`;
 
 /**
  * Species table — sizes in metres for open-world under-boat readability.
@@ -53,7 +55,8 @@ export const QUATERNIUS_FISH: QuaterniusFishDef[] = [
     id: 'fish1',
     name: 'ReefFishA',
     label: 'Reef Fish A',
-    modelUrl: fishUrl('Fish1.fbx'),
+    modelUrl: localFish('Fish1.fbx'),
+    modelUrlAlt: fishUrl('Fish1.fbx'),
     bodyLengthM: 0.55,
     depthLo: -5,
     depthHi: -2,
@@ -67,7 +70,8 @@ export const QUATERNIUS_FISH: QuaterniusFishDef[] = [
     id: 'fish2',
     name: 'ReefFishB',
     label: 'Reef Fish B',
-    modelUrl: fishUrl('Fish2.fbx'),
+    modelUrl: localFish('Fish2.fbx'),
+    modelUrlAlt: fishUrl('Fish2.fbx'),
     bodyLengthM: 0.6,
     depthLo: -5.5,
     depthHi: -2.2,
@@ -81,7 +85,8 @@ export const QUATERNIUS_FISH: QuaterniusFishDef[] = [
     id: 'fish3',
     name: 'ReefFishC',
     label: 'Reef Fish C',
-    modelUrl: fishUrl('Fish3.fbx'),
+    modelUrl: localFish('Fish3.fbx'),
+    modelUrlAlt: fishUrl('Fish3.fbx'),
     bodyLengthM: 0.5,
     depthLo: -4.5,
     depthHi: -2,
@@ -95,7 +100,8 @@ export const QUATERNIUS_FISH: QuaterniusFishDef[] = [
     id: 'dolphin',
     name: 'Dolphin',
     label: 'Dolphin',
-    modelUrl: fishUrl('Dolphin.fbx'),
+    modelUrl: localFish('Dolphin.fbx'),
+    modelUrlAlt: fishUrl('Dolphin.fbx'),
     bodyLengthM: 2.4,
     depthLo: -9,
     depthHi: -3.5,
@@ -109,7 +115,8 @@ export const QUATERNIUS_FISH: QuaterniusFishDef[] = [
     id: 'shark',
     name: 'Shark',
     label: 'Shark',
-    modelUrl: fishUrl('Shark.fbx'),
+    modelUrl: localFish('Shark.fbx'),
+    modelUrlAlt: fishUrl('Shark.fbx'),
     bodyLengthM: 3.2,
     depthLo: -12,
     depthHi: -5.5,
@@ -123,8 +130,8 @@ export const QUATERNIUS_FISH: QuaterniusFishDef[] = [
     id: 'manta',
     name: 'MantaRay',
     label: 'Manta Ray',
-    modelUrl: fishUrl('Manta-ray.fbx'),
-    modelUrlAlt: fishUrl('Manta ray.fbx'),
+    modelUrl: localFish('Manta-ray.fbx'),
+    modelUrlAlt: fishUrl('Manta-ray.fbx'),
     bodyLengthM: 2.8,
     depthLo: -13,
     depthHi: -6,
@@ -138,7 +145,8 @@ export const QUATERNIUS_FISH: QuaterniusFishDef[] = [
     id: 'whale',
     name: 'Whale',
     label: 'Whale',
-    modelUrl: fishUrl('Whale.fbx'),
+    modelUrl: localFish('Whale.fbx'),
+    modelUrlAlt: fishUrl('Whale.fbx'),
     bodyLengthM: 7.5,
     depthLo: -15,
     depthHi: -9,
@@ -160,3 +168,14 @@ export function depthBandForBodyLength(bodyLengthM: number): { lo: number; hi: n
 }
 
 export { resolveOceanDepthBand, clampOceanDepth as clampFishDepth, OCEAN_SURFACE_Y, OCEAN_MAX_DEPTH_Y };
+
+/** Quaternius FBX often ships without maps — tropical display colors. */
+export const FISH_DISPLAY_COLOR: Record<string, number> = {
+  ReefFishA: 0xf4a261,
+  ReefFishB: 0xe9c46a,
+  ReefFishC: 0x2a9d8f,
+  Dolphin: 0x8d99ae,
+  Shark: 0x4a5560,
+  MantaRay: 0x2d3142,
+  Whale: 0x3d5a80,
+};

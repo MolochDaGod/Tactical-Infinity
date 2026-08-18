@@ -6,6 +6,7 @@ import { TransformControls } from 'three/examples/jsm/controls/TransformControls
 import { createToonOceanPlane, updateToonWater } from '@/lib/toonWaterShader';
 import {
   TERRAIN_TEXTURES,
+  EDITOR_SPLAT_CHANNELS,
   createTerrainSplatMaterial,
   autoSplatFromHeight,
   type TerrainSplatMaterial,
@@ -19,21 +20,37 @@ import {
   ArrowUp, ArrowDown, Minus, TreePine, Mountain, MousePointer2,
   Eraser, Layers, Save, FolderOpen, FilePlus, Undo2, Redo2,
   Grid3x3, Download, Upload, Trash2, Copy, RotateCw,
-  ChevronRight, ChevronLeft, UploadCloud,
+  ChevronRight, ChevronLeft, UploadCloud, Play, Dices, Sparkles,
 } from 'lucide-react';
 import { savePublishedIsland } from '@/lib/adminOverrides';
+import {
+  generateIslandSeed,
+  ARCHETYPE_LIST,
+  type IslandArchetype,
+  type EditorNodeKind,
+} from '@/lib/islandsCanonical/islandSeedArchetypes';
+import {
+  createEditorAsset,
+  tickHarvestRegrow,
+} from '@/lib/islandsCanonical/editorStylizedAssets';
+import {
+  EditorPlayController,
+  PLAY_TOOLS,
+  type PlayTool,
+} from '@/lib/islandsCanonical/editorPlayController';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
-type EditMode = 'terrain' | 'place' | 'select' | 'erase' | 'follow';
+type EditMode = 'terrain' | 'place' | 'select' | 'erase' | 'follow' | 'play';
 type TerrainTool = 'raise' | 'lower' | 'smooth' | 'flatten' | 'noise' | 'texture';
 type BrushFalloff = 'smooth' | 'linear' | 'constant';
 type AssetType =
   | 'palm_tree' | 'pine_tree' | 'dead_tree'
-  | 'rock' | 'ore_iron' | 'ore_gold' | 'crystal'
+  | 'rock' | 'ore_iron' | 'ore_gold' | 'ore_copper' | 'crystal'
   | 'house' | 'tower' | 'farm' | 'forge' | 'dock'
   | 'wall' | 'barracks' | 'warehouse' | 'market' | 'sawmill'
   | 'char_human' | 'char_barbarian' | 'char_dwarf' | 'char_elf' | 'char_orc' | 'char_undead'
-  | 'herb_bush' | 'deer' | 'boar' | 'goldmine_node'
+  | 'herb_bush' | 'flowers' | 'deer' | 'boar' | 'goldmine_node'
+  | 'evil_mountain' | 'cliff' | 'scrap' | 'fishing_spot' | 'pve_camp' | 'flat_zone'
   | 'particle_fire' | 'particle_fog' | 'lantern' | 'campfire';
 
 interface PlacedAsset {
@@ -62,12 +79,20 @@ const HARVESTABLE_DEFS = [
   { type: 'dead_tree' as AssetType, label: 'Dead Tree', icon: '🪵', yields: 'Wood' },
   { type: 'rock'      as AssetType, label: 'Rock',      icon: '🪨', yields: 'Stone' },
   { type: 'ore_iron'  as AssetType, label: 'Iron Ore',  icon: '⚙️', yields: 'Iron' },
+  { type: 'ore_copper' as AssetType, label: 'Copper Ore', icon: '🟠', yields: 'Copper' },
   { type: 'ore_gold'  as AssetType, label: 'Gold Ore',  icon: '✨', yields: 'Gold' },
   { type: 'crystal'   as AssetType, label: 'Crystal',   icon: '💎', yields: 'Mana' },
   { type: 'herb_bush' as AssetType, label: 'Herb Bush', icon: '🌿', yields: 'Herbs' },
+  { type: 'flowers'   as AssetType, label: 'Flowers',   icon: '🌸', yields: 'Cloth' },
   { type: 'goldmine_node' as AssetType, label: 'Gold Mine', icon: '⛏️', yields: 'Gold' },
+  { type: 'scrap'     as AssetType, label: 'Scrap',     icon: '🔧', yields: 'Scrap' },
+  { type: 'fishing_spot' as AssetType, label: 'Fishing', icon: '🎣', yields: 'Fish' },
   { type: 'deer'      as AssetType, label: 'Deer',      icon: '🦌', yields: 'Hide' },
   { type: 'boar'      as AssetType, label: 'Boar',      icon: '🐗', yields: 'Meat' },
+  { type: 'evil_mountain' as AssetType, label: 'Evil Mountain', icon: '🗻', yields: 'PvE' },
+  { type: 'cliff'     as AssetType, label: 'Cliff',     icon: '🏔️', yields: '—' },
+  { type: 'pve_camp'  as AssetType, label: 'PvE Camp',  icon: '⛺', yields: '—' },
+  { type: 'flat_zone' as AssetType, label: 'Flat Zone', icon: '📐', yields: 'Build' },
 ];
 const BUILDING_DEFS = [
   { type: 'house'     as AssetType, label: 'House',     icon: '🏠', category: 'Basic' },
@@ -423,6 +448,7 @@ function makeParticleFog(): THREE.Group {
   return g;
 }
 
+/** Sync procedural fallback (characters/effects + emergency). Stylized CDN used via createEditorAsset. */
 function createAssetMesh(type: AssetType): THREE.Group {
   let g: THREE.Group;
   switch (type) {
@@ -430,7 +456,8 @@ function createAssetMesh(type: AssetType): THREE.Group {
     case 'pine_tree': g = makePineTree(); break;
     case 'dead_tree': g = makeDeadTree(); break;
     case 'rock':      g = makeRock();     break;
-    case 'ore_iron':  g = makeOre(0xcc8844); break;
+    case 'ore_iron':
+    case 'ore_copper': g = makeOre(0xcc8844); break;
     case 'ore_gold':  g = makeOre(0xffcc00); break;
     case 'crystal':   g = makeCrystal(); break;
     case 'house':     g = makeHouse();   break;
@@ -449,10 +476,51 @@ function createAssetMesh(type: AssetType): THREE.Group {
     case 'char_elf':       g = makeRaceCharacter(0x4A8A5A, 'Elf'); break;
     case 'char_orc':       g = makeRaceCharacter(0x5A7A3A, 'Orc'); break;
     case 'char_undead':    g = makeRaceCharacter(0x6A5A7A, 'Undead'); break;
-    case 'herb_bush':      g = makeHerbBush(); break;
+    case 'herb_bush':
+    case 'flowers':        g = makeHerbBush(); break;
     case 'deer':           g = makeAnimal(0xA08060); break;
     case 'boar':           g = makeAnimal(0x6A4A3A); break;
     case 'goldmine_node':  g = makeGoldmineNode(); break;
+    case 'evil_mountain': {
+      g = new THREE.Group();
+      const mtn = new THREE.Mesh(new THREE.ConeGeometry(8, 16, 6), MATS.darkRk);
+      mtn.position.y = 8; g.add(mtn);
+      const cave = new THREE.Mesh(new THREE.BoxGeometry(3, 3, 2), new THREE.MeshBasicMaterial({ color: 0x050508 }));
+      cave.position.set(0, 1.5, 6); g.add(cave);
+      break;
+    }
+    case 'cliff': {
+      g = new THREE.Group();
+      const c = new THREE.Mesh(new THREE.BoxGeometry(4, 6, 2), MATS.rock);
+      c.position.y = 3; g.add(c);
+      break;
+    }
+    case 'scrap': {
+      g = new THREE.Group();
+      for (let i = 0; i < 4; i++) {
+        const bit = new THREE.Mesh(new THREE.BoxGeometry(0.4, 0.15, 0.6), MATS.grey);
+        bit.position.set((i - 1.5) * 0.35, 0.1, (i % 2) * 0.3); g.add(bit);
+      }
+      break;
+    }
+    case 'fishing_spot': {
+      g = new THREE.Group();
+      const ring = new THREE.Mesh(new THREE.TorusGeometry(0.8, 0.08, 6, 16), new THREE.MeshBasicMaterial({ color: 0x44aaff }));
+      ring.rotation.x = -Math.PI / 2; ring.position.y = 0.1; g.add(ring);
+      break;
+    }
+    case 'pve_camp': {
+      g = new THREE.Group();
+      const tent = new THREE.Mesh(new THREE.ConeGeometry(1.5, 2.2, 4), MATS.red);
+      tent.position.y = 1.1; g.add(tent);
+      break;
+    }
+    case 'flat_zone': {
+      g = new THREE.Group();
+      const pad = new THREE.Mesh(new THREE.CylinderGeometry(7, 7, 0.15, 24), new THREE.MeshLambertMaterial({ color: 0x8a7a55, transparent: true, opacity: 0.55 }));
+      pad.position.y = 0.08; g.add(pad);
+      break;
+    }
     case 'campfire':       g = makeCampfire(); break;
     case 'lantern':        g = makeLantern(); break;
     case 'particle_fire':  g = makeParticleFire(); break;
@@ -463,6 +531,71 @@ function createAssetMesh(type: AssetType): THREE.Group {
   g.userData.assetType = type;
   g.traverse(c => { if ((c as THREE.Mesh).isMesh) { c.castShadow = true; c.receiveShadow = true; } });
   return g;
+}
+
+const STYLIZED_KINDS = new Set<string>([
+  'palm_tree', 'pine_tree', 'dead_tree', 'rock', 'ore_iron', 'ore_gold', 'ore_copper',
+  'crystal', 'herb_bush', 'flowers', 'deer', 'boar', 'goldmine_node',
+  'evil_mountain', 'cliff', 'scrap', 'fishing_spot',
+]);
+
+/** True only for real Three object graph nodes (not GLTF JSON wrappers). */
+function isObject3D(obj: unknown): obj is THREE.Object3D {
+  return !!obj && typeof obj === 'object' && (obj as THREE.Object3D).isObject3D === true;
+}
+
+function ensureGroup(obj: unknown, fallbackType: AssetType = 'rock'): THREE.Group {
+  if (isObject3D(obj) && (obj as THREE.Group).isObject3D) {
+    // Prefer Group; wrap Mesh/Object3D in a Group for consistent placement API
+    if ((obj as THREE.Group).type === 'Group' || obj instanceof THREE.Group) {
+      return obj as THREE.Group;
+    }
+    const wrap = new THREE.Group();
+    wrap.add(obj as THREE.Object3D);
+    wrap.userData = { ...(obj as THREE.Object3D).userData };
+    return wrap;
+  }
+  // Common bug: GLTFLoader result { scene, animations } passed as mesh
+  const maybe = obj as { scene?: THREE.Object3D } | null;
+  if (maybe?.scene && isObject3D(maybe.scene)) {
+    const wrap = new THREE.Group();
+    wrap.add(maybe.scene.clone(true));
+    return wrap;
+  }
+  console.warn('[IslandEditor] non-Object3D asset, using procedural', obj);
+  return createAssetMesh(fallbackType);
+}
+
+function safeSceneAdd(scene: THREE.Scene, obj: unknown): THREE.Object3D | null {
+  const o = isObject3D(obj) ? obj : null;
+  if (!o) {
+    console.error('[IslandEditor] scene.add blocked — not Object3D', obj);
+    return null;
+  }
+  scene.add(o);
+  return o;
+}
+
+async function createAssetMeshAsync(type: AssetType, scale?: number): Promise<THREE.Group> {
+  try {
+    if (type.startsWith('char_') || type.startsWith('particle_')) {
+      return createAssetMesh(type);
+    }
+    // Buildings / landmarks → procedural (reliable); nature/ore/animals → CDN
+    if (STYLIZED_KINDS.has(type) || type === 'dock' || type === 'flat_zone' || type === 'pve_camp') {
+      try {
+        const loaded = await createEditorAsset(type as EditorNodeKind, { scale });
+        return ensureGroup(loaded, type);
+      } catch (e) {
+        console.warn('[IslandEditor] stylized load failed, procedural', type, e);
+        return createAssetMesh(type);
+      }
+    }
+    return createAssetMesh(type);
+  } catch (e) {
+    console.warn('[IslandEditor] createAssetMeshAsync hard fail', type, e);
+    return createAssetMesh('rock');
+  }
 }
 
 // ── Terrain tool colours ──────────────────────────────────────────────────────
@@ -500,6 +633,12 @@ export default function IslandEditorPage() {
   // via the unified FollowCamera rig (same one used by captain/island/battle).
   const [followingName, setFollowingName] = useState<string | null>(null);
   const [showInspector, setShowInspector] = useState(false);
+  const [generating, setGenerating] = useState(false);
+  const [seedInput, setSeedInput] = useState('');
+  const [lastSeedInfo, setLastSeedInfo] = useState<string | null>(null);
+  const [playTool, setPlayTool] = useState<PlayTool>('none');
+  const [harvestLog, setHarvestLog] = useState<string[]>([]);
+  const [playReady, setPlayReady] = useState(false);
 
   // ── Three.js refs ─────────────────────────────────────────────────────────
   const mountRef    = useRef<HTMLDivElement>(null);
@@ -533,6 +672,8 @@ export default function IslandEditorPage() {
   const ctxWorldPos = useRef(new THREE.Vector3());
   const splatRef    = useRef<TerrainSplatMaterial | null>(null);
   const vertexMatRef = useRef<THREE.MeshLambertMaterial | null>(null);
+  const playCtrlRef = useRef<EditorPlayController | null>(null);
+  const playToolRef = useRef<PlayTool>('none');
 
   // Ref mirrors (avoid stale closures in event handlers)
   const modeRef    = useRef<EditMode>('terrain');
@@ -551,6 +692,7 @@ export default function IslandEditorPage() {
   useEffect(() => { bFallRef.current = brushFalloff; }, [brushFalloff]);
   useEffect(() => { assetRef.current = selectedAsset; }, [selectedAsset]);
   useEffect(() => { snapRef.current = snapToGrid; }, [snapToGrid]);
+  useEffect(() => { playToolRef.current = playTool; playCtrlRef.current?.setTool(playTool); }, [playTool]);
   useEffect(() => {
     wLevelRef.current = waterLevel;
     if (waterRef.current) waterRef.current.position.y = waterLevel;
@@ -566,13 +708,17 @@ export default function IslandEditorPage() {
     const terrain = terrainRef.current;
     if (!terrain) return;
     if (useTextures) {
-      if (!splatRef.current) {
-        const splat = createTerrainSplatMaterial(['grass_3', 'mud_1', 'dark_mud_1', 'tile_2']);
-        splatRef.current = splat;
-        autoSplatFromHeight(splat.splatData, splat.splatMap, terrain.geometry, 128);
+      try {
+        if (!splatRef.current) {
+          const splat = createTerrainSplatMaterial(['grass', 'soil', 'sand', 'stone']);
+          splatRef.current = splat;
+          autoSplatFromHeight(splat.splatData, splat.splatMap, terrain.geometry, 128);
+        }
+        vertexMatRef.current = terrain.material as THREE.MeshLambertMaterial;
+        if (splatRef.current?.material) terrain.material = splatRef.current.material;
+      } catch (e) {
+        console.warn('[IslandEditor] enable textures failed', e);
       }
-      vertexMatRef.current = terrain.material as THREE.MeshLambertMaterial;
-      terrain.material = splatRef.current.material;
     } else {
       if (vertexMatRef.current) {
         terrain.material = vertexMatRef.current;
@@ -787,29 +933,67 @@ export default function IslandEditorPage() {
     return placedRef.current.find(a => a.mesh === obj) || null;
   }, []);
 
-  // ── Asset placement ───────────────────────────────────────────────────────
+  // ── Height sample for play mode ───────────────────────────────────────────
+  const sampleTerrainY = useCallback((x: number, z: number): number => {
+    const terrain = terrainRef.current;
+    if (!terrain) return 0;
+    const pos = terrain.geometry.attributes.position;
+    const N = Math.round(Math.sqrt(pos.count));
+    const SIZE = 64;
+    const half = SIZE / 2;
+    const u = (x + half) / SIZE;
+    const v = (z + half) / SIZE;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return 0;
+    const col = Math.min(N - 1, Math.max(0, Math.round(u * (N - 1))));
+    const row = Math.min(N - 1, Math.max(0, Math.round(v * (N - 1))));
+    return pos.getY(row * N + col);
+  }, []);
+
+  // ── Asset placement (async stylized CDN meshes) ───────────────────────────
   const placeAsset = useCallback((worldPt: THREE.Vector3) => {
     if (!sceneRef.current) return;
     let p = worldPt.clone();
     if (snapRef.current) { p.x = Math.round(p.x / 2) * 2; p.z = Math.round(p.z / 2) * 2; }
-    const mesh = createAssetMesh(assetRef.current);
-    mesh.position.copy(p);
-    sceneRef.current.add(mesh);
-    placedRef.current.push({ id: Date.now() + Math.random().toString(36).slice(2), type: assetRef.current, position: p.clone(), rotationY: 0, mesh });
+    const type = assetRef.current;
+    const id = Date.now() + Math.random().toString(36).slice(2);
+    // Instant placeholder → swap for CDN mesh when ready
+    const placeholder = createAssetMesh(type);
+    placeholder.position.copy(p);
+    placeholder.userData.loadingStylized = true;
+    if (!safeSceneAdd(sceneRef.current, placeholder)) return;
+    placedRef.current.push({ id, type, position: p.clone(), rotationY: 0, mesh: placeholder });
     renderMinimap();
     setStats(s => ({ ...s, objs: placedRef.current.length }));
+
+    void createAssetMeshAsync(type).then((raw) => {
+      const scene = sceneRef.current;
+      if (!scene) return;
+      const entry = placedRef.current.find((a) => a.id === id);
+      if (!entry) return;
+      const mesh = ensureGroup(raw, type);
+      scene.remove(entry.mesh);
+      mesh.position.copy(entry.position);
+      mesh.rotation.y = entry.rotationY;
+      if (!safeSceneAdd(scene, mesh)) return;
+      entry.mesh = mesh;
+      renderMinimap();
+    }).catch((e) => console.warn('[IslandEditor] place upgrade failed', e));
   }, [renderMinimap]);
 
   // ── Selection ─────────────────────────────────────────────────────────────
   const selectAsset = useCallback((cx: number, cy: number) => {
     const found = findAssetAt(cx, cy);
-    if (found) {
+    if (found && isObject3D(found.mesh)) {
       selectedRef.current = found;
-      transformRef.current?.attach(found.mesh);
+      try {
+        transformRef.current?.attach(found.mesh);
+      } catch (e) {
+        console.warn('[IslandEditor] transform attach failed', e);
+      }
       setSelectedObjInfo({ type: found.type, pos: `${found.position.x.toFixed(1)}, ${found.position.y.toFixed(1)}, ${found.position.z.toFixed(1)}` });
     } else {
       selectedRef.current = null;
-      transformRef.current?.detach();
+      try { transformRef.current?.detach(); } catch { /* ignore */ }
       setSelectedObjInfo(null);
     }
   }, [findAssetAt]);
@@ -831,12 +1015,24 @@ export default function IslandEditorPage() {
 
   const duplicateSelected = useCallback(() => {
     const sel = selectedRef.current; if (!sel || !sceneRef.current) return;
-    const mesh = createAssetMesh(sel.type);
-    mesh.position.copy(sel.position).add(new THREE.Vector3(2, 0, 2));
-    mesh.rotation.y = sel.rotationY;
-    sceneRef.current.add(mesh);
-    placedRef.current.push({ id: Date.now() + Math.random().toString(36).slice(2), type: sel.type, position: mesh.position.clone(), rotationY: sel.rotationY, mesh });
+    const id = Date.now() + Math.random().toString(36).slice(2);
+    const pos = sel.position.clone().add(new THREE.Vector3(2, 0, 2));
+    const placeholder = createAssetMesh(sel.type);
+    placeholder.position.copy(pos);
+    placeholder.rotation.y = sel.rotationY;
+    sceneRef.current.add(placeholder);
+    placedRef.current.push({ id, type: sel.type, position: pos, rotationY: sel.rotationY, mesh: placeholder });
     renderMinimap(); setStats(s => ({ ...s, objs: placedRef.current.length }));
+    void createAssetMeshAsync(sel.type).then((mesh) => {
+      const scene = sceneRef.current;
+      const entry = placedRef.current.find((a) => a.id === id);
+      if (!scene || !entry) return;
+      scene.remove(entry.mesh);
+      mesh.position.copy(entry.position);
+      mesh.rotation.y = entry.rotationY;
+      scene.add(mesh);
+      entry.mesh = mesh;
+    });
   }, [renderMinimap]);
 
   const rotateSelected = useCallback((deg = 90) => {
@@ -960,17 +1156,26 @@ export default function IslandEditorPage() {
     const bOut = new THREE.Line(new THREE.BufferGeometry().setFromPoints(outPts), new THREE.LineBasicMaterial({ color: 0x00ff88, depthWrite: false }));
     bOut.visible = true; bOut.renderOrder = 11; scene.add(bOut); brushOutRef.current = bOut;
 
-    // TransformControls
+    // TransformControls (Three r152+): Controls is NOT Object3D — add getHelper() only
     const transform = new TransformControls(camera, renderer.domElement);
     transform.mode = 'translate';
     transform.addEventListener('dragging-changed', (e: any) => {
       orbit.enabled = !e.value;
-      if (!e.value && selectedRef.current) {
+      if (!e.value && selectedRef.current?.mesh) {
         selectedRef.current.position.copy(selectedRef.current.mesh.position);
         setSelectedObjInfo(si => si ? { ...si, pos: `${selectedRef.current!.position.x.toFixed(1)}, ${selectedRef.current!.position.y.toFixed(1)}, ${selectedRef.current!.position.z.toFixed(1)}` } : null);
       }
     });
-    scene.add(transform as unknown as THREE.Object3D); transformRef.current = transform;
+    const transformHelper = typeof (transform as any).getHelper === 'function'
+      ? (transform as any).getHelper() as THREE.Object3D
+      : null;
+    if (transformHelper && transformHelper.isObject3D) {
+      scene.add(transformHelper);
+    } else if ((transform as unknown as THREE.Object3D).isObject3D) {
+      // Older three: TransformControls still extended Object3D
+      scene.add(transform as unknown as THREE.Object3D);
+    }
+    transformRef.current = transform;
 
     // Minimap canvas
     const mm = document.createElement('canvas'); mm.width = 128; mm.height = 128;
@@ -981,11 +1186,18 @@ export default function IslandEditorPage() {
     function animate(time: number) {
       frameRef.current = requestAnimationFrame(animate);
       const delta = clockRef.current.getDelta();
-      // Camera drive: when EditMode === 'follow' the unified rig steers the
-      // camera toward the picked entity; otherwise OrbitControls owns it.
-      // We mutually exclude them at the input level (orbit.enabled is set
-      // when entering/leaving follow mode) so they never fight.
-      if (modeRef.current === 'follow' && followCamRef.current && followingTargetRef.current) {
+      // Camera drive: follow / play / orbit
+      if (modeRef.current === 'play' && playCtrlRef.current) {
+        playCtrlRef.current.update(delta, camera);
+        if (followCamRef.current) {
+          followCamRef.current.setTarget(playCtrlRef.current.group);
+          followCamRef.current.update(delta);
+        }
+        tickHarvestRegrow(
+          placedRef.current.map((a) => a.mesh),
+          performance.now(),
+        );
+      } else if (modeRef.current === 'follow' && followCamRef.current && followingTargetRef.current) {
         followCamRef.current.update(delta);
       } else {
         orbit.update();
@@ -1018,6 +1230,8 @@ export default function IslandEditorPage() {
     return () => {
       window.removeEventListener('resize', onResize);
       cancelAnimationFrame(frameRef.current);
+      playCtrlRef.current?.dispose(scene);
+      playCtrlRef.current = null;
       followCamRef.current?.dispose();
       followCamRef.current = null;
       renderer.forceContextLoss(); renderer.dispose(); scene.clear();
@@ -1055,6 +1269,14 @@ export default function IslandEditorPage() {
           fc.setTarget(found.mesh);
           if (orbitRef.current) orbitRef.current.enabled = false;
           setFollowingName(`${found.type}  ·  ${found.id.slice(0, 6)}`);
+        }
+      } else if (modeRef.current === 'play' && playCtrlRef.current) {
+        const result = playCtrlRef.current.tryHarvest(placedRef.current.map((a) => a.mesh));
+        if (result) {
+          const msg = result.depleted
+            ? `Harvested ${result.amount}× ${result.yieldId} (node depleted → regrow)`
+            : `Hit ${result.yieldId} · HP ${result.remainingHp}`;
+          setHarvestLog((prev) => [msg, ...prev].slice(0, 12));
         }
       }
     };
@@ -1105,7 +1327,29 @@ export default function IslandEditorPage() {
   // ── Keyboard shortcuts ────────────────────────────────────────────────────
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement).tagName === 'INPUT') return;
+      if ((e.target as HTMLElement).tagName === 'INPUT' || (e.target as HTMLElement).tagName === 'SELECT') return;
+      // Play mode: WASD + tools + F harvest
+      if (modeRef.current === 'play') {
+        playCtrlRef.current?.onKeyDown(e.code);
+        if (e.code === 'Digit1') setPlayTool('none');
+        if (e.code === 'Digit2') setPlayTool('axe');
+        if (e.code === 'Digit3') setPlayTool('pickaxe');
+        if (e.code === 'Digit4') setPlayTool('knife');
+        if (e.code === 'Digit5') setPlayTool('rod');
+        if (e.code === 'KeyF' || e.code === 'KeyE') {
+          const result = playCtrlRef.current?.tryHarvest(placedRef.current.map((a) => a.mesh));
+          if (result) {
+            const msg = result.depleted
+              ? `Harvested ${result.amount}× ${result.yieldId} (regrow scheduled)`
+              : `Hit · HP ${result.remainingHp}`;
+            setHarvestLog((prev) => [msg, ...prev].slice(0, 12));
+          }
+        }
+        if (e.key === 'Escape') {
+          void exitPlayMode();
+        }
+        return;
+      }
       if (e.ctrlKey && e.key === 'z') { e.preventDefault(); applyUndo(); return; }
       if (e.ctrlKey && (e.key === 'y' || (e.shiftKey && e.key === 'Z'))) { e.preventDefault(); applyRedo(); return; }
       switch (e.key) {
@@ -1132,9 +1376,16 @@ export default function IslandEditorPage() {
           if (e.shiftKey && transformRef.current) transformRef.current.mode = 'scale'; break;
       }
     };
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (modeRef.current === 'play') playCtrlRef.current?.onKeyUp(e.code);
+    };
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [applyUndo, applyRedo, deleteSelected, rotateSelected, deselect]);
+    window.addEventListener('keyup', onKeyUp);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('keyup', onKeyUp);
+    };
+  }, [applyUndo, applyRedo, deleteSelected, rotateSelected, deselect, useTextures]);
 
   // Dismiss context menu on LMB
   useEffect(() => {
@@ -1211,16 +1462,300 @@ export default function IslandEditorPage() {
     if (waterRef.current) waterRef.current.position.y = save.waterLevel;
     wLevelRef.current = save.waterLevel; setWaterLevel(save.waterLevel);
     setBiome(save.biome); setIslandName(save.name);
+    // Place placeholders then upgrade to stylized CDN
     save.assets.forEach(a => {
       const mesh = createAssetMesh(a.type);
       mesh.position.set(a.x, a.y, a.z); mesh.rotation.y = a.rotationY;
       scene.add(mesh);
       placedRef.current.push({ id: a.id, type: a.type, position: new THREE.Vector3(a.x, a.y, a.z), rotationY: a.rotationY, mesh });
+      void createAssetMeshAsync(a.type).then((styled) => {
+        const entry = placedRef.current.find((x) => x.id === a.id);
+        if (!entry || !sceneRef.current) return;
+        sceneRef.current.remove(entry.mesh);
+        styled.position.set(a.x, a.y, a.z);
+        styled.rotation.y = a.rotationY;
+        sceneRef.current.add(styled);
+        entry.mesh = styled;
+      });
     });
     undoRef.current = [Array.from(pos.array as Float32Array)]; redoRef.current = [];
     renderMinimap(); setStats(s => ({ ...s, objs: placedRef.current.length }));
     setShowSaveList(false);
     toast({ title: '✓ Island loaded', description: save.name });
+  };
+
+  /** One-click seeded island: home / event / conquerable / faction / boss.
+   *
+   * HARD RULE: seed MUST complete in <1s using procedural meshes.
+   * CDN multipacks (rocks 99MB, mountain 79MB, tropical 26MB) hang the page
+   * if awaited during seed — never block generation on network.
+   */
+  const runSeedGenerate = async (archetype: IslandArchetype) => {
+    const terrain = terrainRef.current;
+    const scene = sceneRef.current;
+    const camera = cameraRef.current;
+    const orbit = orbitRef.current;
+    if (!terrain || !scene) {
+      toast({ title: 'Seed failed', description: '3D scene not ready — wait a second and retry.' });
+      return;
+    }
+    if (generating) return;
+    setGenerating(true);
+    try {
+      const parsed = seedInput.trim() ? parseInt(seedInput, 10) : NaN;
+      const seedNum = Number.isFinite(parsed)
+        ? (parsed >>> 0) || 1
+        : ((Math.floor(Math.random() * 0xffffffff)) >>> 0) || 1;
+
+      // Infer segs from live terrain so heightmap always matches vertex count
+      const posAttr = terrain.geometry.attributes.position;
+      if (!posAttr) throw new Error('Terrain has no position attribute');
+      const segs = Math.max(8, Math.round(Math.sqrt(posAttr.count)) - 1);
+
+      const result = generateIslandSeed({
+        archetype: archetype || 'home',
+        seed: seedNum,
+        gridSize: 64,
+        segments: segs,
+      });
+      if (!result?.heightmap?.length) throw new Error('Seed produced empty heightmap');
+      if (result.heightmap.length < posAttr.count * 0.5) {
+        throw new Error(
+          `Heightmap size mismatch (hm=${result.heightmap.length} verts=${posAttr.count})`,
+        );
+      }
+
+      // Clear props
+      for (const a of placedRef.current) {
+        try {
+          scene.remove(a.mesh);
+          a.mesh.traverse((c) => {
+            const m = c as THREE.Mesh;
+            if (m.isMesh) {
+              m.geometry?.dispose?.();
+            }
+          });
+        } catch { /* ignore */ }
+      }
+      placedRef.current = [];
+      try { transformRef.current?.detach(); } catch { /* ignore */ }
+      selectedRef.current = null;
+      setSelectedObjInfo(null);
+
+      // Apply heightmap (sync — this is the visible "generate" for terrain)
+      const pos = posAttr;
+      const colors = terrain.geometry.attributes.color;
+      const rgb: [number, number, number] = [0, 0, 0];
+      const n = Math.min(pos.count, result.heightmap.length);
+      let minH = Infinity;
+      let maxH = -Infinity;
+      for (let i = 0; i < n; i++) {
+        const h = Number(result.heightmap[i]);
+        const y = Number.isFinite(h) ? h : 0;
+        if (y < minH) minH = y;
+        if (y > maxH) maxH = y;
+        pos.setY(i, y);
+        if (colors) {
+          heightToRGB(y, rgb);
+          colors.setXYZ(i, rgb[0], rgb[1], rgb[2]);
+        }
+      }
+      // Zero any leftover verts if hm shorter than pos (shouldn't happen)
+      for (let i = n; i < pos.count; i++) {
+        pos.setY(i, -2);
+        if (colors) {
+          heightToRGB(-2, rgb);
+          colors.setXYZ(i, rgb[0], rgb[1], rgb[2]);
+        }
+      }
+      pos.needsUpdate = true;
+      if (colors) colors.needsUpdate = true;
+      terrain.geometry.computeVertexNormals();
+      terrain.geometry.computeBoundingSphere();
+      terrain.geometry.computeBoundingBox();
+
+      // Prefer vertex-color terrain first so hills are always visible.
+      // Splat PBR is optional polish — never block / never leave black material.
+      try {
+        if (vertexMatRef.current) {
+          terrain.material = vertexMatRef.current;
+        } else if (terrain.material instanceof THREE.MeshLambertMaterial) {
+          vertexMatRef.current = terrain.material;
+        }
+        // Try splat after height applied (async texture loads OK)
+        if (!splatRef.current) {
+          splatRef.current = createTerrainSplatMaterial(['grass', 'soil', 'sand', 'stone']);
+        }
+        if (splatRef.current?.splatData && splatRef.current?.splatMap) {
+          autoSplatFromHeight(
+            splatRef.current.splatData,
+            splatRef.current.splatMap,
+            terrain.geometry,
+            128,
+          );
+          // Only swap to splat if shader material is ready
+          if (splatRef.current.material) {
+            terrain.material = splatRef.current.material;
+            setUseTextures(true);
+          }
+        }
+      } catch (texErr) {
+        console.warn('[IslandEditor] splat textures skipped', texErr);
+        if (vertexMatRef.current) terrain.material = vertexMatRef.current;
+      }
+
+      wLevelRef.current = result.waterLevel;
+      setWaterLevel(result.waterLevel);
+      if (waterRef.current) waterRef.current.position.y = result.waterLevel;
+      setBiome(result.biome || 'tropical');
+      setIslandName(result.name || `${archetype} island`);
+      setSeedInput(String(result.seed));
+
+      // Place nodes SYNCHRONOUSLY with procedural meshes.
+      // CDN multipacks (25–99 MB) hang seed if awaited — upgrade later in background.
+      const placements = result.placements ?? [];
+      let placed = 0;
+      let failed = 0;
+      for (const p of placements) {
+        if (!p || !sceneRef.current) continue;
+        const kind = (p.kind || 'rock') as AssetType;
+        try {
+          let mesh = createAssetMesh(kind);
+          if (p.scale && p.scale !== 1 && Number.isFinite(p.scale)) {
+            mesh.scale.multiplyScalar(p.scale);
+          }
+          // Snap Y to live heightmap after sculpt so props sit on terrain
+          const x = Number(p.x) || 0;
+          const z = Number(p.z) || 0;
+          const yTerrain = sampleTerrainY(x, z);
+          const y = Number.isFinite(yTerrain) ? yTerrain : (Number(p.y) || 0);
+          mesh.position.set(x, y, z);
+          mesh.rotation.y = Number(p.rotationY) || 0;
+          if (p.harvest) {
+            mesh.userData.isHarvestable = true;
+            mesh.userData.harvestHp = p.harvest.maxHp ?? 3;
+            mesh.userData.harvestMaxHp = p.harvest.maxHp ?? 3;
+            mesh.userData.harvestRespawnMs = p.harvest.respawnMs ?? 90_000;
+            mesh.userData.harvestYield = p.harvest.yieldId ?? 'resource';
+            mesh.userData.harvestProfession = p.harvest.profession;
+          }
+          if (!safeSceneAdd(sceneRef.current, mesh)) {
+            failed++;
+            continue;
+          }
+          placedRef.current.push({
+            id: p.id || `${kind}-${placed}`,
+            type: kind,
+            position: new THREE.Vector3(x, y, z),
+            rotationY: Number(p.rotationY) || 0,
+            mesh,
+          });
+          placed++;
+        } catch (e) {
+          failed++;
+          console.warn('[IslandEditor] place node failed', kind, e);
+        }
+      }
+
+      // Frame camera so the island is obviously visible after seed
+      if (camera && orbit) {
+        const peak = Number.isFinite(maxH) ? maxH : 12;
+        camera.position.set(28, Math.max(35, peak + 28), 48);
+        orbit.target.set(0, Math.max(0, peak * 0.25), 0);
+        orbit.update();
+      }
+
+      undoRef.current = [Array.from(pos.array as Float32Array)];
+      redoRef.current = [];
+      renderMinimap();
+      setStats((s) => ({ ...s, objs: placedRef.current.length }));
+      setLastSeedInfo(
+        `${result.archetype} · seed ${result.seed} · ${placed} nodes · h ${minH.toFixed(1)}…${maxH.toFixed(1)} · ${result.notes?.[0] ?? 'procedural'}`,
+      );
+      toast({
+        title: `✓ ${result.name}`,
+        description: `${placed} nodes · terrain sculpted · seed ${result.seed}${failed ? ` · ${failed} skipped` : ''}`,
+      });
+
+      // Background CDN upgrade for a few landmark types only (never mass rocks/trees —
+      // multipacks are 25–99 MB each and freeze the tab).
+      const UPGRADE_KINDS = new Set(['evil_mountain', 'cliff', 'dock', 'flat_zone', 'pve_camp']);
+      void (async () => {
+        for (const entry of [...placedRef.current]) {
+          if (!UPGRADE_KINDS.has(entry.type)) continue;
+          if (!sceneRef.current) break;
+          try {
+            const upgraded = await Promise.race([
+              createAssetMeshAsync(entry.type),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 12_000)),
+            ]);
+            if (!upgraded || !isObject3D(upgraded)) continue;
+            const mesh = ensureGroup(upgraded, entry.type);
+            mesh.position.copy(entry.position);
+            mesh.rotation.y = entry.rotationY;
+            // Copy harvest tags
+            Object.assign(mesh.userData, entry.mesh.userData);
+            sceneRef.current.remove(entry.mesh);
+            if (safeSceneAdd(sceneRef.current, mesh)) {
+              entry.mesh = mesh;
+            }
+          } catch {
+            /* keep procedural */
+          }
+        }
+        renderMinimap();
+      })();
+    } catch (err) {
+      console.error('[IslandEditor] seed generate failed', err);
+      const msg = err instanceof Error ? err.message : String(err);
+      toast({ title: 'Seed generate failed', description: msg });
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const enterPlayMode = async () => {
+    const scene = sceneRef.current;
+    if (!scene) return;
+    setMode('play');
+    if (orbitRef.current) orbitRef.current.enabled = false;
+    transformRef.current?.detach();
+
+    if (!playCtrlRef.current) {
+      playCtrlRef.current = new EditorPlayController();
+    }
+    playCtrlRef.current.setHeightSample(sampleTerrainY);
+    playCtrlRef.current.setTool(playToolRef.current);
+
+    // Spawn on flat zone or highest nearby land near origin
+    let spawn = new THREE.Vector3(0, 2, 4);
+    const flat = placedRef.current.find((a) => a.type === 'flat_zone' || a.type === 'dock');
+    if (flat) spawn = flat.position.clone().add(new THREE.Vector3(2, 0, 2));
+    spawn.y = sampleTerrainY(spawn.x, spawn.z);
+
+    setPlayReady(false);
+    await playCtrlRef.current.spawn(scene, spawn);
+    setPlayReady(true);
+
+    if (followCamRef.current) {
+      followCamRef.current.setTarget(playCtrlRef.current.group);
+    }
+    toast({
+      title: 'Play mode — human unarmed',
+      description: 'WASD move · 1–5 tools · F/E or click to harvest · Esc exit',
+    });
+  };
+
+  const exitPlayMode = async () => {
+    const scene = sceneRef.current;
+    if (playCtrlRef.current) {
+      playCtrlRef.current.dispose(scene ?? undefined);
+      playCtrlRef.current = null;
+    }
+    setPlayReady(false);
+    setMode('terrain');
+    if (orbitRef.current) orbitRef.current.enabled = true;
+    followCamRef.current?.setTarget(null);
   };
 
   const newIsland = () => {
@@ -1304,11 +1839,12 @@ export default function IslandEditorPage() {
   const toolColors: Record<TerrainTool, string> = {
     raise: 'text-green-400', lower: 'text-red-400', smooth: 'text-blue-400', flatten: 'text-yellow-400', noise: 'text-purple-400', texture: 'text-emerald-400',
   };
+  // Real Poly Haven staged textures: grass · soil · sand · stone
   const TEX_CHANNEL_DEFS = [
-    { ch: 0, label: 'Grass', color: 'bg-green-500' },
-    { ch: 1, label: 'Mud', color: 'bg-amber-700' },
-    { ch: 2, label: 'Dark Mud', color: 'bg-stone-600' },
-    { ch: 3, label: 'Stone Tile', color: 'bg-gray-400' },
+    { ch: 0, label: 'Grass', color: 'bg-green-500', note: 'aerial_grass_rock' },
+    { ch: 1, label: 'Soil', color: 'bg-amber-700', note: 'forrest_ground_01' },
+    { ch: 2, label: 'Sand', color: 'bg-yellow-200', note: 'coast_sand_01' },
+    { ch: 3, label: 'Stone', color: 'bg-stone-400', note: 'rock_pitted_mossy' },
   ];
 
   // ── JSX ───────────────────────────────────────────────────────────────────
@@ -1391,7 +1927,20 @@ export default function IslandEditorPage() {
           <Upload className="w-3.5 h-3.5 mr-1" />Import
         </Button>
 
-        <div className="ml-auto text-[10px] text-gray-500 whitespace-nowrap">{stats.fps} FPS · {stats.objs} objects</div>
+        <div className="w-px h-5 bg-gray-700 mx-0.5" />
+
+        <Button
+          size="sm"
+          variant="ghost"
+          className={`h-7 px-2 text-xs ${mode === 'play' ? 'bg-emerald-800 text-emerald-100' : 'hover:bg-emerald-900 text-emerald-300'}`}
+          onClick={() => { if (mode === 'play') void exitPlayMode(); else void enterPlayMode(); }}
+          title="Play mode: human unarmed RTS toon + harvest tools"
+          data-testid="play-mode-button"
+        >
+          <Play className="w-3.5 h-3.5 mr-1" />{mode === 'play' ? 'Exit Play' : 'Play'}
+        </Button>
+
+        <div className="ml-auto text-[10px] text-gray-500 whitespace-nowrap">{stats.fps} FPS · {stats.objs} objects{generating ? ' · generating…' : ''}</div>
       </div>
 
       {/* ── Main Area ──────────────────────────────────────────────────────── */}
@@ -1418,14 +1967,17 @@ export default function IslandEditorPage() {
                       { id: 'select',  label: 'Select',  icon: <MousePointer2 className="w-3 h-3" /> },
                       { id: 'erase',   label: 'Erase',   icon: <Eraser className="w-3 h-3" /> },
                       { id: 'follow',  label: 'Follow',  icon: <span className="text-[10px] leading-none">👁</span> },
+                      { id: 'play',    label: 'Play',    icon: <Play className="w-3 h-3" /> },
                     ] as const).map(m => (
                       <button key={m.id}
                         className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-[11px] font-medium transition-colors ${mode === m.id ? 'bg-amber-600 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-white'}`}
                         onClick={() => {
+                          if (m.id === 'play') {
+                            void enterPlayMode();
+                            return;
+                          }
+                          if (mode === 'play') void exitPlayMode();
                           setMode(m.id as EditMode);
-                          // Toggle orbit / follow exclusivity. Entering follow
-                          // disables orbit so the two camera drivers don't fight;
-                          // leaving follow restores orbit and clears the target.
                           if (m.id === 'follow') {
                             if (orbitRef.current) orbitRef.current.enabled = false;
                           } else {
@@ -1445,6 +1997,70 @@ export default function IslandEditorPage() {
                       Click any tree, rock, character, or asset to lock the
                       camera onto it. Drag right-mouse to orbit while following.
                     </div>
+                  )}
+                  {mode === 'play' && (
+                    <div className="mt-2 p-2 rounded bg-emerald-950/40 border border-emerald-800/50 text-[10px] text-emerald-100 leading-relaxed space-y-2">
+                      <div className="font-semibold text-emerald-300">
+                        Human unarmed · {playReady ? 'ready' : 'loading…'}
+                      </div>
+                      <div>WASD move · F/E or click harvest · Esc exit</div>
+                      <div className="text-[9px] text-emerald-400/80 uppercase tracking-wide">Tools</div>
+                      <div className="grid grid-cols-1 gap-0.5">
+                        {PLAY_TOOLS.map((t, i) => (
+                          <button
+                            key={t.id}
+                            className={`flex items-center gap-2 px-2 py-1 rounded text-[10px] ${playTool === t.id ? 'bg-emerald-600 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}
+                            onClick={() => setPlayTool(t.id)}
+                          >
+                            <span>{t.icon}</span>
+                            <span className="flex-1 text-left">{t.label}</span>
+                            <kbd className="text-[9px] opacity-60">{i + 1}</kbd>
+                          </button>
+                        ))}
+                      </div>
+                      {harvestLog.length > 0 && (
+                        <div className="max-h-24 overflow-y-auto space-y-0.5 border-t border-emerald-900/50 pt-1">
+                          {harvestLog.map((line, i) => (
+                            <div key={i} className="text-[9px] text-emerald-200/90 truncate">{line}</div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+
+                {/* One-click seed generation */}
+                <div>
+                  <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5 px-0.5 flex items-center gap-1">
+                    <Dices className="w-3 h-3" /> Seed Generate
+                  </div>
+                  <div className="flex gap-1 mb-1.5">
+                    <input
+                      className="flex-1 bg-gray-800 border border-gray-700 rounded px-1.5 h-7 text-[10px] text-white font-mono"
+                      placeholder="seed (blank=random)"
+                      value={seedInput}
+                      onChange={(e) => setSeedInput(e.target.value)}
+                      data-testid="seed-input"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-0.5">
+                    {ARCHETYPE_LIST.map((a) => (
+                      <button
+                        key={a.id}
+                        disabled={generating}
+                        className="flex items-center gap-2 w-full px-2 py-1.5 rounded text-[11px] bg-gray-800 text-gray-300 hover:bg-amber-900/60 hover:text-amber-100 disabled:opacity-40 transition-colors"
+                        onClick={() => void runSeedGenerate(a.id)}
+                        title={a.description}
+                        data-testid={`seed-${a.id}`}
+                      >
+                        <Sparkles className="w-3 h-3 text-amber-400 shrink-0" />
+                        <span className="flex-1 text-left">{a.label}</span>
+                        <span className="text-[9px] text-gray-600">{a.defaultBiome}</span>
+                      </button>
+                    ))}
+                  </div>
+                  {lastSeedInfo && (
+                    <div className="mt-1.5 text-[9px] text-amber-200/70 leading-snug">{lastSeedInfo}</div>
                   )}
                 </div>
 
@@ -1532,10 +2148,11 @@ export default function IslandEditorPage() {
                             {TEX_CHANNEL_DEFS.map(tc => (
                               <button key={tc.ch}
                                 className={`flex items-center gap-2 w-full px-2 py-1.5 rounded text-[11px] transition-colors ${texChannel === tc.ch ? 'bg-emerald-700 text-white' : 'bg-gray-800 text-gray-400 hover:bg-gray-700'}`}
-                                onClick={() => { setTexChannel(tc.ch); setTerrainTool('texture'); }}
+                                onClick={() => { setTexChannel(tc.ch); setTerrainTool('texture'); if (!useTextures) setUseTextures(true); }}
                                 data-testid={`tex-ch-${tc.ch}`}>
                                 <span className={`w-3 h-3 rounded-sm ${tc.color}`} />
                                 <span className="flex-1 text-left">{tc.label}</span>
+                                <span className="text-[8px] opacity-50">{tc.note}</span>
                               </button>
                             ))}
                           </div>
@@ -1729,6 +2346,7 @@ export default function IslandEditorPage() {
                mode === 'place'   ? `+ ${selectedAsset.replace(/_/g, ' ')}` :
                mode === 'select'  ? '⊕ select' :
                mode === 'follow'  ? `👁 follow ${followingName ?? '(click an entity)'}` :
+               mode === 'play'    ? `▶ play · ${playTool} · WASD/F harvest` :
                '✕ erase'}
             </Badge>
             {snapToGrid && <Badge className="text-[10px] h-5 bg-gray-950/85 text-blue-400 border-blue-800 w-fit">⊞ grid snap</Badge>}

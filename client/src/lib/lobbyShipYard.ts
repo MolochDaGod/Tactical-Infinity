@@ -5,10 +5,11 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
-import { DOCK_SHIP_RECIPES } from '@shared/gameDefinitions/waterEngagement';
+import { defaultDeckLoadout, DOCK_SHIP_RECIPES } from '@shared/gameDefinitions/waterEngagement';
 import { getBoat } from '@shared/gameDefinitions/boatRegistry';
 import { resolveGrudgeAssetUrl } from '@/lib/grudgeAssetConfig';
 import { createDock, type DockData } from '@/lib/islandDockSystem';
+import { mountDeckStations } from '@/lib/deckPlacement';
 import type { TerrainData } from '@/lib/islandHeightmapTerrain';
 
 const loader = new GLTFLoader();
@@ -49,41 +50,49 @@ export async function createLobbyShipYard(
   scene: THREE.Scene,
   terrain: TerrainData,
   side: 'north' | 'south' | 'east' | 'west' = 'south',
+  existingDock?: DockData | null,
 ): Promise<LobbyShipYard> {
   const group = new THREE.Group();
   group.name = 'lobby_ship_yard';
   scene.add(group);
 
-  let dock: DockData | null = null;
-  try {
-    dock = createDock(terrain, side);
-    // Offset a second "shipyard" label pier slightly from the main dock
-    group.add(dock.group);
-  } catch (e) {
-    console.warn('[lobbyShipYard] dock create failed', e);
+  let dock: DockData | null = existingDock ?? null;
+  if (!dock) {
+    try {
+      dock = createDock(terrain, side, { kind: 'capital_dock' });
+      group.add(dock.group);
+    } catch (e) {
+      console.warn('[lobbyShipYard] dock create failed', e);
+    }
   }
 
+  const berths = dock?.berths ?? [];
   const origin = dock?.spawnPoint.clone() ?? new THREE.Vector3(0, 1, terrain.radius * 0.4);
   const lineDir = new THREE.Vector3(1, 0, 0);
 
   let i = 0;
   for (const recipe of DOCK_SHIP_RECIPES) {
-    const mesh = await loadHull(recipe.modelPath, 3.2 + i * 0.35);
+    const hullH = 2.4 + i * 1.1;
+    const mesh = await loadHull(recipe.modelPath, hullH);
+    const berth = berths[i];
+    const slot = berth
+      ? berth.clone()
+      : origin.clone().add(lineDir.clone().multiplyScalar((i - 2) * 8));
     if (!mesh) {
-      // procedural fallback box "hull"
       const box = new THREE.Mesh(
         new THREE.BoxGeometry(2 + i * 0.4, 1, 4 + i * 0.6),
         new THREE.MeshStandardMaterial({ color: 0x6b5344, roughness: 0.9 }),
       );
-      box.position.copy(origin).add(lineDir.clone().multiplyScalar((i - 2) * 8));
+      box.position.copy(slot);
       box.position.y += 0.5;
       box.name = `lobby_hull_fallback_${recipe.hull}`;
       group.add(box);
     } else {
-      mesh.position.copy(origin).add(lineDir.clone().multiplyScalar((i - 2) * 8));
+      mesh.position.copy(slot);
       mesh.position.y += 0.2;
       mesh.rotation.y = Math.PI * 0.5;
       mesh.name = `lobby_hull_${recipe.hull}`;
+      mountDeckStations(mesh, recipe.hull, defaultDeckLoadout(recipe.hull), { scale: 0.85 });
       group.add(mesh);
     }
     i++;

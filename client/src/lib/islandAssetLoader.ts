@@ -2,10 +2,15 @@ import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { resolveGrudgeAssetUrl } from '@/lib/grudgeAssetConfig';
+import { normalizeToMetres } from '@/lib/modelNormalize';
 import {
   STYLIZED,
   STYLIZED_VARIANTS,
 } from '@/lib/warlordsNatureCDN';
+import {
+  ANIMAL_ROLE_TO_CREATURE,
+  CREATURE_CDN,
+} from '@/lib/warlordsCreatureCDN';
 
 const gltfLoader = new GLTFLoader();
 const fbxLoader = new FBXLoader();
@@ -31,11 +36,22 @@ function resolveAssetUrl(url: string): string {
   return resolveGrudgeAssetUrl(url);
 }
 
+/** Hard cap so multipack CDN (25–99 MB) cannot hang seed / editor forever. */
+const PACK_LOAD_TIMEOUT_MS = 20_000;
+
 async function loadPackScene(url: string): Promise<THREE.Group | null> {
   const resolved = resolveAssetUrl(url);
   if (packSceneCache.has(resolved)) return packSceneCache.get(resolved)!;
   try {
-    const gltf = await gltfLoader.loadAsync(resolved);
+    const gltf = await Promise.race([
+      gltfLoader.loadAsync(resolved),
+      new Promise<never>((_, reject) =>
+        setTimeout(
+          () => reject(new Error(`pack load timeout ${PACK_LOAD_TIMEOUT_MS}ms: ${resolved}`)),
+          PACK_LOAD_TIMEOUT_MS,
+        ),
+      ),
+    ]);
     const root = gltf.scene as THREE.Group;
     packSceneCache.set(resolved, root);
     return root;
@@ -278,13 +294,19 @@ export const HARVEST_ASSETS: Record<'crystal' | 'boulder', IslandAssetConfig> = 
   boulder: { url: STYLIZED.oreNodes, type: 'gltf', scale: 1.0 },
 };
 
+/**
+ * Animals — prefer verified creature GLBs (local public + CDN).
+ * Old /models/animals/*.fbx paths 404 everywhere; do not use them.
+ */
 export const ANIMALS: Record<string, IslandAssetConfig> = {
-  boar:   { url: '/models/animals/boar.fbx',   type: 'fbx', scale: 0.012, textureUrl: '/textures/nature/wild_animals_map.png' },
-  deer:   { url: '/models/animals/deer_1.fbx', type: 'fbx', scale: 0.012, textureUrl: '/textures/nature/wild_animals_map.png' },
-  rabbit: { url: '/models/animals/rabbit.fbx', type: 'fbx', scale: 0.008, textureUrl: '/textures/nature/wild_animals_map.png' },
-  fox:    { url: '/models/animals/fox.fbx',    type: 'fbx', scale: 0.010, textureUrl: '/textures/nature/wild_animals_map.png' },
-  bear:   { url: '/models/animals/bear.fbx',   type: 'fbx', scale: 0.010, textureUrl: '/textures/nature/wild_animals_map.png' },
-  wolf:   { url: '/models/animals/wolf.fbx',   type: 'fbx', scale: 0.010, textureUrl: '/textures/nature/wild_animals_map.png' },
+  boar:   { url: '/models/creatures/land/free_reptile.glb', type: 'gltf', scale: 1.0 },
+  deer:   { url: '/models/creatures/land/free_reptile.glb', type: 'gltf', scale: 1.0 },
+  rabbit: { url: '/models/creatures/land/creature_crab.glb', type: 'gltf', scale: 1.0 },
+  fox:    { url: '/models/creatures/land/free_reptile.glb', type: 'gltf', scale: 1.0 },
+  bear:   { url: '/models/creatures/land/monsters_x_free.glb', type: 'gltf', scale: 1.0 },
+  wolf:   { url: '/models/creatures/land/monsters_x_free.glb', type: 'gltf', scale: 1.0 },
+  crab:   { url: '/models/creatures/land/creature_crab.glb', type: 'gltf', scale: 1.0 },
+  drake:  { url: '/models/creatures/land/drake.glb', type: 'gltf', scale: 1.0 },
 };
 
 export const MOUNTAINS: Record<string, IslandAssetConfig> = {
@@ -293,25 +315,23 @@ export const MOUNTAINS: Record<string, IslandAssetConfig> = {
   mountain_1: { url: '/models/mountains/Mountains_temperate_climate_001.fbx', type: 'fbx', scale: 0.04, textureUrl: '/textures/terrain/T_Mountains_temperate_climate_32.png' },
 };
 
+/** Ore fallback tints — use staged stone/sand when ore/* pack 404s on CDN. */
 export const ORE_TEXTURES = {
   stone: {
-    baseColor: '/textures/ore/stone_baseColor.png',
-    metallicRoughness: '/textures/ore/stone_metallicRoughness.png',
+    baseColor: '/textures/terrain/stone_albedo.jpg',
   },
   iron: {
-    baseColor: '/textures/ore/iron_baseColor.png',
-    metallicRoughness: '/textures/ore/iron_metallicRoughness.png',
+    baseColor: '/textures/terrain/stone_albedo.jpg',
   },
   copper: {
-    baseColor: '/textures/ore/copper_baseColor.png',
+    baseColor: '/textures/terrain/soil_albedo.jpg',
   },
   gold: {
-    baseColor: '/textures/ore/gold_baseColor.png',
+    baseColor: '/textures/terrain/sand_albedo.jpg',
   },
   overgrown: {
-    baseColor: '/textures/ore/overgrown_baseColor.jpg',
-    normal: '/textures/ore/overgrown_normal.jpg',
-    metallicRoughness: '/textures/ore/overgrown_metallicRoughness.png',
+    baseColor: '/textures/terrain/grass_albedo.jpg',
+    normal: '/textures/terrain/grass_normal.jpg',
   },
 };
 
@@ -339,20 +359,30 @@ export async function loadAsset(config: IslandAssetConfig | undefined | null): P
 
 export async function loadRandomTree(nodeType: string): Promise<THREE.Group> {
   const isPine = nodeType.includes('pine');
+  let g: THREE.Group;
   if (isPine) {
-    return loadIsolatedMesh(STYLIZED.vegetation, STYLIZED_VARIANTS.vegetationPines, 1.1);
+    g = await loadIsolatedMesh(STYLIZED.vegetation, STYLIZED_VARIANTS.vegetationPines, 1);
+  } else {
+    const pack = Math.random() < 0.35 ? STYLIZED.exampleIsland : STYLIZED.vegetation;
+    const names =
+      pack === STYLIZED.exampleIsland
+        ? STYLIZED_VARIANTS.exampleTrees
+        : STYLIZED_VARIANTS.vegetationTrees;
+    g = await loadIsolatedMesh(pack, names, 1);
   }
-  // Mix vegetation + example home-island tree variants (Warlords home island contract).
-  const pack = Math.random() < 0.35 ? STYLIZED.exampleIsland : STYLIZED.vegetation;
-  const names =
-    pack === STYLIZED.exampleIsland
-      ? STYLIZED_VARIANTS.exampleTrees
-      : STYLIZED_VARIANTS.vegetationTrees;
-  return loadIsolatedMesh(pack, names, 1.0);
+  normalizeToMetres(g, {
+    targetSizeM: isPine ? 11 : 8.5,
+    axis: 'height',
+    ground: true,
+    centerXZ: true,
+  });
+  return g;
 }
 
 export async function loadRandomFlower(): Promise<THREE.Group> {
-  return loadIsolatedMesh(STYLIZED.flowers, STYLIZED_VARIANTS.flowers, 0.45);
+  const g = await loadIsolatedMesh(STYLIZED.flowers, STYLIZED_VARIANTS.flowers, 1);
+  normalizeToMetres(g, { targetSizeM: 0.55, axis: 'height', ground: true, centerXZ: true });
+  return g;
 }
 
 export async function loadRandomPlant(): Promise<THREE.Group> {
@@ -368,7 +398,10 @@ export async function loadRandomRock(): Promise<THREE.Group> {
     pack === STYLIZED.exampleIsland
       ? STYLIZED_VARIANTS.exampleRocks
       : STYLIZED_VARIANTS.stylizedRocks;
-  return loadIsolatedMesh(pack, names, 0.9);
+  const g = await loadIsolatedMesh(pack, names, 1);
+  // example_home_island / stylised_rocks are author-scale mountains if uncapped.
+  normalizeToMetres(g, { targetSizeM: 1.8, axis: 'height', ground: true, centerXZ: true });
+  return g;
 }
 
 /** Canonical ore / mineral harvest mesh from D1/CDN packs (not primitives). */
@@ -380,15 +413,136 @@ export async function loadRandomOre(nodeType: string): Promise<THREE.Group> {
   return loadIsolatedMesh(STYLIZED.oreNodes, STYLIZED_VARIANTS.oreNodes, 0.75);
 }
 
+/**
+ * Load a real creature GLB for an animal role, metric-normalized to target height.
+ * Tries local public path first, then CDN absolute URL.
+ */
 export async function loadAnimal(animalType: string): Promise<THREE.Group> {
-  const key = animalType.includes('boar') ? 'boar'
+  const role = animalType.includes('boar') ? 'boar'
     : animalType.includes('deer') ? 'deer'
     : animalType.includes('rabbit') ? 'rabbit'
     : animalType.includes('fox') ? 'fox'
     : animalType.includes('bear') ? 'bear'
-    : 'wolf';
-  const config = ANIMALS[key] || ANIMALS.boar;
-  return loadAsset(config);
+    : animalType.includes('crab') ? 'crab'
+    : animalType.includes('drake') ? 'drake'
+    : animalType.includes('wolf') ? 'wolf'
+    : 'deer';
+
+  const roleDef = ANIMAL_ROLE_TO_CREATURE[role] || ANIMAL_ROLE_TO_CREATURE.deer;
+  const localConfig = ANIMALS[role] || ANIMALS.deer;
+  const urls = [
+    localConfig.url,
+    roleDef.url, // absolute CDN
+    CREATURE_CDN.freeReptile,
+  ];
+
+  for (const url of urls) {
+    try {
+      const g = await loadCreatureNormalized(url, roleDef.targetHeightM);
+      if (g.children.length > 0 || hasAnyMesh(g)) {
+        g.userData.animalRole = role;
+        g.userData.creatureUrl = url;
+        return g;
+      }
+    } catch (e) {
+      console.warn(`[IslandAssets] animal load failed ${url}`, e);
+    }
+  }
+  return new THREE.Group();
+}
+
+function hasAnyMesh(obj: THREE.Object3D): boolean {
+  let ok = false;
+  obj.traverse((c) => {
+    if ((c as THREE.Mesh).isMesh) ok = true;
+  });
+  return ok;
+}
+
+async function loadCreatureNormalized(url: string, targetHeightM: number): Promise<THREE.Group> {
+  const resolved = resolveAssetUrl(url);
+  // Full-scene creature (not multipack nature isolation)
+  if (modelCache.has(resolved)) {
+    const cloned = modelCache.get(resolved)!.clone(true);
+    return normalizeGroupHeight(isolatePrimaryCreature(cloned), targetHeightM);
+  }
+  try {
+    const gltf = await gltfLoader.loadAsync(resolved);
+    const root = gltf.scene as THREE.Group;
+    root.traverse((child) => {
+      if ((child as THREE.Mesh).isMesh) {
+        child.castShadow = true;
+        child.receiveShadow = true;
+      }
+    });
+    modelCache.set(resolved, root.clone(true));
+    return normalizeGroupHeight(isolatePrimaryCreature(root.clone(true)), targetHeightM);
+  } catch (e) {
+    console.warn(`[IslandAssets] creature GLB failed: ${resolved}`, e);
+    return new THREE.Group();
+  }
+}
+
+/**
+ * Multipacks (e.g. monsters_x) must not place the whole pack.
+ * Prefer skinned root, else first mesh with largest volume.
+ */
+function isolatePrimaryCreature(root: THREE.Object3D): THREE.Group {
+  const out = new THREE.Group();
+  let skinned: THREE.SkinnedMesh | null = null;
+  const meshes: THREE.Mesh[] = [];
+  root.traverse((c) => {
+    if ((c as THREE.SkinnedMesh).isSkinnedMesh) {
+      if (!skinned) skinned = c as THREE.SkinnedMesh;
+    } else if ((c as THREE.Mesh).isMesh) {
+      meshes.push(c as THREE.Mesh);
+    }
+  });
+  if (skinned) {
+    // Keep full hierarchy for skeleton (clone root if it has one skinned primary)
+    const meshCount = meshes.length + 1;
+    if (meshCount <= 8) {
+      out.add(root);
+      return out;
+    }
+  }
+  if (meshes.length === 0) {
+    out.add(root);
+    return out;
+  }
+  if (meshes.length <= 4) {
+    out.add(root);
+    return out;
+  }
+  // Large multipack: clone single largest mesh
+  let best = meshes[0];
+  let bestVol = 0;
+  for (const m of meshes) {
+    const b = new THREE.Box3().setFromObject(m);
+    const s = b.getSize(new THREE.Vector3());
+    const vol = s.x * s.y * s.z;
+    if (vol > bestVol) {
+      bestVol = vol;
+      best = m;
+    }
+  }
+  const clone = best.clone(true);
+  clone.position.set(0, 0, 0);
+  clone.rotation.set(0, 0, 0);
+  out.add(clone);
+  return out;
+}
+
+function normalizeGroupHeight(group: THREE.Group, targetHeightM: number): THREE.Group {
+  const out = new THREE.Group();
+  out.add(group);
+  const box = new THREE.Box3().setFromObject(out);
+  const h = Math.max(0.01, box.max.y - box.min.y);
+  const s = targetHeightM / h;
+  out.scale.setScalar(s);
+  const box2 = new THREE.Box3().setFromObject(out);
+  if (isFinite(box2.min.y)) out.position.y = -box2.min.y;
+  return out;
 }
 
 export function createTexturedOreMesh(

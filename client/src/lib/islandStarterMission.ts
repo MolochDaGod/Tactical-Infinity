@@ -18,17 +18,28 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
-import { HARVEST_TOOL_MAP, CHESTS } from '@/lib/assetRegistry';
+import { HARVEST_TOOL_MAP } from '@/lib/assetRegistry';
+import type { TerrainData } from '@/lib/islandHeightmapTerrain';
 import { resolveGrudgeAssetUrl } from '@/lib/grudgeAssetConfig';
+import {
+  isolateForestPart,
+  loadForestPack,
+  spawnCutDown,
+} from '@/lib/forestHarvest';
+import type { ForestPart, ForestTreeType } from '@shared/gameDefinitions/forestHarvestCatalog';
+import { ALL_FOREST_PARTS } from '@shared/gameDefinitions/forestHarvestCatalog';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
-export type HarvestableType = 'tree' | 'rock' | 'hemp';
+export type HarvestableType = 'tree' | 'rock' | 'hemp' | 'mushroom' | 'flower' | 'bush' | 'fern';
 
 export interface MissionResources {
   wood:  number;
   hemp:  number;
   stone: number;
+  fiber?: number;
+  cloth?: number;
+  food?: number;
 }
 
 export const RAFT_RECIPE: MissionResources = { wood: 5, hemp: 2, stone: 1 };
@@ -47,6 +58,8 @@ export interface HarvestNode {
   depletionDuration: number;
   startScale:        THREE.Vector3;
   startY:            number;
+  forestPart?: ForestPart;
+  fallElapsed?: number;
 }
 
 const HARVEST_RANGE = 4.0;    // metres
@@ -54,9 +67,15 @@ const HARVEST_COOLDOWN = 0.4; // seconds between hits
 
 // ─── Main class ───────────────────────────────────────────────────────────────
 
+export interface IslandStarterMissionOpts {
+  terrain?: TerrainData;
+  skipDock?: boolean;
+}
+
 export class IslandStarterMission {
   private scene:   THREE.Scene;
   private bounds:  THREE.Box3;
+  private terrain: TerrainData | null;
   private nodes:   HarvestNode[]   = [];
   private dock:    THREE.Group | null = null;
   private raft:    THREE.Group | null = null;
@@ -86,13 +105,19 @@ export class IslandStarterMission {
 
   // ── Construction ─────────────────────────────────────────────────────────
 
-  constructor(scene: THREE.Scene, bounds: THREE.Box3) {
+  constructor(scene: THREE.Scene, bounds: THREE.Box3, opts: IslandStarterMissionOpts = {}) {
     this.scene  = scene;
     this.bounds = bounds;
+    this.terrain = opts.terrain ?? null;
 
     this._spawnNodes();
-    this.dock = this._createDock();
-    this.scene.add(this.dock);
+    if (!opts.skipDock) {
+      this.dock = this._createDock();
+      this.scene.add(this.dock);
+    }
+    void loadForestPack().then((pack) => {
+      if (pack) this._reskinFromForest(pack);
+    });
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -147,6 +172,29 @@ export class IslandStarterMission {
     const pPos = this.playerPos;
     this.nodes.forEach((node) => {
       // Drive depletion shrink/sink animation
+      if (node.fallElapsed && node.fallElapsed > 0) {
+        node.fallElapsed += dt;
+        const t = Math.min(1, node.fallElapsed / 0.7);
+        node.mesh.rotation.z = t * (Math.PI / 2);
+        node.mesh.position.y = node.startY - t * 0.4;
+        if (t >= 1) {
+          const packWait = loadForestPack();
+          void packWait.then((pack) => {
+            if (pack && node.forestPart?.treeType) {
+              spawnCutDown(
+                this.scene,
+                pack,
+                node.forestPart.treeType as ForestTreeType,
+                node.mesh.position.clone(),
+                node.mesh.rotation.y,
+              );
+            }
+          });
+          this.scene.remove(node.mesh);
+          node.fallElapsed = -1;
+        }
+        return;
+      }
       if (node.depletionElapsed > 0) {
         node.depletionElapsed += dt;
         const t = Math.min(node.depletionElapsed / node.depletionDuration, 1);
@@ -217,12 +265,17 @@ export class IslandStarterMission {
           }
         });
         // Offsets tuned per tool type
-        const offsets: Record<HarvestableType, [THREE.Vector3, THREE.Euler, number]> = {
+        const pick: Record<HarvestableType, HarvestableType> = {
+          tree: 'tree', rock: 'rock', hemp: 'hemp',
+          mushroom: 'hemp', flower: 'hemp', fern: 'hemp', bush: 'hemp',
+        };
+        const offsets: Record<'tree' | 'rock' | 'hemp', [THREE.Vector3, THREE.Euler, number]> = {
           tree: [new THREE.Vector3(0, 0.06, 0.08), new THREE.Euler(-Math.PI / 2, 0, Math.PI / 4), 0.011],
           rock: [new THREE.Vector3(0, 0.04, 0.06), new THREE.Euler(-Math.PI / 2, 0, 0),           0.013],
           hemp: [new THREE.Vector3(0, 0.05, 0.1),  new THREE.Euler(-Math.PI / 2, 0, Math.PI / 6), 0.010],
         };
-        const [offset, rotation, scale] = offsets[nodeType];
+        const key = pick[nodeType] as 'tree' | 'rock' | 'hemp';
+        const [offset, rotation, scale] = offsets[key];
         this._toolMesh = fbx;
         ctrl.attachToHandBone(fbx, offset, rotation, scale);
       },
@@ -267,10 +320,9 @@ export class IslandStarterMission {
     if (node.health <= 0) {
       // Give resource
       const amount = node.yield.amount;
-      this.resources[node.yield.resource] = Math.min(
-        this.resources[node.yield.resource] + amount,
-        RAFT_RECIPE[node.yield.resource]   // cap to recipe requirement for clarity
-      );
+      const key = node.yield.resource;
+      const prev = this.resources[key] ?? 0;
+      this.resources[key] = prev + amount;
       this.onResourceUpdate?.({ ...this.resources });
       this._depleteNode(node);
       // Detach tool 0.5s after depletion so the swing animation completes
@@ -282,14 +334,88 @@ export class IslandStarterMission {
     node.depleted = true;
     node.ring.visible = false;
     this.onNodeDepletedCb?.(node.id);
-    // Record animation start state, then update() drives the tween
+    if (node.forestPart?.treeType) {
+      node.startY = node.mesh.position.y;
+      node.fallElapsed = 0.001;
+      return;
+    }
     node.startScale        = node.mesh.scale.clone();
     node.startY            = node.mesh.position.y;
-    node.depletionElapsed  = 0.001; // small positive value starts the tween
+    node.depletionElapsed  = 0.001;
     node.depletionDuration = 0.6;
   }
 
   // ── Resource node factories ────────────────────────────────────────────────
+
+  private _reskinFromForest(pack: THREE.Group): void {
+    // Drop primitive placeholders — the pack is the harvest scene.
+    this.nodes.forEach((n) => this.scene.remove(n.mesh));
+    this.nodes = [];
+
+    const spots = this._landSpots(ALL_FOREST_PARTS.length + 4);
+    ALL_FOREST_PARTS.forEach((part, i) => {
+      const mesh = isolateForestPart(pack, part);
+      if (!mesh.children.length) return;
+      const p = spots[i] ?? { x: (i % 7) * 6 - 18, z: Math.floor(i / 7) * 6 - 12 };
+      mesh.position.set(p.x, p.y, p.z);
+      mesh.rotation.y = (i * 1.7) % (Math.PI * 2);
+      mesh.userData.baseX = p.x;
+      const type: HarvestableType =
+        part.kind === 'tree' ? 'tree'
+        : part.kind === 'stone' ? 'rock'
+        : part.kind === 'mushroom' ? 'mushroom'
+        : part.kind === 'flower' ? 'flower'
+        : part.kind === 'fern' ? 'fern'
+        : 'bush';
+      const ring = this._highlightRing(part.kind === 'tree' ? 1.4 : 0.75);
+      mesh.add(ring);
+      this.scene.add(mesh);
+      const yieldKey = (part.yield === 'wood' ? 'wood'
+        : part.yield === 'stone' ? 'stone'
+        : part.yield === 'hemp' ? 'hemp'
+        : part.yield) as keyof MissionResources;
+      this.nodes.push({
+        id: `forest_${part.kind}_${part.node}`,
+        mesh,
+        ring,
+        type,
+        health: part.hits,
+        maxHealth: part.hits,
+        yield: { resource: yieldKey, amount: part.yieldAmt },
+        depleted: false,
+        shakeTimer: 0,
+        depletionElapsed: 0,
+        depletionDuration: 0.45,
+        startScale: new THREE.Vector3(1, 1, 1),
+        startY: 0,
+        forestPart: part,
+      });
+    });
+  }
+
+  private _landSpots(count: number): Array<{ x: number; y: number; z: number }> {
+    const out: Array<{ x: number; y: number; z: number }> = [];
+    const r = this.terrain?.radius ?? 80;
+    let s = 0x9e3779b9;
+    const rnd = () => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      return s / 0x100000000;
+    };
+    let guard = 0;
+    while (out.length < count && guard < count * 40) {
+      guard++;
+      const ang = rnd() * Math.PI * 2;
+      const dist = 18 + rnd() * (r * 0.38);
+      const x = Math.cos(ang) * dist;
+      const z = Math.sin(ang) * dist;
+      const h = this.terrain ? this.terrain.getHeightAt(x, z) : 2;
+      if (h < 0.9 || h > 20) continue;
+      const slope = this.terrain ? this.terrain.getSlopeAt(x, z) : 0;
+      if (slope > 0.7) continue;
+      out.push({ x, y: h, z });
+    }
+    return out;
+  }
 
   private _spawnNodes(): void {
     const trees: Array<[number, number]> = [
@@ -508,12 +634,10 @@ export class IslandStarterMission {
     marker.position.set(0, 0.08, RAIL_LEN * 0.65);
     dock.add(marker);
 
-    // Place dock at island south-west edge
-    const b = this.bounds;
-    const cx = (b.min.x + b.max.x) / 2 - 8;
-    const cz = b.max.z + 2;
-    const cy = (b.min.y + b.max.y) / 2 - 1;
-    dock.position.set(cx, cy, cz);
+    // Hidden — ProductionIsland owns the capital harbor. This marker stays
+    // parented for raft-complete hooks but must not draw a second ocean stick.
+    dock.visible = false;
+    dock.position.set(0, -20, 0);
 
     return dock;
   }

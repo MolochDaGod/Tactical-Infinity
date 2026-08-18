@@ -11,4 +11,8 @@ export * from './sailing';
 export * from './boatRegistry';
 export * from './shipTiers';
 export * from './waterEngagement';
+export * from './fleetAssetCatalog';
+export * from './forestHarvestCatalog';
+export * from './fishCodex';
+export * from './pierKitCatalog';
 export * from './sprites';

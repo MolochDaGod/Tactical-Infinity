@@ -4,7 +4,26 @@
 **Repo:** Tactical-Infinity (legacy name)  
 **Do not** use tactical-infinity.vercel.app or Replit as production.
 
-## 2026-07 production pass (grudge6 · sail · seeds)
+## 2026-08 production pass (island editor · sand/stone · seed gen · play harvest)
+
+| Fix | Detail |
+|-----|--------|
+| Terrain PBR | Poly Haven **sand / stone / grass / soil** on R2 `textures/terrain/*` (JPEG verified) |
+| Island editor | One-click seeds: home / event / conquerable / faction / boss |
+| Play mode | Human unarmed grudge6 + axe/pick/knife/rod harvest test + regrow |
+| Animals | Dead `/models/animals/*.fbx` removed → CDN land creatures |
+| Evil mountain | `models/nature/mountain/rock_mountain_with_cave_realistic_85k.glb` |
+| Verify | `node scripts/verify-island-editor-assets.mjs` |
+| Deploy | `npx vercel deploy --prod --yes` → **water.grudge-studio.com** |
+
+Smoke:
+```
+https://water.grudge-studio.com/admin/island-editor
+https://water.grudge-studio.com/textures/terrain/sand_albedo.jpg  → image/jpeg
+https://assets.grudge-studio.com/textures/terrain/stone_albedo.jpg → image/jpeg
+```
+
+## 2026-07 production pass (grudge6 · sail · seeds · Rapier sea · tutorial cinema)
 
 | Fix | Detail |
 |-----|--------|
@@ -14,6 +33,9 @@
 | Sail polar | Uses player boat id (not hardcoded sloop) |
 | Home island nodes | Seeded rotations / waves (seed 42) |
 | Fleet shells | `islandFleetSeeds.ts` + world map tags from `island_fleet_seeds.json` |
+| **Open-sea combat** | **Rapier** CCD cannonballs + hulls + debris (`lib/naval/rapierOpenSeaCombat.ts`) |
+| **Tutorial island open** | `TutorialIslandOpening` cinema → beach · grudge6 CDN hero · letterbox · skip |
+| Beach avatar | Sketchbook prefers grudge6 GLB @ 1.8 m SI (not Meshy FBX) |
 
 ## Deploy checklist
 

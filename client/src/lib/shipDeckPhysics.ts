@@ -1,10 +1,10 @@
 /**
  * shipDeckPhysics — keep characters glued to a moving/rocking ship deck.
  *
- * Why a custom system instead of Cannon constraints?
- *   - The ship's "physics" in this project is procedural (waves + scripted
- *     forward velocity), not driven by a rigidbody. There is no Cannon body
- *     to constrain to.
+ * Why a custom system instead of Rapier constraints?
+ *   - Hull sailing motion is kinematic (waves + scripted velocity). Combat
+ *     projectiles / debris use Rapier (`naval/rapierOpenSeaCombat.ts`).
+ *   - Deck riders stay glued via pure THREE math — not Rapier joints.
  *   - Riders need to *visually* lean and slip with the deck without ever
  *     leaving it (gameplay requirement: crew can't fall overboard from
  *     normal sailing motion).

@@ -242,6 +242,10 @@ export const HARVEST_TOOL_MAP: Record<string, string> = {
   tree: TOOLS.axe,
   rock: TOOLS.shovel,
   hemp: TOOLS.scythe,
+  mushroom: TOOLS.scythe,
+  flower: TOOLS.scythe,
+  fern: TOOLS.scythe,
+  bush: TOOLS.scythe,
 };
 
 /** Treasure chests  (craftpix-net-116189, 20 variants – trunk 1-5 copied) */

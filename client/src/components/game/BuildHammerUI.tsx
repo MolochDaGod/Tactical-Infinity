@@ -182,6 +182,9 @@ export function BuildHammerUI({
                       'tower',
                       'wall',
                       'boat_dock',
+                      'fishing_dock',
+                      'war_dock',
+                      'capital_dock',
                       'storage_chest',
                     ] as PlaceableBuildingType[]
                   ).find(

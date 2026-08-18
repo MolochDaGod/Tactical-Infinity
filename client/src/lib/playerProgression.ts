@@ -4,6 +4,8 @@ import { SHIP_TIERS, type ShipTierId } from '@shared/gameDefinitions/shipTiers';
 import {
   DEFAULT_RAFT_LOADOUT,
   DOCK_SHIP_RECIPES,
+  defaultDeckLoadout,
+  type PlacedDeckStation,
   type RaftAttachmentId,
   type RaftAttachmentSlot,
 } from '@shared/gameDefinitions/waterEngagement';
@@ -35,6 +37,14 @@ export interface PlayerProgression {
   boatDockBuilt: boolean;
   /** Raft multi-attachment loadout (main-panel options). */
   raftLoadout: Record<RaftAttachmentSlot, RaftAttachmentId>;
+  /** Per-hull deck stations (cannon / harpoon / nest / mage / helm). */
+  deckLoadouts: Partial<Record<BoatId, PlacedDeckStation[]>>;
+  /** XP from building / upgrading rafts and dock hulls. */
+  boatCraftXp: number;
+  /** Active raft hull id from RAFT_HULLS (short_plank…). */
+  activeRaftHullId: string;
+  /** Discoverable recipes (e.g. orc_long). */
+  discoveredRecipes: string[];
 }
 
 const DEFAULT: PlayerProgression = {
@@ -45,6 +55,10 @@ const DEFAULT: PlayerProgression = {
   homeIslandTutorialDone: false,
   boatDockBuilt: false,
   raftLoadout: { ...DEFAULT_RAFT_LOADOUT },
+  deckLoadouts: {},
+  boatCraftXp: 0,
+  activeRaftHullId: 'short_plank',
+  discoveredRecipes: [],
 };
 
 function normalizeBoats(boats: string[] | undefined): BoatId[] {
@@ -74,6 +88,10 @@ export function loadProgression(): PlayerProgression {
       homeIslandTutorialDone: parsed.homeIslandTutorialDone ?? raftBuilt,
       boatDockBuilt: parsed.boatDockBuilt ?? false,
       raftLoadout: { ...DEFAULT_RAFT_LOADOUT, ...(parsed.raftLoadout ?? {}) },
+      deckLoadouts: parsed.deckLoadouts ?? {},
+      boatCraftXp: parsed.boatCraftXp ?? 0,
+      activeRaftHullId: parsed.activeRaftHullId ?? 'short_plank',
+      discoveredRecipes: parsed.discoveredRecipes ?? [],
     };
   } catch {
     return {
@@ -124,6 +142,8 @@ export function markRaftBuilt(): void {
   p.homeIslandTutorialDone = true;
   if (!p.builtBoats.includes('raft')) p.builtBoats = ['raft', ...p.builtBoats];
   p.activeBoatId = 'raft';
+  p.activeRaftHullId = p.activeRaftHullId || 'short_plank';
+  p.boatCraftXp = (p.boatCraftXp ?? 0) + 15;
   saveProgression(p);
 
   const build = loadCaptainBuild();
@@ -242,5 +262,63 @@ export function getRaftLoadout(): Record<RaftAttachmentSlot, RaftAttachmentId> {
 export function setRaftAttachment(slot: RaftAttachmentSlot, id: RaftAttachmentId): void {
   const p = loadProgression();
   p.raftLoadout = { ...p.raftLoadout, [slot]: id };
+  saveProgression(p);
+}
+
+export function getDeckLoadout(hull: BoatId): PlacedDeckStation[] {
+  const p = loadProgression();
+  return p.deckLoadouts[hull] ?? defaultDeckLoadout(hull);
+}
+
+export function setDeckStationEnabled(
+  hull: BoatId,
+  kind: PlacedDeckStation['kind'],
+  slotIndex: number,
+  enabled: boolean,
+): void {
+  const p = loadProgression();
+  const current = p.deckLoadouts[hull] ?? defaultDeckLoadout(hull);
+  const next = current.map((s) =>
+    s.kind === kind && s.slotIndex === slotIndex ? { ...s, enabled } : s,
+  );
+  if (!next.some((s) => s.kind === kind && s.slotIndex === slotIndex)) {
+    next.push({ kind, slotIndex, enabled });
+  }
+  p.deckLoadouts = { ...p.deckLoadouts, [hull]: next };
+  saveProgression(p);
+}
+
+export function awardBoatCraftXp(amount: number): number {
+  const p = loadProgression();
+  p.boatCraftXp = (p.boatCraftXp ?? 0) + Math.max(0, amount);
+  saveProgression(p);
+  return p.boatCraftXp;
+}
+
+export function setActiveRaftHull(id: string): void {
+  const p = loadProgression();
+  p.activeRaftHullId = id;
+  saveProgression(p);
+}
+
+export function getBoatCraftXp(): number {
+  return loadProgression().boatCraftXp ?? 0;
+}
+
+export function discoverRecipe(id: string): boolean {
+  const p = loadProgression();
+  if ((p.discoveredRecipes ?? []).includes(id)) return false;
+  p.discoveredRecipes = [...(p.discoveredRecipes ?? []), id];
+  saveProgression(p);
+  return true;
+}
+
+export function isRecipeDiscovered(id: string): boolean {
+  return (loadProgression().discoveredRecipes ?? []).includes(id);
+}
+
+export function resetDeckLoadout(hull: BoatId): void {
+  const p = loadProgression();
+  p.deckLoadouts = { ...p.deckLoadouts, [hull]: defaultDeckLoadout(hull) };
   saveProgression(p);
 }

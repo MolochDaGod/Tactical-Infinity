@@ -42,8 +42,11 @@ export type PlaceableBuildingType =
   | 'rts_farm'
   | 'rts_wheat_field'
   | 'rts_temple'
-  /** Water engagement — RTS shipyard for dock hulls (skiff…manOWar). */
+  /** Water engagement — harbor docks (fishing / shipyard / war / capital). */
   | 'boat_dock'
+  | 'fishing_dock'
+  | 'war_dock'
+  | 'capital_dock'
   /** note_of_arms Chain_V* — buildable chain link / connection tool */
   | 'chain'
   | 'window_thin_flat'
@@ -212,13 +215,49 @@ export const placeableBuildingDefinitions: Record<PlaceableBuildingType, Placeab
     type: 'boat_dock',
     name: 'Boat Dock',
     description:
-      'RTS shipyard pier. Construct Skiff, Sloop, Brigantine, Galleon, and Man o’ War. Raft is a main-panel quick craft.',
+      'Shipyard pier. Construct Skiff through Man o’ War. Raft is a main-panel quick craft.',
     category: 'production',
     cost: { wood: 40, stone: 25, ore: 5, gold: 50 },
     cellSize: { width: 4, height: 6 },
     rotatable: true,
     fallbackGeometry: 'box',
     fallbackColor: 0x6B5344,
+    scale: 1.0,
+  },
+  fishing_dock: {
+    type: 'fishing_dock',
+    name: 'Fishing Dock',
+    description: 'Viking fisherman house + pier. Harpoon work. No shipyard.',
+    category: 'production',
+    cost: { wood: 20, stone: 10 },
+    cellSize: { width: 3, height: 5 },
+    rotatable: true,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x7A5A3A,
+    scale: 1.0,
+  },
+  war_dock: {
+    type: 'war_dock',
+    name: 'War Dock',
+    description: 'Battery pier — cannon pads, sniper nest, mage spot, harpoon.',
+    category: 'defense',
+    cost: { wood: 70, stone: 40, ore: 20, gold: 120 },
+    cellSize: { width: 5, height: 8 },
+    rotatable: true,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x4A4A48,
+    scale: 1.0,
+  },
+  capital_dock: {
+    type: 'capital_dock',
+    name: 'Capital Dock',
+    description: 'Home shipyard: viking house + berths for the full hull ladder.',
+    category: 'production',
+    cost: { wood: 90, stone: 55, ore: 25, gold: 180 },
+    cellSize: { width: 6, height: 9 },
+    rotatable: true,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x5C4030,
     scale: 1.0,
   },
   tower: {
@@ -938,6 +977,23 @@ export class BuildableObjectsRegistry {
     }
 
     const definition = placeableBuildingDefinitions[type];
+
+    if (
+      type === 'boat_dock' ||
+      type === 'fishing_dock' ||
+      type === 'war_dock' ||
+      type === 'capital_dock'
+    ) {
+      const loadPromise = Promise.resolve().then(async () => {
+        const { buildDockVisual } = await import('@/lib/islandDockSystem');
+        const mesh = buildDockVisual(type);
+        this.setupMeshProperties(mesh);
+        this.loadedMeshes.set(type, mesh);
+        return mesh.clone();
+      });
+      this.loadingPromises.set(type, loadPromise);
+      return loadPromise;
+    }
     
     if (!definition) {
       console.warn(`Building definition not found for type: ${type}, using fallback`);

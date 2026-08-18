@@ -40,12 +40,20 @@ export interface AnimalModelConfig {
   idleClips: string[];
 }
 
+/**
+ * Real GLBs only. Quaternius /models/animals/* are NOT on disk or CDN (404).
+ * Fleet land creatures (verified glTF on assets.grudge-studio.com + staged public).
+ */
 export const ANIMAL_MODELS: Partial<Record<AnimalType, AnimalModelConfig>> = {
-  deer: { url: '/models/animals/deer.gltf', targetHeight: 1.8, idleClips: ['Idle', 'Idle_2'] },
-  stag: { url: '/models/animals/stag.gltf', targetHeight: 2.1, idleClips: ['Idle', 'Idle_2'] },
-  wolf: { url: '/models/animals/wolf.gltf', targetHeight: 1.1, idleClips: ['Idle', 'Idle_2'] },
-  fox:  { url: '/models/animals/fox.gltf',  targetHeight: 0.7, idleClips: ['Idle', 'Idle_2'] },
-  bull: { url: '/models/animals/bull.gltf', targetHeight: 1.7, idleClips: ['Idle', 'Idle_2'] },
+  deer: { url: '/models/creatures/land/free_reptile.glb', targetHeight: 1.2, idleClips: ['Idle', 'Walk', 'Run'] },
+  stag: { url: '/models/creatures/land/free_reptile.glb', targetHeight: 1.4, idleClips: ['Idle', 'Walk', 'Run'] },
+  wolf: { url: '/models/creatures/land/monsters_x_free.glb', targetHeight: 1.1, idleClips: ['Idle', 'Walk', 'Run'] },
+  fox:  { url: '/models/creatures/land/free_reptile.glb',  targetHeight: 0.7, idleClips: ['Idle', 'Walk', 'Run'] },
+  bull: { url: '/models/creatures/land/monsters_x_free.glb', targetHeight: 1.7, idleClips: ['Idle', 'Walk', 'Run'] },
+  boar: { url: '/models/creatures/land/free_reptile.glb', targetHeight: 0.95, idleClips: ['Idle', 'Walk', 'Run'] },
+  goat: { url: '/models/creatures/land/free_reptile.glb', targetHeight: 1.0, idleClips: ['Idle', 'Walk', 'Run'] },
+  rabbit: { url: '/models/creatures/land/creature_crab.glb', targetHeight: 0.35, idleClips: ['Idle', 'Walk'] },
+  lamb: { url: '/models/creatures/land/creature_crab.glb', targetHeight: 0.4, idleClips: ['Idle', 'Walk'] },
 };
 
 const _animalGLTFLoader = new GLTFLoader();

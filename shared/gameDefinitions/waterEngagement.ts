@@ -27,6 +27,101 @@ export const RAFT_QUICK_CRAFT: RaftCraftRecipe = {
   stone: 1,
 };
 
+/** Short vs long rafts — basic plank first, upgrades at a boat dock. */
+export type RaftHullClass = 'short' | 'long';
+
+export interface RaftHullDef {
+  id: string;
+  name: string;
+  cls: RaftHullClass;
+  /** Play ladder order (0 = most basic). */
+  tier: number;
+  modelPath: string;
+  lengthM: number;
+  heightM: number;
+  craftXp: number;
+  cost: RaftCraftRecipe;
+  requiresDock: boolean;
+  /** If true, hidden until player discovers the recipe (coastal islet). */
+  discoverable?: boolean;
+  discoverHint?: string;
+  notes: string;
+}
+
+export const RAFT_HULLS: readonly RaftHullDef[] = [
+  {
+    id: 'short_plank',
+    name: 'Plank Raft',
+    cls: 'short',
+    tier: 0,
+    modelPath: '/models/fleet/rafts/short_plank.glb',
+    lengthM: 2.4,
+    heightM: 0.5,
+    craftXp: 15,
+    cost: { wood: 5, hemp: 2, stone: 1 },
+    requiresDock: false,
+    notes: 'Most basic short raft. Main-panel / beach craft.',
+  },
+  {
+    id: 'short_logs',
+    name: 'Log Raft',
+    cls: 'short',
+    tier: 1,
+    modelPath: '/models/fleet/rafts/short_logs.glb',
+    lengthM: 3.2,
+    heightM: 0.7,
+    craftXp: 35,
+    cost: { wood: 10, hemp: 3, stone: 2 },
+    requiresDock: true,
+    notes: 'Short upgrade at a boat dock.',
+  },
+  {
+    id: 'short_sail',
+    name: 'Sailed Short Raft',
+    cls: 'short',
+    tier: 2,
+    modelPath: '/models/fleet/rafts/short_sail.glb',
+    lengthM: 3.6,
+    heightM: 2.4,
+    craftXp: 60,
+    cost: { wood: 12, hemp: 6, stone: 2 },
+    requiresDock: true,
+    notes: 'Short hull + mast + sail.',
+  },
+  {
+    id: 'long_complete',
+    name: 'Long Work Raft',
+    cls: 'long',
+    tier: 3,
+    modelPath: '/models/fleet/rafts/long_complete.glb',
+    lengthM: 6.5,
+    heightM: 1.4,
+    craftXp: 110,
+    cost: { wood: 22, hemp: 8, stone: 4 },
+    requiresDock: true,
+    notes: 'Long raft — dock workshop upgrade.',
+  },
+  {
+    id: 'orc_long',
+    name: 'Orc War Raft',
+    cls: 'long',
+    tier: 4,
+    modelPath: '/models/fleet/rafts/orc_war.glb',
+    lengthM: 8.5,
+    heightM: 2.2,
+    craftXp: 200,
+    cost: { wood: 40, hemp: 12, stone: 8 },
+    requiresDock: true,
+    discoverable: true,
+    discoverHint: 'Discover the wreck on the coastal islet east of home island.',
+    notes: 'Discoverable recipe. Mesh stays on D:\\Games\\Models\\stylized_orc_raft.glb (148 MB) until isolate — do not ship the fat pack as default.',
+  },
+];
+
+export function getRaftHull(id: string): RaftHullDef {
+  return RAFT_HULLS.find((r) => r.id === id) ?? RAFT_HULLS[0];
+}
+
 /** Attachment slots on the raft (multi-option loadout). */
 export type RaftAttachmentSlot =
   | 'sail'
@@ -441,4 +536,230 @@ export function sectorAtWorld(x: number, z: number): OceanSector {
 
 export function allSectorIds(): OceanSectorId[] {
   return OCEAN_SECTORS.map((s) => s.id);
+}
+
+// ─── Deck stations (play-mode placement on hulls) ────────────────────────────
+// Extends ShipRig anchors + dock crew SSOT. Not a second ocean stack.
+//   cannon      → gunner   (cannon1…6)
+//   harpoon     → sailor   (harpoon1…2)
+//   sniper_nest → sailor   (crowsnest)
+//   mage_spot   → weatherman (caster1…2)
+//   helm        → captain
+
+export type DeckStationKind =
+  | 'cannon'
+  | 'harpoon'
+  | 'sniper_nest'
+  | 'mage_spot'
+  | 'helm';
+
+export type DockCrewRole = 'sailor' | 'weatherman' | 'gunner' | 'captain';
+
+export type DeckAnchorFamily =
+  | 'cannon'
+  | 'harpoon'
+  | 'crowsnest'
+  | 'caster'
+  | 'captain';
+
+export interface DeckStationDef {
+  id: DeckStationKind;
+  name: string;
+  description: string;
+  crewRole: DockCrewRole;
+  anchorFamily: DeckAnchorFamily;
+  /** SI footprint on deck (metres). */
+  footprintM: { width: number; depth: number; height: number };
+  cost: { wood?: number; ore?: number; stone?: number; gold?: number; hemp?: number };
+}
+
+export const DECK_STATIONS: readonly DeckStationDef[] = [
+  {
+    id: 'helm',
+    name: 'Helm',
+    description: 'Wheel / tiller — captain steers from here.',
+    crewRole: 'captain',
+    anchorFamily: 'captain',
+    footprintM: { width: 0.8, depth: 0.8, height: 1.2 },
+    cost: { wood: 4 },
+  },
+  {
+    id: 'cannon',
+    name: 'Cannon',
+    description: 'Broadside or swivel gun. Gunner station.',
+    crewRole: 'gunner',
+    anchorFamily: 'cannon',
+    footprintM: { width: 1.2, depth: 1.6, height: 1.1 },
+    cost: { wood: 8, ore: 6, gold: 20 },
+  },
+  {
+    id: 'harpoon',
+    name: 'Harpoon Gun',
+    description: 'Deck harpoon for fish, hooks, and boarding lines. Sailor station.',
+    crewRole: 'sailor',
+    anchorFamily: 'harpoon',
+    footprintM: { width: 0.7, depth: 1.4, height: 1.0 },
+    cost: { wood: 5, ore: 4, gold: 12 },
+  },
+  {
+    id: 'sniper_nest',
+    name: "Sniper Nest",
+    description: "Crow’s nest perch — long-range lookout and rifle. Sailor station.",
+    crewRole: 'sailor',
+    anchorFamily: 'crowsnest',
+    footprintM: { width: 1.0, depth: 1.0, height: 0.6 },
+    cost: { wood: 10, hemp: 4, gold: 18 },
+  },
+  {
+    id: 'mage_spot',
+    name: 'Mage Spot',
+    description: 'Caster pad for wind, barrier, and wave work. Weatherman station.',
+    crewRole: 'weatherman',
+    anchorFamily: 'caster',
+    footprintM: { width: 1.0, depth: 1.0, height: 0.2 },
+    cost: { wood: 6, stone: 4, gold: 16 },
+  },
+];
+
+export function getDeckStation(id: DeckStationKind): DeckStationDef {
+  return DECK_STATIONS.find((s) => s.id === id)!;
+}
+
+/** How many of each station a hull may carry. Matches shipTiers slot counts. */
+export interface HullDeckBudget {
+  hull: BoatId;
+  helm: 0 | 1;
+  cannon: number;
+  harpoon: number;
+  sniperNest: 0 | 1;
+  mageSpot: 0 | 1 | 2;
+}
+
+export const HULL_DECK_BUDGETS: Readonly<Record<BoatId, HullDeckBudget>> = {
+  raft: { hull: 'raft', helm: 1, cannon: 0, harpoon: 0, sniperNest: 0, mageSpot: 0 },
+  skiff: { hull: 'skiff', helm: 1, cannon: 1, harpoon: 1, sniperNest: 0, mageSpot: 0 },
+  sloop: { hull: 'sloop', helm: 1, cannon: 2, harpoon: 1, sniperNest: 1, mageSpot: 1 },
+  brigantine: { hull: 'brigantine', helm: 1, cannon: 4, harpoon: 2, sniperNest: 1, mageSpot: 1 },
+  galleon: { hull: 'galleon', helm: 1, cannon: 6, harpoon: 2, sniperNest: 1, mageSpot: 2 },
+  manOWar: { hull: 'manOWar', helm: 1, cannon: 6, harpoon: 2, sniperNest: 1, mageSpot: 2 },
+};
+
+export function getHullDeckBudget(hull: BoatId): HullDeckBudget {
+  return HULL_DECK_BUDGETS[hull];
+}
+
+export function budgetForKind(budget: HullDeckBudget, kind: DeckStationKind): number {
+  switch (kind) {
+    case 'helm':
+      return budget.helm;
+    case 'cannon':
+      return budget.cannon;
+    case 'harpoon':
+      return budget.harpoon;
+    case 'sniper_nest':
+      return budget.sniperNest;
+    case 'mage_spot':
+      return budget.mageSpot;
+  }
+}
+
+export interface PlacedDeckStation {
+  kind: DeckStationKind;
+  slotIndex: number;
+  enabled: boolean;
+}
+
+/** Default loadout: every budgeted slot enabled. */
+export function defaultDeckLoadout(hull: BoatId): PlacedDeckStation[] {
+  const b = getHullDeckBudget(hull);
+  const out: PlacedDeckStation[] = [];
+  const push = (kind: DeckStationKind, n: number) => {
+    for (let i = 0; i < n; i++) out.push({ kind, slotIndex: i, enabled: true });
+  };
+  push('helm', b.helm);
+  push('cannon', b.cannon);
+  push('harpoon', b.harpoon);
+  push('sniper_nest', b.sniperNest);
+  push('mage_spot', b.mageSpot);
+  return out;
+}
+
+// ─── Dock kinds (island / RTS harbor) ───────────────────────────────────────
+
+export type DockKind = 'fishing_dock' | 'boat_dock' | 'war_dock' | 'capital_dock';
+
+export interface DockKindDef {
+  id: DockKind;
+  name: string;
+  description: string;
+  /** Number of hull berths along the pier. */
+  berths: number;
+  allowsShipConstruction: boolean;
+  /** Deck-station pads on the pier itself (shore batteries / nests). */
+  stationPads: readonly DeckStationKind[];
+  lengthM: number;
+  widthM: number;
+  /** Visual recipe — viking prefab vs authored pier. */
+  prefab: 'viking_fisherman' | 'shipyard_pier' | 'war_pier' | 'capital';
+  cost: { wood: number; stone: number; ore?: number; gold?: number };
+  cellSize: { width: number; height: number };
+}
+
+export const DOCK_KINDS: readonly DockKindDef[] = [
+  {
+    id: 'fishing_dock',
+    name: 'Fishing Dock',
+    description: 'Viking fisherman house + pier. Harpoon and sailor work. No shipyard.',
+    berths: 1,
+    allowsShipConstruction: false,
+    stationPads: ['harpoon', 'helm'],
+    lengthM: 14,
+    widthM: 4,
+    prefab: 'viking_fisherman',
+    cost: { wood: 20, stone: 10 },
+    cellSize: { width: 3, height: 5 },
+  },
+  {
+    id: 'boat_dock',
+    name: 'Boat Dock',
+    description: 'Shipyard pier. Construct Skiff through Man o’ War. Raft stays main-panel craft.',
+    berths: 3,
+    allowsShipConstruction: true,
+    stationPads: ['helm', 'cannon'],
+    lengthM: 22,
+    widthM: 5,
+    prefab: 'shipyard_pier',
+    cost: { wood: 40, stone: 25, ore: 5, gold: 50 },
+    cellSize: { width: 4, height: 6 },
+  },
+  {
+    id: 'war_dock',
+    name: 'War Dock',
+    description: 'Wide battery pier — cannon pads, sniper nest, mage spot for open-sea sorties.',
+    berths: 4,
+    allowsShipConstruction: true,
+    stationPads: ['cannon', 'cannon', 'sniper_nest', 'mage_spot', 'harpoon'],
+    lengthM: 28,
+    widthM: 6.5,
+    prefab: 'war_pier',
+    cost: { wood: 70, stone: 40, ore: 20, gold: 120 },
+    cellSize: { width: 5, height: 8 },
+  },
+  {
+    id: 'capital_dock',
+    name: 'Capital Dock',
+    description: 'Home-island shipyard: viking house + berths for the full hull ladder.',
+    berths: 6,
+    allowsShipConstruction: true,
+    stationPads: ['cannon', 'harpoon', 'sniper_nest', 'mage_spot', 'helm'],
+    lengthM: 32,
+    widthM: 7,
+    prefab: 'capital',
+    cost: { wood: 90, stone: 55, ore: 25, gold: 180 },
+    cellSize: { width: 6, height: 9 },
+  },
+];
+
+export function getDockKind(id: DockKind): DockKindDef {
+  return DOCK_KINDS.find((d) => d.id === id)!;
 }

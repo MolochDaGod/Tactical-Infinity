@@ -46,6 +46,7 @@ import { IslandSky } from '@/lib/islandsCanonical/IslandSky';
 import { SeascapeOcean } from '@/lib/islandsCanonical/SeascapeOcean';
 import { getCanonicalBackdrop } from '@/lib/grudgeAssetConfig';
 import { createDock, isPlayerNearDock, type DockData } from '@/lib/islandDockSystem';
+import { normalizeToMetres } from '@/lib/modelNormalize';
 import { ResourceNodeManager } from '@/lib/resourceNodes';
 import { IslandAnimalManager, ANIMAL_SPAWN_WEIGHTS, type AnimalType } from '@/lib/islandAnimals';
 import { HarvestingSystem } from '@/lib/harvestingProfessions';
@@ -76,11 +77,14 @@ import {
   type MissionResources,
 } from '@/lib/islandStarterMission';
 import { StarterRaftPanel } from '@/components/game/StarterRaftPanel';
-import { isRaftBuilt, markRaftBuilt } from '@/lib/playerProgression';
+import { discoverRecipe, isRaftBuilt, markRaftBuilt } from '@/lib/playerProgression';
+import { nearIslet, type CoastalIslet } from '@/lib/placeCoastalIslet';
 
 interface Props {
   onBack: () => void;
   onSetSail?: () => void;
+  onOpenDockWorkshop?: () => void;
+  onOpenFishCodex?: () => void;
 }
 
 const PLAYER_SPEED = 12;
@@ -114,7 +118,7 @@ const HUNTABLE_ANIMALS: AnimalType[] = [
 ];
 const ANIMAL_ATTACK_RANGE = 4;
 
-export default function ProductionIsland({ onBack, onSetSail }: Props) {
+export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop, onOpenFishCodex }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const sceneRef = useRef<THREE.Scene | null>(null);
   const cameraRef = useRef<THREE.PerspectiveCamera | null>(null);
@@ -147,6 +151,8 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
   const skyRef = useRef<IslandSky | null>(null);
   const seascapeRef = useRef<SeascapeOcean | null>(null);
   const dockRef = useRef<DockData | null>(null);
+  const isletRef = useRef<CoastalIslet | null>(null);
+  const fishMgrRef = useRef<{ update: (dt: number, p: THREE.Vector3) => void; dispose?: () => void } | null>(null);
   const carcassManagerRef = useRef<ResourceNodeManager | null>(null);
   const animalManagerRef = useRef<IslandAnimalManager | null>(null);
   const harvestSystemRef = useRef<HarvestingSystem | null>(null);
@@ -266,6 +272,16 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
 
       if (model && model.children.length > 0) {
         grp.add(model);
+        // Pack meshes are author-scale — cap to SI or they become 20–80 m cliffs.
+        if (kind === 'rock') {
+          normalizeToMetres(grp, { targetSizeM: 1.4 + (idx % 4) * 0.25, axis: 'height', ground: true, centerXZ: true });
+        } else if (kind === 'tree') {
+          normalizeToMetres(grp, { targetSizeM: 7 + (idx % 5) * 1.2, axis: 'height', ground: true, centerXZ: true });
+        } else if (kind === 'ore') {
+          normalizeToMetres(grp, { targetSizeM: 1.1, axis: 'height', ground: true, centerXZ: true });
+        } else {
+          normalizeToMetres(grp, { targetSizeM: 0.7, axis: 'height', ground: true, centerXZ: true });
+        }
       } else {
         // Last resort only — prefer CDN ore/tree packs; log for ops.
         console.warn('[ProductionIsland] node mesh missing, low-poly fallback', type, kind);
@@ -315,7 +331,6 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
     scene.fog = new THREE.FogExp2(sky.material.uniforms.uHorizon.value.getHex(), fogStrength * 0.0012);
 
     const camera = new THREE.PerspectiveCamera(55, w / h, 0.5, 800);
-    camera.position.set(0, 30, 50);
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
@@ -345,9 +360,8 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
     controls.enableDamping = true;
     controls.dampingFactor = 0.08;
     controls.maxPolarAngle = Math.PI * 0.45;
-    controls.minDistance = 10;
-    controls.maxDistance = 200;
-    controls.target.set(0, 5, 0);
+    controls.minDistance = 8;
+    controls.maxDistance = 80;
     controlsRef.current = controls;
 
     const ambientLight = new THREE.AmbientLight(0x99bbdd, 0.6);
@@ -379,19 +393,21 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
       segments: 128,
       sunDirection: sky.sunDirection,
     });
-    seascape.setSkyTint(sky.material.uniforms.uHorizon.value as THREE.Color);
+    seascape.material.uniforms.uSeaBase.value.set(0.02, 0.48, 0.52);
+    seascape.material.uniforms.uSeaTint.value.set(0.45, 0.95, 0.72);
+    seascape.material.uniforms.uSkyTint.value.set(0.72, 0.88, 1.0);
     seascape.mesh.position.y = -0.4;
     scene.add(seascape.mesh);
     seascapeRef.current = seascape;
     waterRef.current = seascape.mesh;
 
-    const dock = createDock(terrain, 'south');
+    const dock = createDock(terrain, 'south', { kind: 'capital_dock' });
     scene.add(dock.group);
     dockRef.current = dock;
 
-    // Lobby shipyard: tier hull showcase (5 dock ships + raft) for production water engagement
+    // Lobby shipyard: reuse the capital dock berths — do not spawn a second pier
     void import('@/lib/lobbyShipYard').then(({ createLobbyShipYard }) => {
-      createLobbyShipYard(scene, terrain, 'south').catch((e) =>
+      createLobbyShipYard(scene, terrain, 'south', dock).catch((e) =>
         console.warn('[ProductionIsland] lobby shipyard', e),
       );
     });
@@ -401,19 +417,32 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
     nav.generate([terrain.mesh], bounds);
     navRef.current = nav;
 
-    if (!isRaftBuilt()) {
-      const mission = new IslandStarterMission(scene, bounds);
-      mission.onUpdate((r) => setMissionResources({ ...r }));
-      mission.onComplete(() => {
-        markRaftBuilt();
-        setRaftBuilt(true);
-        showHuntToast('Sailed raft built — head to the dock!');
-      });
-      mission.onNodeDepleted((id) => propCollidersRef.current.remove(id));
-      mission.setupInput();
-      starterMissionRef.current = mission;
-      propCollidersRef.current.registerMany(mission.getColliderSpecs());
-    }
+    // Always forest-harvest on the existing home island (not a second island).
+    const mission = new IslandStarterMission(scene, bounds, { terrain, skipDock: true });
+    mission.onUpdate((r) => setMissionResources({ ...r }));
+    mission.onComplete(() => {
+      markRaftBuilt();
+      setRaftBuilt(true);
+      showHuntToast('Sailed raft built — head to the dock!');
+    });
+    mission.onNodeDepleted((id) => propCollidersRef.current.remove(id));
+    mission.setupInput();
+    starterMissionRef.current = mission;
+    propCollidersRef.current.registerMany(mission.getColliderSpecs());
+
+    void import('@/lib/fishManager').then(({ FishManager }) => {
+      const fm = new FishManager(scene, 220, () => -9);
+      fm.setIslandPositions([new THREE.Vector3(0, 0, 0)]);
+      fm.initialize().then(() => {
+        fishMgrRef.current = fm;
+      }).catch((e) => console.warn('[ProductionIsland] fish', e));
+    });
+
+    void import('@/lib/placeCoastalIslet').then(({ placeCoastalIslet }) => {
+      placeCoastalIslet(scene, terrain).then((islet) => {
+        if (islet) isletRef.current = islet;
+      }).catch((e) => console.warn('[ProductionIsland] coastal islet', e));
+    });
 
     const ai = new YukaAISystem(scene);
     aiRef.current = ai;
@@ -435,6 +464,19 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
     playerPosRef.current.copy(spawnPos);
     scene.add(playerGroup);
     playerRef.current = playerGroup;
+
+    // First paint: harbor, not island-center / giant inland rocks.
+    {
+      dock.group.updateMatrixWorld(true);
+      const look = spawnPos.clone().add(new THREE.Vector3(0, 2.2, 0));
+      const seaward = dock.group.getWorldDirection(new THREE.Vector3());
+      camera.position.copy(spawnPos)
+        .addScaledVector(seaward, -18)
+        .add(new THREE.Vector3(12, 12, 0));
+      camera.lookAt(look);
+      controls.target.copy(look);
+      controls.update();
+    }
 
     const captainBuild = loadCaptainBuild();
     let captainRace: Race = captainBuild?.race ?? 'human';
@@ -734,6 +776,13 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
         const near = isPlayerNearDock(playerPosRef.current, dockRef.current, 8) && isRaftBuilt();
         setNearDock(near);
       }
+      fishMgrRef.current?.update(dt, playerPosRef.current);
+
+      if (isletRef.current && nearIslet(playerPosRef.current, isletRef.current, 16)) {
+        if (discoverRecipe('orc_long')) {
+          showHuntToast('Recipe found: Orc War Raft — build it at the boat dock.');
+        }
+      }
 
       const camSmooth = 1 - Math.exp(-4 * dt);
       controls.target.lerp(playerPosRef.current.clone().add(new THREE.Vector3(0, 3, 0)), camSmooth);
@@ -963,13 +1012,33 @@ export default function ProductionIsland({ onBack, onSetSail }: Props) {
       )}
 
       {nearDock && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-none" data-testid="dock-prompt">
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-auto" data-testid="dock-prompt">
           <div className="bg-black/70 backdrop-blur-md rounded-xl px-6 py-4 border border-amber-500/40 shadow-lg shadow-amber-500/10 text-center animate-pulse">
             <div className="flex items-center justify-center gap-2 mb-1">
               <Anchor className="w-5 h-5 text-amber-400" />
               <span className="text-amber-300 font-bold text-lg tracking-wide">Dock</span>
             </div>
             <div className="text-white/90 text-sm mb-2">Press <kbd className="px-1.5 py-0.5 bg-white/20 rounded text-amber-300 font-mono font-bold">F</kbd> to set sail</div>
+            <div className="flex flex-col gap-1 mt-2">
+              {onOpenDockWorkshop && (
+                <button
+                  type="button"
+                  className="pointer-events-auto text-[11px] text-amber-200 underline"
+                  onClick={onOpenDockWorkshop}
+                >
+                  Open boat dock workshop
+                </button>
+              )}
+              {onOpenFishCodex && (
+                <button
+                  type="button"
+                  className="pointer-events-auto text-[11px] text-sky-200 underline"
+                  onClick={onOpenFishCodex}
+                >
+                  Ocean bestiary
+                </button>
+              )}
+            </div>
             <div className="flex items-center justify-center gap-1 text-white/50 text-xs">
               <Ship className="w-3 h-3" />
               <span>Launch your raft onto the world map</span>

@@ -40,6 +40,7 @@ export type ShipAnchorId =
   // Combat — cannons
   | 'cannon1' | 'cannon2' | 'cannon3'
   | 'cannon4' | 'cannon5' | 'cannon6'        // up to 6 cannons; metadata in CannonSpec
+  | 'harpoon1' | 'harpoon2'                  // sailor harpoon guns (fish / hook / board)
 
   // Cameras
   | 'cameraCaptainOnDeck'                    // 3rd-person captain cam (silent until rotated to)
@@ -57,7 +58,7 @@ export type ShipAnchorId =
 /** Roles classify anchors so consumers can iterate semantically. */
 export type ShipAnchorRole =
   | 'structural' | 'crew' | 'captain' | 'caster' | 'crowsnest'
-  | 'cannon' | 'camera' | 'effect' | 'animation' | 'special' | 'flag';
+  | 'cannon' | 'harpoon' | 'camera' | 'effect' | 'animation' | 'special' | 'flag';
 
 export const ANCHOR_ROLE: Readonly<Record<ShipAnchorId, ShipAnchorRole>> = Object.freeze({
   deck: 'structural', woodhp: 'structural',
@@ -67,6 +68,7 @@ export const ANCHOR_ROLE: Readonly<Record<ShipAnchorId, ShipAnchorRole>> = Objec
   crowsnest: 'crowsnest',
   cannon1: 'cannon', cannon2: 'cannon', cannon3: 'cannon',
   cannon4: 'cannon', cannon5: 'cannon', cannon6: 'cannon',
+  harpoon1: 'harpoon', harpoon2: 'harpoon',
   cameraCaptainOnDeck: 'camera',
   effect1: 'effect', effect2: 'effect', effect3: 'effect',
   animation1: 'animation', animation2: 'animation',
@@ -219,6 +221,8 @@ export const GLB_ANCHOR_NAMES: Readonly<Record<ShipAnchorId, string>> = Object.f
   cannon4:             'anchor_cannon4',
   cannon5:             'anchor_cannon5',
   cannon6:             'anchor_cannon6',
+  harpoon1:            'anchor_harpoon1',
+  harpoon2:            'anchor_harpoon2',
   cameraCaptainOnDeck: 'anchor_cameraCaptainOnDeck',
   effect1:             'anchor_effect1',
   effect2:             'anchor_effect2',

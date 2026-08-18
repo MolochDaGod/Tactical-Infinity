@@ -41,6 +41,7 @@ type ShipAnchorId =
   | 'caster1' | 'caster2'
   | 'crowsnest' | 'cameraCaptainOnDeck'
   | 'cannon1' | 'cannon2' | 'cannon3' | 'cannon4' | 'cannon5' | 'cannon6'
+  | 'harpoon1' | 'harpoon2'
   | 'effect1' | 'effect2' | 'effect3'
   | 'animation1' | 'animation2'
   | 'special1' | 'special2' | 'special3' | 'special4'
@@ -94,14 +95,14 @@ export type ShipTierId =
 // ─── The ladder ────────────────────────────────────────────────────────────
 
 const REQ_BASIC: readonly ShipAnchorId[]     = ['deck', 'captain', 'flag'];
-const REQ_BOAT:  readonly ShipAnchorId[]     = ['deck', 'captain', 'flag', 'woodhp', 'cannon1', 'crew1'];
+const REQ_BOAT:  readonly ShipAnchorId[]     = ['deck', 'captain', 'flag', 'woodhp', 'cannon1', 'harpoon1', 'crew1'];
 const REQ_SHIP:  readonly ShipAnchorId[]     = [
   'deck', 'captain', 'flag', 'woodhp', 'crowsnest', 'cameraCaptainOnDeck',
-  'cannon1', 'cannon2', 'crew1', 'crew2',
+  'cannon1', 'cannon2', 'harpoon1', 'crew1', 'crew2',
 ];
 const REQ_LARGE: readonly ShipAnchorId[]     = [
   ...REQ_SHIP,
-  'cannon3', 'cannon4', 'crew3', 'crew4', 'caster1',
+  'cannon3', 'cannon4', 'harpoon2', 'crew3', 'crew4', 'caster1',
 ];
 
 export const SHIP_TIERS: Readonly<Record<ShipTierId, ShipTier>> = Object.freeze({

@@ -1,0 +1,20 @@
+# Keep deploy lean — large nature/creature GLBs are on assets.grudge-studio.com
+# (vercel.json rewrites /models/* and /textures/* to CDN). Stage only what the
+# SPA must ship when CDN is cold.
+
+# Huge multipacks (serve from R2, not Vercel)
+client/public/models/nature/stylized/**/*.glb
+client/public/models/nature/mountain/**/*.glb
+client/public/models/buildings/**/*.glb
+client/public/models/events/**/*.glb
+client/public/models/islands/**/*.glb
+client/public/models/creatures/**/*.glb
+client/public/models/cinema/**/*.glb
+client/public/models/pirate/**/*.glb
+client/public/models/ships/**/*.glb
+client/public/models/survival/**/*.glb
+
+# Node / git noise
+node_modules
+.git
+**/*.map

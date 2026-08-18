@@ -1,0 +1,269 @@
+/**
+ * Interactive boat dock — pick a raft hull, attach, upgrade, load the player's boat.
+ * Uses RAFT_HULLS + existing attachments. Island (1) is the test backdrop.
+ */
+
+import { useEffect, useRef, useState } from 'react';
+import * as THREE from 'three';
+import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
+import { Button } from '@/components/ui/button';
+import { normalizeToMetres } from '@/lib/modelNormalize';
+import {
+  RAFT_ATTACHMENTS,
+  RAFT_HULLS,
+  attachmentsForSlot,
+  getRaftHull,
+  type RaftAttachmentId,
+  type RaftAttachmentSlot,
+  type RaftHullDef,
+} from '@shared/gameDefinitions/waterEngagement';
+import {
+  awardBoatCraftXp,
+  getBoatCraftXp,
+  getRaftLoadout,
+  isBoatDockBuilt,
+  isRecipeDiscovered,
+  loadProgression,
+  markBoatDockBuilt,
+  markRaftBuilt,
+  setActiveRaftHull,
+  setRaftAttachment,
+} from '@/lib/playerProgression';
+import { createDock } from '@/lib/islandDockSystem';
+
+const SLOTS: RaftAttachmentSlot[] = ['sail', 'mast', 'storage', 'utility', 'mooring', 'canopy'];
+
+interface Props {
+  onBack: () => void;
+  onLaunch?: () => void;
+}
+
+export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
+  const wrapRef = useRef<HTMLDivElement>(null);
+  const hullMeshRef = useRef<THREE.Group | null>(null);
+  const rootRef = useRef<THREE.Group | null>(null);
+  const [hullId, setHullId] = useState(() => loadProgression().activeRaftHullId || 'short_plank');
+  const [xp, setXp] = useState(() => getBoatCraftXp());
+  const [, tick] = useState(0);
+  const [status, setStatus] = useState('dock');
+
+  const hull = getRaftHull(hullId);
+  const loadout = getRaftLoadout();
+  const dockReady = isBoatDockBuilt();
+
+  useEffect(() => {
+    const el = wrapRef.current;
+    if (!el) return;
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x87b8d4);
+    const camera = new THREE.PerspectiveCamera(50, el.clientWidth / el.clientHeight, 0.1, 400);
+    camera.position.set(8, 6, 12);
+    const renderer = new THREE.WebGLRenderer({ antialias: true });
+    renderer.setSize(el.clientWidth, el.clientHeight);
+    renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    el.appendChild(renderer.domElement);
+    const controls = new OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.target.set(0, 1, 2);
+    scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x3a4a2a, 1));
+    const sun = new THREE.DirectionalLight(0xfff4dd, 1.3);
+    sun.position.set(12, 20, 8);
+    scene.add(sun);
+
+    const water = new THREE.Mesh(
+      new THREE.PlaneGeometry(200, 200),
+      new THREE.MeshStandardMaterial({ color: 0x2a6a8a, roughness: 0.35, metalness: 0.1 }),
+    );
+    water.rotation.x = -Math.PI / 2;
+    scene.add(water);
+
+    const root = new THREE.Group();
+    scene.add(root);
+    rootRef.current = root;
+
+    const loader = new GLTFLoader();
+    // Home island is the play world. This workshop is dock + water only.
+
+    try {
+      const fakeTerrain = {
+        radius: 40,
+        getHeightAt: () => 0.2,
+        getSlopeAt: () => 0.05,
+        getNormalAt: () => new THREE.Vector3(0, 1, 0),
+      };
+      const dock = createDock(fakeTerrain as any, 'south', { kind: 'boat_dock' });
+      dock.group.position.set(0, 0.4, 0);
+      scene.add(dock.group);
+    } catch { /* procedural only */ }
+
+    let raf = 0;
+    const tickLoop = () => {
+      controls.update();
+      renderer.render(scene, camera);
+      raf = requestAnimationFrame(tickLoop);
+    };
+    tickLoop();
+    const onResize = () => {
+      camera.aspect = el.clientWidth / el.clientHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(el.clientWidth, el.clientHeight);
+    };
+    window.addEventListener('resize', onResize);
+    return () => {
+      cancelAnimationFrame(raf);
+      window.removeEventListener('resize', onResize);
+      renderer.dispose();
+      el.removeChild(renderer.domElement);
+    };
+  }, []);
+
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    if (hullMeshRef.current) {
+      root.remove(hullMeshRef.current);
+      hullMeshRef.current = null;
+    }
+    const loader = new GLTFLoader();
+    setStatus('loading hull');
+    loader.load(
+      hull.modelPath,
+      (gltf) => {
+        const g = gltf.scene;
+        normalizeToMetres(g, { targetSizeM: hull.heightM, axis: 'height', ground: true, centerXZ: true });
+        g.position.set(0, 0.55, 6);
+        root.add(g);
+        hullMeshRef.current = g;
+        setStatus('ok');
+      },
+      undefined,
+      () => setStatus('missing mesh'),
+    );
+  }, [hull.modelPath, hull.heightM]);
+
+  const buildHull = (def: RaftHullDef) => {
+    if (def.requiresDock && !dockReady) {
+      markBoatDockBuilt();
+    }
+    markRaftBuilt();
+    setActiveRaftHull(def.id);
+    const total = awardBoatCraftXp(def.craftXp);
+    setXp(total);
+    setHullId(def.id);
+    tick((n) => n + 1);
+  };
+
+  const equip = (slot: RaftAttachmentSlot, id: RaftAttachmentId) => {
+    setRaftAttachment(slot, id);
+    tick((n) => n + 1);
+  };
+
+  return (
+    <div className="h-screen w-full flex bg-[#0a0705] text-[#e0d8c8]" data-testid="boat-dock-workshop">
+      <aside className="w-80 border-r border-amber-900/40 p-3 overflow-y-auto space-y-4">
+        <Button variant="ghost" size="sm" onClick={onBack}>Back</Button>
+        <h1 className="font-serif text-amber-300 text-sm tracking-widest uppercase">Boat dock</h1>
+        <p className="text-[11px] text-amber-200/60">
+          Short plank first. Upgrade at this dock. Craft XP: <span className="text-amber-300">{xp}</span>
+        </p>
+
+        <section>
+          <h2 className="text-xs uppercase tracking-wide text-amber-400/80 mb-1">Short rafts</h2>
+          {RAFT_HULLS.filter((h) => h.cls === 'short').map((h) => (
+            <HullRow key={h.id} def={h} active={hullId === h.id} onBuild={() => buildHull(h)} />
+          ))}
+        </section>
+        <section>
+          <h2 className="text-xs uppercase tracking-wide text-amber-400/80 mb-1">Long rafts</h2>
+          {RAFT_HULLS.filter((h) => h.cls === 'long').map((h) => (
+            <HullRow
+              key={h.id}
+              def={h}
+              active={hullId === h.id}
+              locked={!!h.discoverable && !isRecipeDiscovered(h.id)}
+              onBuild={() => {
+                if (h.discoverable && !isRecipeDiscovered(h.id)) return;
+                buildHull(h);
+              }}
+            />
+          ))}
+        </section>
+
+        <section>
+          <h2 className="text-xs uppercase tracking-wide text-amber-400/80 mb-1">Attachments</h2>
+          {SLOTS.map((slot) => (
+            <div key={slot} className="mb-2">
+              <div className="text-[10px] text-slate-400 mb-0.5">{slot}</div>
+              <div className="flex flex-wrap gap-1">
+                {attachmentsForSlot(slot).map((a) => (
+                  <button
+                    key={a.id}
+                    type="button"
+                    onClick={() => equip(slot, a.id)}
+                    className={`text-[10px] px-1.5 py-0.5 rounded border ${
+                      loadout[slot] === a.id
+                        ? 'border-amber-400 bg-amber-900/40'
+                        : 'border-white/15'
+                    }`}
+                  >
+                    {a.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </section>
+
+        <Button className="w-full" onClick={onLaunch} data-testid="button-load-boat">
+          Load boat · set sail
+        </Button>
+        <p className="text-[10px] text-slate-500">{status} · {RAFT_ATTACHMENTS.length} attachments</p>
+      </aside>
+      <div className="flex-1 relative">
+        <div ref={wrapRef} className="absolute inset-0" />
+        <div className="absolute bottom-3 left-3 text-[11px] bg-black/55 border border-amber-800/40 px-2 py-1 rounded">
+          {hull.name} · {hull.lengthM} m · {hull.cls}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function HullRow({
+  def,
+  active,
+  onBuild,
+  locked,
+}: {
+  def: RaftHullDef;
+  active: boolean;
+  onBuild: () => void;
+  locked?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onBuild}
+      disabled={locked}
+      className={`w-full text-left text-xs px-2 py-1.5 rounded border mb-1 ${
+        locked
+          ? 'border-white/10 opacity-50'
+          : active
+            ? 'border-amber-400 bg-amber-950/50'
+            : 'border-white/10 hover:border-amber-700/40'
+      }`}
+    >
+      <div className="flex justify-between">
+        <span>{def.name}</span>
+        <span className="text-amber-400/70">{locked ? '???' : `+${def.craftXp} xp`}</span>
+      </div>
+      <div className="text-[10px] text-slate-500">
+        {locked
+          ? (def.discoverHint ?? 'Discover this recipe')
+          : `${def.lengthM} m · wood ${def.cost.wood} · hemp ${def.cost.hemp}${def.requiresDock ? ' · dock' : ' · beach'}`}
+      </div>
+    </button>
+  );
+}

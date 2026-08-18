@@ -22,16 +22,14 @@
 import * as THREE from 'three';
 
 const VERT = `
-  // ── Seascape geometry pass ──────────────────────────────────────────
-  precision highp float;
-
+  // Three injects precision — do not declare it again (breaks compile).
   uniform float uTime;
   varying vec3  vWorldPos;
   varying vec2  vSeaUv;
 
   const int   ITER_GEOMETRY = 3;
-  const float SEA_HEIGHT    = 0.6;
-  const float SEA_CHOPPY    = 4.0;
+  const float SEA_HEIGHT    = 0.38;
+  const float SEA_CHOPPY    = 2.2;
   const float SEA_SPEED     = 0.8;
   const float SEA_FREQ      = 0.16;
 
@@ -82,9 +80,6 @@ const VERT = `
 `;
 
 const FRAG = `
-  // ── Seascape fragment pass ──────────────────────────────────────────
-  precision highp float;
-
   uniform float uTime;
   uniform vec3  uSunDir;
   uniform vec3  uSeaBase;
@@ -96,8 +91,8 @@ const FRAG = `
   varying vec2 vSeaUv;
 
   const int   ITER_FRAGMENT = 5;
-  const float SEA_HEIGHT    = 0.6;
-  const float SEA_CHOPPY    = 4.0;
+  const float SEA_HEIGHT    = 0.38;
+  const float SEA_CHOPPY    = 2.2;
   const float SEA_SPEED     = 0.8;
   const float SEA_FREQ      = 0.16;
 
@@ -159,13 +154,20 @@ const FRAG = `
   }
   vec3 getSeaColor(vec3 p, vec3 n, vec3 l, vec3 eye, vec3 dist) {
     float fresnel = 1.0 - max(dot(n, -eye), 0.0);
-    fresnel = pow(abs(fresnel), 3.0) * 0.65;
+    fresnel = pow(abs(fresnel), 3.0) * 0.72;
     vec3 reflected = skyTint(reflect(eye, n));
-    vec3 refracted = uSeaBase + diffuse(n, l, 80.0) * uSeaTint * 0.12;
+    vec3 deep = uSeaBase * vec3(0.75, 1.05, 0.95);
+    vec3 refracted = mix(deep, uSeaBase + diffuse(n, l, 80.0) * uSeaTint * 0.14, 0.65);
     vec3 color = mix(refracted, reflected, fresnel);
-    float atten = max(1.0 - dot(dist, dist) * 0.001, 0.0);
-    color += uSeaTint * (p.y - SEA_HEIGHT) * 0.18 * atten;
-    color += vec3(specular(n, l, eye, 60.0));
+    float atten = max(1.0 - dot(dist, dist) * 0.0007, 0.0);
+    color += uSeaTint * (p.y - SEA_HEIGHT) * 0.22 * atten;
+    color += vec3(specular(n, l, eye, 90.0)) * 1.15;
+    // Crest foam
+    float foam = smoothstep(0.18, 0.55, p.y) * smoothstep(0.35, 0.85, n.y);
+    color = mix(color, vec3(0.92, 0.96, 0.98), foam * 0.55 * atten);
+    // Caustic shimmer
+    float cau = noise(vSeaUv * 0.35 + uTime * 0.15) * 0.5 + 0.5;
+    color += uSeaTint * cau * 0.06 * atten;
     return color;
   }
 
@@ -176,7 +178,7 @@ const FRAG = `
     vec3 n = getNormal(vWorldPos, epsNrm);
     vec3 light = normalize(uSunDir);
     vec3 col = getSeaColor(vWorldPos, n, light, eye, dist);
-    col = pow(abs(col), vec3(0.75));
+    col = pow(abs(col), vec3(0.72));
     gl_FragColor = vec4(col, 1.0);
   }
 `;
@@ -210,12 +212,10 @@ export class SeascapeOcean {
         uTime:      { value: 0 },
         uSunDir:    { value: (opts.sunDirection ?? new THREE.Vector3(0, 1, 0.4)).clone().normalize() },
         uCameraPos: { value: new THREE.Vector3() },
-        // Seascape's iconic teal-base + warm-foam tint, slightly desaturated
-        // so it composites with our island sky and weather pass without
-        // overpowering them.
-        uSeaBase:   { value: new THREE.Color(0.10, 0.19, 0.22) },
-        uSeaTint:   { value: new THREE.Color(0.80, 0.90, 0.60) },
-        uSkyTint:   { value: new THREE.Color(0.55, 0.70, 0.95) },
+        // Caribbean lagoon: bright turquoise shallows, sand-visible tint.
+        uSeaBase:   { value: new THREE.Color(0.02, 0.48, 0.52) },
+        uSeaTint:   { value: new THREE.Color(0.45, 0.95, 0.72) },
+        uSkyTint:   { value: new THREE.Color(0.72, 0.88, 1.0) },
       },
     });
 

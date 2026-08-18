@@ -163,7 +163,8 @@ async function fleetFetch<T>(
   };
   if (init.auth !== false) {
     const token = getAuthToken();
-    if (token) headers.Authorization = `Bearer ${token}`;
+    if (!token) return { ok: false, status: 401, data: null };
+    headers.Authorization = `Bearer ${token}`;
   }
   try {
     const res = await fetch(`${API_BASE}${path}`, { ...init, headers });
@@ -434,6 +435,10 @@ export async function hydrateFromFleet(): Promise<FleetCharacter | null> {
 /** Auth pickup + fleet character hydrate — call once on app boot. */
 export async function bootstrapFleetSession(): Promise<FleetCharacter | null> {
   await pickupSsoFromUrl();
-  if (!isFleetAuthenticated()) await loginAsGuest();
+  if (!isFleetAuthenticated()) {
+    const guest = await loginAsGuest();
+    if (!guest) return null;
+  }
+  if (!isFleetAuthenticated()) return null;
   return hydrateFromFleet();
 }

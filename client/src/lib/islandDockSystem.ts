@@ -1,5 +1,13 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import {
+  getDockKind,
+  type DeckStationKind,
+  type DockKind,
+} from '@shared/gameDefinitions/waterEngagement';
+import { VIKING_FISHERMAN_PACK } from '@shared/nature/vikingFishermanDock';
+import { resolveGrudgeAssetUrl } from '@/lib/grudgeAssetConfig';
+import { normalizeToMetres } from '@/lib/modelNormalize';
 import type { TerrainData } from './islandHeightmapTerrain';
 
 export interface DockData {
@@ -8,6 +16,13 @@ export interface DockData {
   approachPoint: THREE.Vector3;
   interactionZone: THREE.Box3;
   side: 'north' | 'south' | 'east' | 'west';
+  kind: DockKind;
+  /** World-space berth points (keel rest), seaward of the pier. */
+  berths: THREE.Vector3[];
+}
+
+export interface CreateDockOptions {
+  kind?: DockKind;
 }
 
 function findBestBeachPoint(
@@ -15,49 +30,53 @@ function findBestBeachPoint(
   side: 'north' | 'south' | 'east' | 'west'
 ): { x: number; z: number; angle: number } {
   const r = terrain.radius;
-  const scanDist = r * 0.42;
-
-  let bestX = 0, bestZ = 0;
-  switch (side) {
-    case 'south': bestX = 0; bestZ = scanDist; break;
-    case 'north': bestX = 0; bestZ = -scanDist; break;
-    case 'east':  bestX = scanDist; bestZ = 0; break;
-    case 'west':  bestX = -scanDist; bestZ = 0; break;
-  }
-
-  const searchRadius = 20;
-  const steps = 12;
-  let lowestSlope = Infinity;
-  let chosenX = bestX, chosenZ = bestZ;
-
-  for (let i = 0; i < steps; i++) {
-    const t = (i / steps) * Math.PI * 0.5 - Math.PI * 0.25;
-    let sx: number, sz: number;
-    switch (side) {
-      case 'south': sx = bestX + Math.sin(t) * searchRadius; sz = bestZ; break;
-      case 'north': sx = bestX + Math.sin(t) * searchRadius; sz = bestZ; break;
-      case 'east':  sx = bestX; sz = bestZ + Math.sin(t) * searchRadius; break;
-      case 'west':  sx = bestX; sz = bestZ + Math.sin(t) * searchRadius; break;
-      default: sx = bestX; sz = bestZ;
-    }
-    const h = terrain.getHeightAt(sx, sz);
-    const slope = terrain.getSlopeAt(sx, sz);
-    if (h > -1 && h < 6 && slope < lowestSlope) {
-      lowestSlope = slope;
-      chosenX = sx;
-      chosenZ = sz;
-    }
-  }
-
+  let ox = 0, oz = 1;
   let angle = 0;
   switch (side) {
-    case 'south': angle = 0; break;
-    case 'north': angle = Math.PI; break;
-    case 'east':  angle = -Math.PI / 2; break;
-    case 'west':  angle = Math.PI / 2; break;
+    case 'south': ox = 0; oz = 1; angle = 0; break;
+    case 'north': ox = 0; oz = -1; angle = Math.PI; break;
+    case 'east':  ox = 1; oz = 0; angle = -Math.PI / 2; break;
+    case 'west':  ox = -1; oz = 0; angle = Math.PI / 2; break;
   }
 
-  return { x: chosenX, z: chosenZ, angle };
+  // Walk center → sea and take the last dry cell (real shoreline).
+  // Old code pinned at 0.42*radius — that is still inland on a r=200 island.
+  let shoreX = ox * r * 0.35;
+  let shoreZ = oz * r * 0.35;
+  let bestScore = -Infinity;
+  const steps = 48;
+  for (let i = 8; i < steps; i++) {
+    const dist = (i / steps) * r * 0.98;
+    const cx = ox * dist;
+    const cz = oz * dist;
+    const h = terrain.getHeightAt(cx, cz);
+    if (h < 0.15 || h > 4.5) continue;
+    const slope = terrain.getSlopeAt(cx, cz);
+    const nextH = terrain.getHeightAt(cx + ox * 6, cz + oz * 6);
+    const seaward = nextH < h ? 1 : 0.2;
+    const score = seaward * 2 + (1 - Math.min(1, slope)) + (h < 2 ? 0.5 : 0);
+    if (score > bestScore) {
+      bestScore = score;
+      shoreX = cx;
+      shoreZ = cz;
+    }
+  }
+
+  // Nudge sideways along the coast for a flatter pad
+  const tx = -oz, tz = ox;
+  for (const lat of [-16, -8, 8, 16]) {
+    const sx = shoreX + tx * lat;
+    const sz = shoreZ + tz * lat;
+    const h = terrain.getHeightAt(sx, sz);
+    if (h < 0.15 || h > 3.5) continue;
+    const slope = terrain.getSlopeAt(sx, sz);
+    if (slope < terrain.getSlopeAt(shoreX, shoreZ)) {
+      shoreX = sx;
+      shoreZ = sz;
+    }
+  }
+
+  return { x: shoreX, z: shoreZ, angle };
 }
 
 function buildProceduralDock(): THREE.Group {
@@ -222,21 +241,207 @@ function buildProceduralDock(): THREE.Group {
   return g;
 }
 
+const WOOD = () =>
+  new THREE.MeshStandardMaterial({ color: 0x8b6f47, roughness: 0.85, flatShading: true });
+const DARK_WOOD = () =>
+  new THREE.MeshStandardMaterial({ color: 0x5c3d1e, roughness: 0.9, flatShading: true });
+const STONE = () =>
+  new THREE.MeshStandardMaterial({ color: 0x6a6860, roughness: 0.92, flatShading: true });
+
+/** Sync visual for a dock kind (RTS placeable + island). Viking overlays async. */
+export function buildDockVisual(kind: DockKind): THREE.Group {
+  const def = getDockKind(kind);
+  const g = new THREE.Group();
+  g.name = `dock_${kind}`;
+  g.userData.dockKind = kind;
+
+  const length = def.lengthM;
+  const width = def.widthM;
+  const plankH = 0.14;
+  const pileH = 4.2;
+  const deckY = 0.55;
+
+  const wood = WOOD();
+  const dark = DARK_WOOD();
+  const stone = STONE();
+
+  const plankCount = Math.max(8, Math.round(width / 0.28));
+  const plankW = width / plankCount;
+  for (let i = 0; i < plankCount; i++) {
+    const plank = new THREE.Mesh(
+      new THREE.BoxGeometry(plankW * 0.9, plankH, length),
+      wood.clone(),
+    );
+    (plank.material as THREE.MeshStandardMaterial).color.offsetHSL(0, 0, ((i % 5) - 2) * 0.015);
+    plank.position.set(-width / 2 + plankW * (i + 0.5), deckY, 0);
+    plank.castShadow = plank.receiveShadow = true;
+    g.add(plank);
+  }
+
+  const beams = kind === 'fishing_dock' ? 3 : kind === 'war_dock' || kind === 'capital_dock' ? 6 : 5;
+  for (let i = 0; i < beams; i++) {
+    const z = (i / (beams - 1)) * length - length / 2;
+    const beam = new THREE.Mesh(new THREE.BoxGeometry(width + 0.45, 0.18, 0.2), dark);
+    beam.position.set(0, deckY - 0.16, z);
+    beam.castShadow = true;
+    g.add(beam);
+  }
+
+  const pilePairs = Math.max(4, Math.round(length / 4.5));
+  for (let i = 0; i < pilePairs; i++) {
+    const z = -length / 2 + (i / (pilePairs - 1)) * length;
+    for (const side of [-1, 1] as const) {
+      const pile = new THREE.Mesh(new THREE.CylinderGeometry(0.13, 0.17, pileH, 6), dark);
+      pile.position.set(side * width * 0.46, deckY - pileH / 2 + 0.05, z);
+      pile.castShadow = true;
+      g.add(pile);
+    }
+  }
+
+  if (kind === 'war_dock' || kind === 'capital_dock') {
+    for (const side of [-1, 1] as const) {
+      const parapet = new THREE.Mesh(new THREE.BoxGeometry(0.28, 0.7, length * 0.92), stone);
+      parapet.position.set(side * (width * 0.5 + 0.1), deckY + 0.4, 0);
+      parapet.castShadow = true;
+      g.add(parapet);
+    }
+  } else {
+    for (const side of [-1, 1] as const) {
+      const rail = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.06, length), dark);
+      rail.position.set(side * width * 0.48, deckY + 0.85, 0);
+      g.add(rail);
+    }
+  }
+
+  // Berth notches along starboard — hulls rest here
+  for (let i = 0; i < def.berths; i++) {
+    const z = -length * 0.35 + (i / Math.max(1, def.berths - 1)) * length * 0.7;
+    const cleat = new THREE.Mesh(new THREE.BoxGeometry(0.35, 0.16, 0.18), dark);
+    cleat.position.set(width * 0.42, deckY + 0.12, z);
+    cleat.name = `berth_cleat_${i}`;
+    g.add(cleat);
+  }
+
+  addPierStationPads(g, def.stationPads, length, width, deckY);
+
+  if (kind === 'boat_dock' || kind === 'capital_dock') {
+    const shed = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.8, 3.2), wood);
+    shed.position.set(-width * 0.15, deckY + 0.95, -length * 0.38);
+    shed.castShadow = true;
+    g.add(shed);
+    const roof = new THREE.Mesh(
+      new THREE.BoxGeometry(2.7, 0.12, 3.5),
+      new THREE.MeshStandardMaterial({ color: 0x4a3a28, roughness: 0.85 }),
+    );
+    roof.position.set(shed.position.x, deckY + 1.95, shed.position.z);
+    roof.rotation.z = 0.08;
+    g.add(roof);
+  }
+
+  return g;
+}
+
+function addPierStationPads(
+  g: THREE.Group,
+  pads: readonly DeckStationKind[],
+  length: number,
+  width: number,
+  deckY: number,
+): void {
+  pads.forEach((kind, i) => {
+    const z = -length * 0.28 + (i / Math.max(1, pads.length - 1)) * length * 0.55;
+    const x = i % 2 === 0 ? -width * 0.28 : width * 0.22;
+    const pad = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.45, 0.5, 0.08, 10),
+      new THREE.MeshStandardMaterial({
+        color: kind === 'mage_spot' ? 0x4455aa : kind === 'cannon' ? 0x333333 : 0x6b5344,
+        roughness: 0.7,
+        emissive: kind === 'mage_spot' ? 0x223366 : 0x000000,
+        emissiveIntensity: kind === 'mage_spot' ? 0.35 : 0,
+      }),
+    );
+    pad.position.set(x, deckY + 0.08, z);
+    pad.name = `pier_pad_${kind}_${i}`;
+    pad.userData.deckStation = kind;
+    g.add(pad);
+  });
+}
+
+function defInlandOffset(parent: THREE.Object3D): number {
+  const kind = (parent.userData.dockKind as DockKind | undefined) ?? 'capital_dock';
+  return getDockKind(kind).lengthM * 0.42;
+}
+
+function loadVikingDockInto(parent: THREE.Group, hideWhenReady: THREE.Object3D): void {
+  const loader = new GLTFLoader();
+  const url = resolveGrudgeAssetUrl(VIKING_FISHERMAN_PACK.local);
+  loader.load(
+    url,
+    (gltf) => {
+      const model = gltf.scene;
+      model.name = 'viking_fisherman_dock';
+      normalizeToMetres(model, {
+        targetSizeM: VIKING_FISHERMAN_PACK.targetHeightM,
+        axis: 'height',
+        ground: true,
+        centerXZ: true,
+      });
+      // House sits inland of the pier — never hide the playable dock.
+      model.position.set(0, 0.05, -defInlandOffset(parent));
+      model.traverse((c) => {
+        const m = c as THREE.Mesh;
+        if (m.isMesh) {
+          m.castShadow = true;
+          m.receiveShadow = true;
+        }
+      });
+      hideWhenReady.visible = true;
+      parent.add(model);
+    },
+    undefined,
+    () => {
+      hideWhenReady.visible = true;
+    },
+  );
+}
+
 export function createDock(
   terrain: TerrainData,
   side: 'north' | 'south' | 'east' | 'west' = 'south',
+  opts: CreateDockOptions = {},
 ): DockData {
+  const kind: DockKind = opts.kind ?? 'boat_dock';
+  const def = getDockKind(kind);
   const beach = findBestBeachPoint(terrain, side);
   const dockGroup = new THREE.Group();
-  dockGroup.name = 'island_dock';
+  dockGroup.name = `island_dock_${kind}`;
 
-  const proceduralDock = buildProceduralDock();
-  dockGroup.add(proceduralDock);
+  const visual = buildDockVisual(kind);
+  dockGroup.add(visual);
+  dockGroup.userData.dockKind = kind;
+
+  if (def.prefab === 'viking_fisherman' || def.prefab === 'capital') {
+    loadVikingDockInto(dockGroup, visual);
+  }
+
+  // Modular wooden pier kit — tiles over the box fallback when the pack loads.
+  void import('@/lib/pierKit').then(async ({ loadPierKit, assemblePierRun, PIER_PARTS }) => {
+    const kit = await loadPierKit();
+    if (!kit) return;
+    const straight = PIER_PARTS.find((p) => p.id === 'walk_a');
+    const end = PIER_PARTS.find((p) => p.id === 'end_a');
+    if (!straight || !end) return;
+    const tiles = Math.max(1, Math.round(def.lengthM / straight.lengthM) - 1);
+    const run = assemblePierRun(kit, tiles, straight, end);
+    run.position.y = 0.02;
+    visual.visible = false;
+    dockGroup.add(run);
+  });
 
   dockGroup.rotation.y = beach.angle;
 
-  const terrainH = terrain.getHeightAt(beach.x, beach.z);
-  const dockY = Math.max(terrainH * 0.25, -0.3);
+  // Deck sits just above sea (y=0). Do not bury the pier at 0.25*hill height.
+  const dockY = 0.48;
   dockGroup.position.set(beach.x, dockY, beach.z);
 
   const outwardDir = new THREE.Vector3();
@@ -247,55 +452,39 @@ export function createDock(
     case 'west':  outwardDir.set(-1, 0, 0); break;
   }
 
+  // Slide the pier seaward so most of the length is over water, land end on the beach.
+  dockGroup.position.add(outwardDir.clone().multiplyScalar(def.lengthM * 0.28));
+
   const spawnPoint = new THREE.Vector3(
-    beach.x + outwardDir.x * 2,
-    dockY + 0.6,
-    beach.z + outwardDir.z * 2,
+    dockGroup.position.x + outwardDir.x * 2,
+    dockY + 0.62,
+    dockGroup.position.z + outwardDir.z * 2,
   );
 
   const approachPoint = new THREE.Vector3(
-    beach.x + outwardDir.x * 22,
+    dockGroup.position.x + outwardDir.x * (def.lengthM * 0.55),
     0,
-    beach.z + outwardDir.z * 22,
+    dockGroup.position.z + outwardDir.z * (def.lengthM * 0.55),
   );
 
+  const berths: THREE.Vector3[] = [];
+  const right = new THREE.Vector3(-outwardDir.z, 0, outwardDir.x);
+  for (let i = 0; i < def.berths; i++) {
+    const along = -def.lengthM * 0.28 + (i / Math.max(1, def.berths - 1)) * def.lengthM * 0.56;
+    berths.push(
+      new THREE.Vector3(
+        dockGroup.position.x + outwardDir.x * 7 + right.x * along,
+        dockY + 0.15,
+        dockGroup.position.z + outwardDir.z * 7 + right.z * along,
+      ),
+    );
+  }
+
   const zoneCenter = new THREE.Vector3(beach.x, dockY, beach.z);
-  const zoneHalf = new THREE.Vector3(5, 3, 12);
+  const zoneHalf = new THREE.Vector3(def.widthM, 3, def.lengthM * 0.55);
   const interactionZone = new THREE.Box3(
     zoneCenter.clone().sub(zoneHalf),
     zoneCenter.clone().add(zoneHalf),
-  );
-
-  const glbLoader = new GLTFLoader();
-  glbLoader.load(
-    '/models/docks/wooden_dock.gltf',
-    (gltf) => {
-      const model = gltf.scene;
-      model.name = 'dock_glb';
-
-      const box = new THREE.Box3().setFromObject(model);
-      const size = box.getSize(new THREE.Vector3());
-      const center = box.getCenter(new THREE.Vector3());
-
-      const targetLength = 16;
-      const scaleFactor = targetLength / Math.max(size.x, size.z);
-      model.scale.setScalar(scaleFactor);
-      model.position.set(-center.x * scaleFactor, -box.min.y * scaleFactor + 0.5, -center.z * scaleFactor);
-
-      model.traverse((child) => {
-        if (child instanceof THREE.Mesh) {
-          child.castShadow = true;
-          child.receiveShadow = true;
-        }
-      });
-
-      proceduralDock.visible = false;
-      dockGroup.add(model);
-    },
-    undefined,
-    () => {
-      proceduralDock.visible = true;
-    }
   );
 
   return {
@@ -304,6 +493,8 @@ export function createDock(
     approachPoint,
     interactionZone,
     side,
+    kind,
+    berths,
   };
 }
 
