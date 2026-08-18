@@ -1,6 +1,6 @@
 /**
  * Interactive boat dock — pick a raft hull, attach, upgrade, load the player's boat.
- * Uses RAFT_HULLS + existing attachments. Island (1) is the test backdrop.
+ * Backdrop is the boatbuilder scene: sea shack + wooden docks + island (1).
  */
 
 import { useEffect, useRef, useState } from 'react';
@@ -40,7 +40,7 @@ import {
   FISHERMANS_BOAT_UNLOCK,
   HARVEST_TREES,
 } from '@shared/gameDefinitions/professions';
-import { createDock } from '@/lib/islandDockSystem';
+import { loadDockWorkshopScene } from '@/lib/dockWorkshopScene';
 
 const SLOTS: RaftAttachmentSlot[] = ['sail', 'mast', 'storage', 'utility', 'mooring', 'canopy'];
 
@@ -54,6 +54,8 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
   const hullMeshRef = useRef<THREE.Group | null>(null);
   const rootRef = useRef<THREE.Group | null>(null);
   const dockRef = useRef<THREE.Object3D | null>(null);
+  const berthRef = useRef(new THREE.Vector3(6.2, 0.28, 7.4));
+  const oceanRef = useRef<{ update: (t: number, cam?: THREE.Camera) => void } | null>(null);
   const gizmoRef = useRef<EditorGizmoSession | null>(null);
   const [hullId, setHullId] = useState(() => loadProgression().activeRaftHullId || 'short_plank');
   const [viewFisherman, setViewFisherman] = useState(false);
@@ -74,44 +76,26 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87b8d4);
     const camera = new THREE.PerspectiveCamera(50, el.clientWidth / el.clientHeight, 0.1, 400);
-    camera.position.set(8, 6, 12);
+    camera.position.set(14, 7.5, 16);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(el.clientWidth, el.clientHeight);
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
     renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.05;
     el.appendChild(renderer.domElement);
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
-    controls.target.set(0, 1, 2);
+    controls.target.set(2.5, 1.2, 3.5);
     scene.add(new THREE.HemisphereLight(0xcfe8ff, 0x3a4a2a, 1));
     const sun = new THREE.DirectionalLight(0xfff4dd, 1.3);
     sun.position.set(12, 20, 8);
     scene.add(sun);
 
-    const water = new THREE.Mesh(
-      new THREE.PlaneGeometry(200, 200),
-      new THREE.MeshStandardMaterial({ color: 0x2a6a8a, roughness: 0.35, metalness: 0.1 }),
-    );
-    water.rotation.x = -Math.PI / 2;
-    water.userData.editorIgnore = true;
-    scene.add(water);
-
     const root = new THREE.Group();
+    root.name = 'workshop_hull';
     scene.add(root);
     rootRef.current = root;
-
-    try {
-      const fakeTerrain = {
-        radius: 40,
-        getHeightAt: () => 0.2,
-        getSlopeAt: () => 0.05,
-        getNormalAt: () => new THREE.Vector3(0, 1, 0),
-      };
-      const dock = createDock(fakeTerrain as any, 'south', { kind: 'boat_dock' });
-      dock.group.position.set(0, 0.4, 0);
-      scene.add(dock.group);
-      dockRef.current = dock.group;
-    } catch { /* procedural only */ }
 
     const gizmo = new EditorGizmoSession({
       scene,
@@ -127,9 +111,29 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
     });
     gizmoRef.current = gizmo;
 
+    let disposed = false;
+    let workshopDispose: (() => void) | null = null;
+    void loadDockWorkshopScene(scene).then((ws) => {
+      if (disposed) {
+        ws.dispose();
+        return;
+      }
+      dockRef.current = ws.group;
+      berthRef.current.copy(ws.berth);
+      oceanRef.current = ws.ocean;
+      controls.target.copy(ws.lookAt);
+      camera.position.set(14, 7.5, 16);
+      camera.lookAt(ws.lookAt);
+      workshopDispose = () => ws.dispose();
+      if (hullMeshRef.current) hullMeshRef.current.position.copy(ws.berth);
+      setStatus('scene');
+    });
+
+    const clock = new THREE.Clock();
     let raf = 0;
     const tickLoop = () => {
       controls.update();
+      oceanRef.current?.update(clock.getElapsedTime(), camera);
       gizmo.updateOutline();
       renderer.render(scene, camera);
       raf = requestAnimationFrame(tickLoop);
@@ -142,10 +146,12 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
     };
     window.addEventListener('resize', onResize);
     return () => {
+      disposed = true;
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
       gizmo.dispose();
       gizmoRef.current = null;
+      workshopDispose?.();
       renderer.dispose();
       el.removeChild(renderer.domElement);
     };
@@ -168,7 +174,7 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
       (gltf) => {
         const g = gltf.scene;
         normalizeToMetres(g, { targetSizeM: heightM, axis: 'height', ground: true, centerXZ: true });
-        g.position.set(0, 0.55, 6);
+        g.position.copy(berthRef.current);
         root.add(g);
         hullMeshRef.current = g;
         setStatus('ok');
@@ -202,7 +208,8 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
         <Button variant="ghost" size="sm" onClick={onBack}>Back</Button>
         <h1 className="font-serif text-amber-300 text-sm tracking-widest uppercase">Boat dock</h1>
         <p className="text-[11px] text-amber-200/60">
-          Short plank first. Upgrade at this dock. Craft XP: <span className="text-amber-300">{xp}</span>
+          Sea shack + wooden docks + island. Short plank first. Craft XP:{' '}
+          <span className="text-amber-300">{xp}</span>
         </p>
 
         <section>
