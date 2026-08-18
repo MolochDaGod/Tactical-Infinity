@@ -4,6 +4,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Button } from '@/components/ui/button';
 import { normalizeToMetres } from '@/lib/modelNormalize';
+import { EditorGizmoSession, type EditorGizmoMode, type EditorMaterialFamilyId } from '@/lib/editorTools';
+import EditorGizmoHud from '@/components/editor/EditorGizmoHud';
 import {
   FLEET_ASSET_CATALOG,
   FLEET_ASSET_KINDS,
@@ -104,6 +106,10 @@ export default function FleetAssetViewer({ onBack }: Props) {
   );
   const [status, setStatus] = useState('idle');
   const [measured, setMeasured] = useState('');
+  const [gizmoMode, setGizmoMode] = useState<EditorGizmoMode>('translate');
+  const [selName, setSelName] = useState<string | null>(null);
+  const [familyId, setFamilyId] = useState<string | null>(null);
+  const gizmoRef = useRef<EditorGizmoSession | null>(null);
   const sceneRef = useRef<{
     scene: THREE.Scene;
     camera: THREE.PerspectiveCamera;
@@ -136,6 +142,7 @@ export default function FleetAssetViewer({ onBack }: Props) {
     sun.castShadow = true;
     scene.add(sun);
     const grid = new THREE.GridHelper(24, 24, 0xc5a059, 0x3a3024);
+    grid.userData.editorIgnore = true;
     scene.add(grid);
     const water = new THREE.Mesh(
       new THREE.PlaneGeometry(40, 40),
@@ -143,13 +150,28 @@ export default function FleetAssetViewer({ onBack }: Props) {
     );
     water.rotation.x = -Math.PI / 2;
     water.position.y = -0.02;
+    water.userData.editorIgnore = true;
     scene.add(water);
     const root = new THREE.Group();
     scene.add(root);
     const wood = makeWoodTexture();
+    const gizmo = new EditorGizmoSession({
+      scene,
+      camera,
+      domElement: renderer.domElement,
+      orbit: controls,
+      pickRoots: () => [root],
+      onSelect: (obj) => {
+        setSelName(obj ? obj.name || obj.type : null);
+        if (!obj) setFamilyId(null);
+      },
+      onMode: setGizmoMode,
+    });
+    gizmoRef.current = gizmo;
     let raf = 0;
     const tick = () => {
       controls.update();
+      gizmo.updateOutline();
       renderer.render(scene, camera);
       raf = requestAnimationFrame(tick);
     };
@@ -164,6 +186,8 @@ export default function FleetAssetViewer({ onBack }: Props) {
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
+      gizmo.dispose();
+      gizmoRef.current = null;
       wood.dispose();
       renderer.dispose();
       el.removeChild(renderer.domElement);
@@ -176,6 +200,7 @@ export default function FleetAssetViewer({ onBack }: Props) {
     let cancelled = false;
     setStatus('loading');
     setMeasured('');
+    gizmoRef.current?.detach();
     ctx.root.clear();
     const loader = new GLTFLoader();
     const isolate = (scene: THREE.Group, node: string): THREE.Group => {
@@ -286,6 +311,25 @@ export default function FleetAssetViewer({ onBack }: Props) {
       </aside>
       <div className="flex-1 relative">
         <div ref={wrapRef} className="absolute inset-0" />
+        <EditorGizmoHud
+          mode={gizmoMode}
+          selectedName={selName}
+          familyId={familyId}
+          onMode={(m) => {
+            setGizmoMode(m);
+            gizmoRef.current?.setMode(m);
+          }}
+          onFamily={async (id: EditorMaterialFamilyId) => {
+            await gizmoRef.current?.applyFamily(id);
+            setFamilyId(id);
+          }}
+          onTint={(hex) => gizmoRef.current?.tint(hex)}
+          onRoughness={(v) => gizmoRef.current?.setPbr({ roughness: v })}
+          onMetalness={(v) => gizmoRef.current?.setPbr({ metalness: v })}
+          onRepeat={(v) => gizmoRef.current?.setPbr({ repeat: v })}
+          onTextureFile={(file) => void gizmoRef.current?.applyAlbedoFile(file)}
+          onDeselect={() => gizmoRef.current?.detach()}
+        />
         <div className="absolute bottom-3 left-3 max-w-md text-[11px] bg-black/70 border border-amber-800/40 px-3 py-2 rounded space-y-0.5">
           <div className="text-amber-200 font-serif tracking-wide uppercase">{selected.name}</div>
           <div>

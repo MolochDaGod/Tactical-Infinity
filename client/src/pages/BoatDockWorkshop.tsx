@@ -9,6 +9,8 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Button } from '@/components/ui/button';
 import { normalizeToMetres } from '@/lib/modelNormalize';
+import { EditorGizmoSession, type EditorGizmoMode, type EditorMaterialFamilyId } from '@/lib/editorTools';
+import EditorGizmoHud from '@/components/editor/EditorGizmoHud';
 import {
   RAFT_ATTACHMENTS,
   RAFT_HULLS,
@@ -43,10 +45,15 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
   const hullMeshRef = useRef<THREE.Group | null>(null);
   const rootRef = useRef<THREE.Group | null>(null);
+  const dockRef = useRef<THREE.Object3D | null>(null);
+  const gizmoRef = useRef<EditorGizmoSession | null>(null);
   const [hullId, setHullId] = useState(() => loadProgression().activeRaftHullId || 'short_plank');
   const [xp, setXp] = useState(() => getBoatCraftXp());
   const [, tick] = useState(0);
   const [status, setStatus] = useState('dock');
+  const [gizmoMode, setGizmoMode] = useState<EditorGizmoMode>('translate');
+  const [selName, setSelName] = useState<string | null>(null);
+  const [familyId, setFamilyId] = useState<string | null>(null);
 
   const hull = getRaftHull(hullId);
   const loadout = getRaftLoadout();
@@ -77,14 +84,12 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
       new THREE.MeshStandardMaterial({ color: 0x2a6a8a, roughness: 0.35, metalness: 0.1 }),
     );
     water.rotation.x = -Math.PI / 2;
+    water.userData.editorIgnore = true;
     scene.add(water);
 
     const root = new THREE.Group();
     scene.add(root);
     rootRef.current = root;
-
-    const loader = new GLTFLoader();
-    // Home island is the play world. This workshop is dock + water only.
 
     try {
       const fakeTerrain = {
@@ -96,11 +101,27 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
       const dock = createDock(fakeTerrain as any, 'south', { kind: 'boat_dock' });
       dock.group.position.set(0, 0.4, 0);
       scene.add(dock.group);
+      dockRef.current = dock.group;
     } catch { /* procedural only */ }
+
+    const gizmo = new EditorGizmoSession({
+      scene,
+      camera,
+      domElement: renderer.domElement,
+      orbit: controls,
+      pickRoots: () => [root, dockRef.current].filter(Boolean) as THREE.Object3D[],
+      onSelect: (obj) => {
+        setSelName(obj ? obj.name || obj.type : null);
+        if (!obj) setFamilyId(null);
+      },
+      onMode: setGizmoMode,
+    });
+    gizmoRef.current = gizmo;
 
     let raf = 0;
     const tickLoop = () => {
       controls.update();
+      gizmo.updateOutline();
       renderer.render(scene, camera);
       raf = requestAnimationFrame(tickLoop);
     };
@@ -114,6 +135,8 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
     return () => {
       cancelAnimationFrame(raf);
       window.removeEventListener('resize', onResize);
+      gizmo.dispose();
+      gizmoRef.current = null;
       renderer.dispose();
       el.removeChild(renderer.domElement);
     };
@@ -123,6 +146,7 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
     const root = rootRef.current;
     if (!root) return;
     if (hullMeshRef.current) {
+      gizmoRef.current?.detach();
       root.remove(hullMeshRef.current);
       hullMeshRef.current = null;
     }
@@ -223,6 +247,25 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
       </aside>
       <div className="flex-1 relative">
         <div ref={wrapRef} className="absolute inset-0" />
+        <EditorGizmoHud
+          mode={gizmoMode}
+          selectedName={selName}
+          familyId={familyId}
+          onMode={(m) => {
+            setGizmoMode(m);
+            gizmoRef.current?.setMode(m);
+          }}
+          onFamily={async (id: EditorMaterialFamilyId) => {
+            await gizmoRef.current?.applyFamily(id);
+            setFamilyId(id);
+          }}
+          onTint={(hex) => gizmoRef.current?.tint(hex)}
+          onRoughness={(v) => gizmoRef.current?.setPbr({ roughness: v })}
+          onMetalness={(v) => gizmoRef.current?.setPbr({ metalness: v })}
+          onRepeat={(v) => gizmoRef.current?.setPbr({ repeat: v })}
+          onTextureFile={(file) => void gizmoRef.current?.applyAlbedoFile(file)}
+          onDeselect={() => gizmoRef.current?.detach()}
+        />
         <div className="absolute bottom-3 left-3 text-[11px] bg-black/55 border border-amber-800/40 px-2 py-1 rounded">
           {hull.name} · {hull.lengthM} m · {hull.cls}
         </div>

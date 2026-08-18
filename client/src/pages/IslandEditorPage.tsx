@@ -38,6 +38,14 @@ import {
   PLAY_TOOLS,
   type PlayTool,
 } from '@/lib/islandsCanonical/editorPlayController';
+import {
+  EDITOR_MATERIAL_FAMILIES,
+  applyFamilyToObject,
+  loadAlbedoFile,
+  loadFamilyAlbedo,
+  setObjectPbr,
+  tintObject,
+} from '@/lib/editorTools';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 type EditMode = 'terrain' | 'place' | 'select' | 'erase' | 'follow' | 'play';
@@ -2276,6 +2284,67 @@ export default function IslandEditorPage() {
                             <RotateCw className="w-3 h-3" />Rotate 90° (R)
                           </button>
                         </div>
+                        <div className="text-[10px] text-gray-500 mt-2">Material family</div>
+                        <div className="flex flex-wrap gap-1">
+                          {EDITOR_MATERIAL_FAMILIES.map((f) => (
+                            <button
+                              key={f.id}
+                              type="button"
+                              className="px-1.5 py-0.5 rounded border border-white/15 text-[10px] text-gray-300 hover:border-amber-400"
+                              onClick={async () => {
+                                const mesh = selectedRef.current?.mesh;
+                                if (!mesh) return;
+                                const map = await loadFamilyAlbedo(f);
+                                applyFamilyToObject(mesh, f, map);
+                              }}
+                              data-testid={`island-mat-${f.id}`}
+                            >
+                              {f.label}
+                            </button>
+                          ))}
+                        </div>
+                        <div className="flex items-center gap-2 mt-1">
+                          <input
+                            type="color"
+                            defaultValue="#c4a574"
+                            className="h-6 w-8 bg-transparent border-0 p-0 cursor-pointer"
+                            onChange={(e) => {
+                              const mesh = selectedRef.current?.mesh;
+                              if (mesh) tintObject(mesh, e.target.value);
+                            }}
+                          />
+                          <label className="text-[10px] text-amber-300/80 cursor-pointer underline">
+                            Texture
+                            <input
+                              type="file"
+                              accept="image/*"
+                              className="hidden"
+                              onChange={async (e) => {
+                                const file = e.target.files?.[0];
+                                const mesh = selectedRef.current?.mesh;
+                                if (!file || !mesh) return;
+                                const tex = await loadAlbedoFile(file);
+                                applyFamilyToObject(mesh, EDITOR_MATERIAL_FAMILIES.find((x) => x.id === 'wood')!, tex);
+                              }}
+                            />
+                          </label>
+                        </div>
+                        <label className="block text-[10px] text-gray-500">
+                          Rough
+                          <input type="range" min={0} max={1} step={0.02} defaultValue={0.8} className="w-full accent-amber-500"
+                            onChange={(e) => {
+                              const mesh = selectedRef.current?.mesh;
+                              if (mesh) setObjectPbr(mesh, { roughness: +e.target.value });
+                            }} />
+                        </label>
+                        <label className="block text-[10px] text-gray-500">
+                          Metal
+                          <input type="range" min={0} max={1} step={0.02} defaultValue={0} className="w-full accent-amber-500"
+                            onChange={(e) => {
+                              const mesh = selectedRef.current?.mesh;
+                              if (mesh) setObjectPbr(mesh, { metalness: +e.target.value });
+                            }} />
+                        </label>
                       </div>
                     ) : (
                       <div className="text-[11px] text-gray-500 leading-relaxed">

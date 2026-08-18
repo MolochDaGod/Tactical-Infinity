@@ -35,6 +35,13 @@ import { RainSystem, LightningSystem } from '@/lib/rainSystem';
 import { SkySystem, CelestialRenderer } from '@/lib/skySystem';
 import { WeatherPanel, WeatherHUD } from '@/components/WeatherPanel';
 import { AITexturePanel } from '@/components/AITexturePanel';
+import {
+  EDITOR_MATERIAL_FAMILIES,
+  applyFamilyToObject,
+  loadAlbedoFile,
+  loadFamilyAlbedo,
+  setObjectPbr,
+} from '@/lib/editorTools';
 import { 
   type GridConfig, 
   DEFAULT_GRID_CONFIG, 
@@ -1354,6 +1361,16 @@ export default function ShipEditor({ onBack }: { onBack: () => void }) {
     if (outlineHelperRef.current) {
       outlineHelperRef.current.update();
     }
+  };
+
+  const applyPartFamily = async (id: string) => {
+    const obj = selectedObjectRef.current;
+    const family = EDITOR_MATERIAL_FAMILIES.find((f) => f.id === id);
+    if (!obj || !family) return;
+    const map = await loadFamilyAlbedo(family);
+    applyFamilyToObject(obj, family, map);
+    setSelectedPartColor('#' + family.color.toString(16).padStart(6, '0'));
+    outlineHelperRef.current?.update();
   };
 
   const handleResize = useCallback(() => {
@@ -3943,6 +3960,49 @@ export default function ShipEditor({ onBack }: { onBack: () => void }) {
                           data-testid="input-part-color"
                         />
                       </div>
+                      <div className="flex flex-wrap gap-1">
+                        {EDITOR_MATERIAL_FAMILIES.map((f) => (
+                          <button
+                            key={f.id}
+                            type="button"
+                            className="text-[10px] px-1.5 py-0.5 rounded border border-border hover:border-primary"
+                            onClick={() => void applyPartFamily(f.id)}
+                            data-testid={`ship-mat-${f.id}`}
+                          >
+                            {f.label}
+                          </button>
+                        ))}
+                      </div>
+                      <label className="text-[10px] text-muted-foreground cursor-pointer underline">
+                        Texture file
+                        <input
+                          type="file"
+                          accept="image/*"
+                          className="hidden"
+                          onChange={async (e) => {
+                            const file = e.target.files?.[0];
+                            const obj = selectedObjectRef.current;
+                            if (!file || !obj) return;
+                            const tex = await loadAlbedoFile(file);
+                            applyFamilyToObject(obj, EDITOR_MATERIAL_FAMILIES.find((x) => x.id === 'wood')!, tex);
+                            outlineHelperRef.current?.update();
+                          }}
+                        />
+                      </label>
+                      <label className="block text-[10px] text-muted-foreground">
+                        Rough
+                        <input type="range" min={0} max={1} step={0.02} defaultValue={0.8} className="w-full"
+                          onChange={(e) => {
+                            if (selectedObjectRef.current) setObjectPbr(selectedObjectRef.current, { roughness: +e.target.value });
+                          }} />
+                      </label>
+                      <label className="block text-[10px] text-muted-foreground">
+                        Metal
+                        <input type="range" min={0} max={1} step={0.02} defaultValue={0} className="w-full"
+                          onChange={(e) => {
+                            if (selectedObjectRef.current) setObjectPbr(selectedObjectRef.current, { metalness: +e.target.value });
+                          }} />
+                      </label>
                     </div>
                   )}
                 </>
