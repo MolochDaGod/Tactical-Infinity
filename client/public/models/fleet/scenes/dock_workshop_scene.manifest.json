@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "generator": "@grudge-studio/asset-convert@1.0.0",
+  "source": "D:\\Games\\Models\\scene (10).glb",
+  "output": "F:\\GitHub\\Tactical-Infinity\\tmp\\dock_workshop_scene.glb",
+  "intermediateBackend": "copy",
+  "warnings": [],
+  "stats": {
+    "meshes": 87,
+    "materials": 60,
+    "textures": 25,
+    "animations": 1,
+    "nodes": 102,
+    "skins": 0
+  },
+  "aabb": {
+    "min": [
+      -117.52130889892578,
+      -273.0322265625,
+      -75.51969909667969
+    ],
+    "max": [
+      157.39071655273438,
+      112.70063781738281,
+      46.92318344116211
+    ],
+    "size": [
+      274.91202545166016,
+      385.7328643798828,
+      122.4428825378418
+    ],
+    "bodyOnly": false
+  },
+  "collider": "F:\\GitHub\\Tactical-Infinity\\tmp\\dock_workshop_scene.collider.json",
+  "producedAt": "2026-08-18T09:01:47.393Z",
+  "production": {
+    "format": "glb",
+    "yHipGround": true,
+    "textures": "webp",
+    "maxTexture": 1024,
+    "meshCompression": "quantize",
+    "bakeMeshes": true,
+    "bakeAnims": true,
+    "bakeColliders": true
+  }
+}

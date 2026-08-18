@@ -208,7 +208,7 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
         <Button variant="ghost" size="sm" onClick={onBack}>Back</Button>
         <h1 className="font-serif text-amber-300 text-sm tracking-widest uppercase">Boat dock</h1>
         <p className="text-[11px] text-amber-200/60">
-          Sea shack + wooden docks + island. Short plank first. Craft XP:{' '}
+          Boatbuilder scene. Short plank first. Craft XP:{' '}
           <span className="text-amber-300">{xp}</span>
         </p>
 
