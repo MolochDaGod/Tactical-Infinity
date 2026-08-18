@@ -75,8 +75,8 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
     if (!el) return;
     const scene = new THREE.Scene();
     scene.background = new THREE.Color(0x87b8d4);
-    const camera = new THREE.PerspectiveCamera(50, el.clientWidth / el.clientHeight, 0.1, 400);
-    camera.position.set(14, 7.5, 16);
+    const camera = new THREE.PerspectiveCamera(50, el.clientWidth / el.clientHeight, 0.08, 220);
+    camera.position.set(9, 3.2, 11);
     const renderer = new THREE.WebGLRenderer({ antialias: true });
     renderer.setSize(el.clientWidth, el.clientHeight);
     renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
@@ -122,11 +122,16 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
       berthRef.current.copy(ws.berth);
       oceanRef.current = ws.ocean;
       controls.target.copy(ws.lookAt);
-      camera.position.set(14, 7.5, 16);
+      camera.position.set(ws.lookAt.x + 8, 3.4, ws.lookAt.z + 10);
       camera.lookAt(ws.lookAt);
+      controls.minDistance = 2;
+      controls.maxDistance = 48;
       workshopDispose = () => ws.dispose();
       if (hullMeshRef.current) hullMeshRef.current.position.copy(ws.berth);
-      setStatus('scene');
+      const [sx, sy, sz] = ws.report.sceneSizeM;
+      setStatus(
+        `SI ${ws.report.playerHeightM}m player · pad ${sx.toFixed(0)}×${sy.toFixed(0)}×${sz.toFixed(0)}m · dropped ${ws.report.dropped.length} layers`,
+      );
     });
 
     const clock = new THREE.Clock();
@@ -168,12 +173,12 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
     const loader = new GLTFLoader();
     setStatus('loading hull');
     const path = viewFisherman ? FISHERMANS_BOAT_PATH : hull.modelPath;
-    const heightM = viewFisherman ? 1.35 : hull.heightM;
+    const lengthM = viewFisherman ? 4.8 : hull.lengthM;
     loader.load(
       path,
       (gltf) => {
         const g = gltf.scene;
-        normalizeToMetres(g, { targetSizeM: heightM, axis: 'height', ground: true, centerXZ: true });
+        normalizeToMetres(g, { targetSizeM: lengthM, axis: 'length', ground: true, centerXZ: true });
         g.position.copy(berthRef.current);
         root.add(g);
         hullMeshRef.current = g;
@@ -208,7 +213,7 @@ export default function BoatDockWorkshop({ onBack, onLaunch }: Props) {
         <Button variant="ghost" size="sm" onClick={onBack}>Back</Button>
         <h1 className="font-serif text-amber-300 text-sm tracking-widest uppercase">Boat dock</h1>
         <p className="text-[11px] text-amber-200/60">
-          Boatbuilder scene. Short plank first. Craft XP:{' '}
+          1.8 m player yardstick. One scene, no stacked oceans. Craft XP:{' '}
           <span className="text-amber-300">{xp}</span>
         </p>
 

@@ -1,22 +1,112 @@
 /**
- * Dock-workshop backdrop — the boatbuilder three.js-editor scene
- * (compressed production bake of scene (10).glb).
+ * Dock-workshop scene process:
+ * 1. Load the boatbuilder bake once.
+ * 2. Drop duplicate layers (second ocean/island, giant shark, baked player, baked hull).
+ * 3. Do NOT fit the fused AABB — the baked dude is already ~1.93 m (SI).
+ * 4. Ground remaining meshes to y=0. One Seascape only.
+ * 5. Place a 1.8 m yardstick + SI hull at the berth.
  */
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
-import { normalizeToMetres } from '@/lib/modelNormalize';
 import { SeascapeOcean } from '@/lib/islandsCanonical/SeascapeOcean';
 
 export const DOCK_WORKSHOP_SCENE = '/models/fleet/scenes/dock_workshop_scene.glb';
+export const HUMAN_HEIGHT_M = 1.8;
+
+/** Extra fused layers that stack on the workshop (author names). */
+const DROP_NAME =
+  /isola_ocean|atollo_sabbia|squalo|dude000|barca_legno|perspectivecamera|nurbspath|water|ocean/i;
 
 export interface DockWorkshopScene {
   group: THREE.Group;
   ocean: SeascapeOcean;
   berth: THREE.Vector3;
   lookAt: THREE.Vector3;
+  player: THREE.Object3D;
+  report: WorkshopScaleReport;
   dispose(): void;
+}
+
+export interface WorkshopScaleReport {
+  kept: number;
+  dropped: string[];
+  sceneSizeM: [number, number, number];
+  playerHeightM: number;
+}
+
+function shouldDrop(obj: THREE.Object3D): boolean {
+  const n = `${obj.name} ${obj.parent?.name || ''}`;
+  if (DROP_NAME.test(n)) return true;
+  if (!((obj as THREE.Mesh).isMesh)) return false;
+  const box = new THREE.Box3().setFromObject(obj);
+  const size = box.getSize(new THREE.Vector3());
+  // Giant leftover from the editor dump — not a dock plank.
+  if (size.y > 24 || Math.max(size.x, size.z) > 70) return true;
+  return false;
+}
+
+/** 1.8 m human capsule — yardstick, not a second mixer hero. */
+export function makeSiPlayerYardstick(): THREE.Group {
+  const g = new THREE.Group();
+  g.name = 'si_player_1_8m';
+  const body = new THREE.Mesh(
+    new THREE.CapsuleGeometry(0.28, 1.2, 4, 8),
+    new THREE.MeshStandardMaterial({ color: 0xc4a574, roughness: 0.7 }),
+  );
+  body.position.y = HUMAN_HEIGHT_M / 2;
+  body.castShadow = true;
+  g.add(body);
+  g.userData.siHeightM = HUMAN_HEIGHT_M;
+  return g;
+}
+
+export function prepareWorkshopLayers(root: THREE.Object3D): WorkshopScaleReport {
+  const dropped: string[] = [];
+  const toHide: THREE.Object3D[] = [];
+  root.traverse((o) => {
+    if (shouldDrop(o)) toHide.push(o);
+  });
+  for (const o of toHide) {
+    o.visible = false;
+    o.userData.editorIgnore = true;
+    if (o.name) dropped.push(o.name);
+  }
+
+  root.updateMatrixWorld(true);
+  const box = new THREE.Box3();
+  let any = false;
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (!m.isMesh || !m.visible) return;
+    box.expandByObject(m);
+    any = true;
+  });
+  if (any && isFinite(box.min.y)) {
+    root.position.y -= box.min.y;
+    root.updateMatrixWorld(true);
+    box.translate(new THREE.Vector3(0, -box.min.y, 0));
+  }
+
+  const size = box.getSize(new THREE.Vector3());
+  let kept = 0;
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && m.visible) {
+      kept += 1;
+      m.castShadow = true;
+      m.receiveShadow = true;
+      m.frustumCulled = false;
+    }
+  });
+
+  return {
+    kept,
+    dropped: [...new Set(dropped)],
+    sceneSizeM: [size.x, size.y, size.z],
+    playerHeightM: HUMAN_HEIGHT_M,
+  };
 }
 
 export async function loadDockWorkshopScene(scene: THREE.Scene): Promise<DockWorkshopScene> {
@@ -26,8 +116,8 @@ export async function loadDockWorkshopScene(scene: THREE.Scene): Promise<DockWor
   group.name = 'dock_workshop_scene';
 
   const ocean = new SeascapeOcean({
-    size: 280,
-    segments: 96,
+    size: 220,
+    segments: 80,
     sunDirection: new THREE.Vector3(0.4, 1, 0.35),
   });
   ocean.mesh.position.y = 0;
@@ -37,35 +127,42 @@ export async function loadDockWorkshopScene(scene: THREE.Scene): Promise<DockWor
   const gltf = await loader.loadAsync(DOCK_WORKSHOP_SCENE);
   const root = gltf.scene;
   root.name = 'boatbuilder_scene';
-  root.traverse((o) => {
-    const n = (o.name || '').toLowerCase();
-    if (n === 'water' || n.includes('water')) {
-      o.visible = false;
-      o.userData.editorIgnore = true;
-    }
-    const m = o as THREE.Mesh;
-    if (m.isMesh) {
-      m.castShadow = true;
-      m.receiveShadow = true;
-      m.frustumCulled = false;
-    }
-  });
-  // Author AABB is ~275 m — SI workshop pad, not 100× ocean dump.
-  normalizeToMetres(root, { targetSizeM: 42, axis: 'max', ground: true, centerXZ: true });
+  const report = prepareWorkshopLayers(root);
   group.add(root);
+
+  const keepBox = new THREE.Box3();
+  root.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && m.visible) keepBox.expandByObject(m);
+  });
+  const center = keepBox.getCenter(new THREE.Vector3());
+  const size = keepBox.getSize(new THREE.Vector3());
+  root.position.x -= center.x;
+  root.position.z -= center.z;
+  root.updateMatrixWorld(true);
+
+  const player = makeSiPlayerYardstick();
+  const berth = new THREE.Vector3(size.x * 0.12, 0, size.z * 0.22);
+  player.position.set(berth.x - 1.4, 0, berth.z);
+  group.add(player);
   scene.add(group);
 
-  const box = new THREE.Box3().setFromObject(group);
-  const size = box.getSize(new THREE.Vector3());
-  const center = box.getCenter(new THREE.Vector3());
-  const berth = new THREE.Vector3(center.x + size.x * 0.18, 0.28, box.max.z - size.z * 0.12);
-  const lookAt = new THREE.Vector3(center.x, Math.max(1.2, center.y), center.z + size.z * 0.08);
+  const lookAt = new THREE.Vector3(0, 1.6, 0);
+  console.info(
+    '[dock-workshop] SI',
+    `player=${HUMAN_HEIGHT_M}m`,
+    `kept=${report.kept}`,
+    `dropped=${report.dropped.length}`,
+    `pad=${report.sceneSizeM.map((n) => n.toFixed(1)).join('×')}m`,
+  );
 
   return {
     group,
     ocean,
     berth,
     lookAt,
+    player,
+    report,
     dispose() {
       scene.remove(group);
       scene.remove(ocean.mesh);
