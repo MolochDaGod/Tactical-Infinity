@@ -5,6 +5,7 @@
 import * as THREE from 'three';
 import { CharacterBuilder, CHAR_SCALE } from '@/lib/character/CharacterBuilder';
 import { applyHarvestChip, setHarvestDepleted } from './editorStylizedAssets';
+import { CUTE_ROD_URLS, FISHING_POLE_LENGTH_M } from '@/lib/quaterniusFish';
 
 export type PlayTool = 'none' | 'axe' | 'pickaxe' | 'knife' | 'rod';
 
@@ -13,7 +14,7 @@ export const PLAY_TOOLS: { id: PlayTool; label: string; icon: string }[] = [
   { id: 'axe', label: 'Axe', icon: '🪓' },
   { id: 'pickaxe', label: 'Pickaxe', icon: '⛏️' },
   { id: 'knife', label: 'Knife', icon: '🔪' },
-  { id: 'rod', label: 'Fishing Rod', icon: '🎣' },
+  { id: 'rod', label: 'Fishing Pole', icon: '🎣' },
 ];
 
 const TOOL_MATCH: Record<string, PlayTool[]> = {
@@ -121,6 +122,11 @@ export class EditorPlayController {
 
   setTool(tool: PlayTool) {
     this.tool = tool;
+    if (tool === 'rod') {
+      void this.builder?.equipHarvestTool(CUTE_ROD_URLS.lvl1, FISHING_POLE_LENGTH_M);
+    } else {
+      this.builder?.clearHarvestTool();
+    }
   }
 
   onKeyDown(code: string) {

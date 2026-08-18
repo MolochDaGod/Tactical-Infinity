@@ -179,3 +179,65 @@ export const FISH_DISPLAY_COLOR: Record<string, number> = {
   MantaRay: 0x2d3142,
   Whale: 0x3d5a80,
 };
+
+const cute = (file: string) => `/models/fleet/cute-fish/${file}`;
+
+/** Cute Fish Pack (Feb 2020) — per-part Kd materials, no atlas. SI lengths. */
+export const CUTE_FISH: QuaterniusFishDef[] = [
+  { id: 'cute_tetra', name: 'Tetra', label: 'Tetra', modelUrl: cute('Tetra.fbx'), bodyLengthM: 0.12, depthLo: -4, depthHi: -1.5, swimSpeed: 3.4, catchable: true, harpoonable: false, catchXp: 4, rarity: 'common' },
+  { id: 'cute_betta', name: 'Betta', label: 'Betta', modelUrl: cute('Betta.fbx'), bodyLengthM: 0.14, depthLo: -3.5, depthHi: -1.2, swimSpeed: 2.8, catchable: true, harpoonable: false, catchXp: 6, rarity: 'common' },
+  { id: 'cute_cardinal', name: 'CardinalFish', label: 'Cardinal Fish', modelUrl: cute('CardinalFish.fbx'), bodyLengthM: 0.13, depthLo: -4, depthHi: -1.5, swimSpeed: 3.2, catchable: true, harpoonable: false, catchXp: 5, rarity: 'common' },
+  { id: 'cute_clownfish', name: 'Clownfish', label: 'Clownfish', modelUrl: cute('Clownfish.fbx'), bodyLengthM: 0.16, depthLo: -4, depthHi: -1.4, swimSpeed: 2.6, catchable: true, harpoonable: false, catchXp: 8, rarity: 'common' },
+  { id: 'cute_zebraclown', name: 'ZebraClownFish', label: 'Zebra Clown', modelUrl: cute('ZebraClownFish.fbx'), bodyLengthM: 0.16, depthLo: -4, depthHi: -1.4, swimSpeed: 2.5, catchable: true, harpoonable: false, catchXp: 8, rarity: 'common' },
+  { id: 'cute_bluetang', name: 'BlueTang', label: 'Blue Tang', modelUrl: cute('BlueTang.fbx'), bodyLengthM: 0.22, depthLo: -5, depthHi: -1.8, swimSpeed: 3.6, catchable: true, harpoonable: false, catchXp: 10, rarity: 'common' },
+  { id: 'cute_yellowtang', name: 'YellowTang', label: 'Yellow Tang', modelUrl: cute('YellowTang.fbx'), bodyLengthM: 0.2, depthLo: -5, depthHi: -1.8, swimSpeed: 3.5, catchable: true, harpoonable: false, catchXp: 10, rarity: 'common' },
+  { id: 'cute_tang', name: 'Tang', label: 'Tang', modelUrl: cute('Tang.fbx'), bodyLengthM: 0.21, depthLo: -5, depthHi: -1.8, swimSpeed: 3.4, catchable: true, harpoonable: false, catchXp: 10, rarity: 'common' },
+  { id: 'cute_butterfly', name: 'ButterflyFish', label: 'Butterfly Fish', modelUrl: cute('ButterflyFish.fbx'), bodyLengthM: 0.2, depthLo: -5, depthHi: -1.6, swimSpeed: 3.0, catchable: true, harpoonable: false, catchXp: 9, rarity: 'uncommon' },
+  { id: 'cute_royalgramma', name: 'RoyalGramma', label: 'Royal Gramma', modelUrl: cute('RoyalGramma.fbx'), bodyLengthM: 0.15, depthLo: -6, depthHi: -2, swimSpeed: 2.8, catchable: true, harpoonable: false, catchXp: 8, rarity: 'uncommon' },
+  { id: 'cute_goldfish', name: 'Goldfish', label: 'Goldfish', modelUrl: cute('Goldfish.fbx'), bodyLengthM: 0.22, depthLo: -3, depthHi: -0.8, swimSpeed: 2.2, catchable: true, harpoonable: false, catchXp: 7, rarity: 'common' },
+  { id: 'cute_bluegoldfish', name: 'BlueGoldfish', label: 'Blue Goldfish', modelUrl: cute('BlueGoldfish.fbx'), bodyLengthM: 0.22, depthLo: -3, depthHi: -0.8, swimSpeed: 2.2, catchable: true, harpoonable: false, catchXp: 8, rarity: 'uncommon' },
+  { id: 'cute_koi', name: 'Koi', label: 'Koi', modelUrl: cute('Koi.fbx'), bodyLengthM: 0.45, depthLo: -3.5, depthHi: -0.8, swimSpeed: 2.0, catchable: true, harpoonable: false, catchXp: 14, rarity: 'uncommon' },
+  { id: 'cute_cowfish', name: 'Cowfish', label: 'Cowfish', modelUrl: cute('Cowfish.fbx'), bodyLengthM: 0.28, depthLo: -5, depthHi: -1.6, swimSpeed: 1.8, catchable: true, harpoonable: false, catchXp: 11, rarity: 'uncommon' },
+  { id: 'cute_puffer', name: 'Puffer', label: 'Puffer', modelUrl: cute('Puffer.fbx'), bodyLengthM: 0.32, depthLo: -5, depthHi: -1.5, swimSpeed: 1.6, catchable: true, harpoonable: true, catchXp: 16, rarity: 'uncommon' },
+  { id: 'cute_lionfish', name: 'Lionfish', label: 'Lionfish', modelUrl: cute('Lionfish.fbx'), bodyLengthM: 0.35, depthLo: -7, depthHi: -2, swimSpeed: 2.4, catchable: true, harpoonable: true, catchXp: 18, rarity: 'rare' },
+  { id: 'cute_blacklion', name: 'BlackLionFish', label: 'Black Lionfish', modelUrl: cute('BlackLionFish.fbx'), bodyLengthM: 0.36, depthLo: -7, depthHi: -2, swimSpeed: 2.3, catchable: true, harpoonable: true, catchXp: 20, rarity: 'rare' },
+  { id: 'cute_mandarin', name: 'MandarinFish', label: 'Mandarin Fish', modelUrl: cute('MandarinFish.fbx'), bodyLengthM: 0.14, depthLo: -4, depthHi: -1.4, swimSpeed: 2.0, catchable: true, harpoonable: false, catchXp: 12, rarity: 'rare' },
+  { id: 'cute_moorish', name: 'MoorishIdol', label: 'Moorish Idol', modelUrl: cute('MoorishIdol.fbx'), bodyLengthM: 0.22, depthLo: -5, depthHi: -1.6, swimSpeed: 2.8, catchable: true, harpoonable: false, catchXp: 12, rarity: 'uncommon' },
+  { id: 'cute_parrot', name: 'ParrotFish', label: 'Parrot Fish', modelUrl: cute('ParrotFish.fbx'), bodyLengthM: 0.4, depthLo: -6, depthHi: -1.8, swimSpeed: 2.6, catchable: true, harpoonable: false, catchXp: 14, rarity: 'uncommon' },
+  { id: 'cute_flowerhorn', name: 'FlowerHorn', label: 'Flower Horn', modelUrl: cute('FlowerHorn.fbx'), bodyLengthM: 0.28, depthLo: -4, depthHi: -1.2, swimSpeed: 2.4, catchable: true, harpoonable: false, catchXp: 13, rarity: 'uncommon' },
+  { id: 'cute_flatfish', name: 'Flatfish', label: 'Flatfish', modelUrl: cute('Flatfish.fbx'), bodyLengthM: 0.35, depthLo: -8, depthHi: -2.5, swimSpeed: 1.7, catchable: true, harpoonable: false, catchXp: 10, rarity: 'common' },
+  { id: 'cute_turbot', name: 'Turbot', label: 'Turbot', modelUrl: cute('Turbot.fbx'), bodyLengthM: 0.4, depthLo: -8, depthHi: -2.5, swimSpeed: 1.8, catchable: true, harpoonable: false, catchXp: 11, rarity: 'common' },
+  { id: 'cute_catfish', name: 'ArmoredCatfish', label: 'Armored Catfish', modelUrl: cute('ArmoredCatfish.fbx'), bodyLengthM: 0.45, depthLo: -7, depthHi: -2, swimSpeed: 1.9, catchable: true, harpoonable: false, catchXp: 12, rarity: 'uncommon' },
+  { id: 'cute_blobfish', name: 'Blobfish', label: 'Blobfish', modelUrl: cute('Blobfish.fbx'), bodyLengthM: 0.4, depthLo: -14, depthHi: -8, swimSpeed: 1.2, catchable: true, harpoonable: false, catchXp: 22, rarity: 'rare' },
+  { id: 'cute_angler', name: 'Anglerfish', label: 'Anglerfish', modelUrl: cute('Anglerfish.fbx'), bodyLengthM: 0.55, depthLo: -15, depthHi: -8, swimSpeed: 1.4, catchable: true, harpoonable: true, catchXp: 28, rarity: 'rare' },
+  { id: 'cute_grouper', name: 'CoralGrouper', label: 'Coral Grouper', modelUrl: cute('CoralGrouper.fbx'), bodyLengthM: 0.7, depthLo: -8, depthHi: -2.5, swimSpeed: 2.2, catchable: true, harpoonable: true, catchXp: 18, rarity: 'uncommon' },
+  { id: 'cute_humphead', name: 'Humphead', label: 'Humphead', modelUrl: cute('Humphead.fbx'), bodyLengthM: 0.85, depthLo: -8, depthHi: -2.5, swimSpeed: 2.0, catchable: true, harpoonable: true, catchXp: 22, rarity: 'rare' },
+  { id: 'cute_redsnapper', name: 'RedSnapper', label: 'Red Snapper', modelUrl: cute('RedSnapper.fbx'), bodyLengthM: 0.55, depthLo: -7, depthHi: -2, swimSpeed: 3.0, catchable: true, harpoonable: true, catchXp: 16, rarity: 'uncommon' },
+  { id: 'cute_piranha', name: 'Piranha', label: 'Piranha', modelUrl: cute('Piranha.fbx'), bodyLengthM: 0.32, depthLo: -5, depthHi: -1.2, swimSpeed: 4.2, catchable: true, harpoonable: true, catchXp: 15, rarity: 'uncommon' },
+  { id: 'cute_tuna', name: 'Tuna', label: 'Tuna', modelUrl: cute('Tuna.fbx'), bodyLengthM: 1.4, depthLo: -12, depthHi: -4, swimSpeed: 6.5, catchable: true, harpoonable: true, catchXp: 35, rarity: 'rare' },
+  { id: 'cute_swordfish', name: 'Swordfish', label: 'Swordfish', modelUrl: cute('Swordfish.fbx'), bodyLengthM: 2.1, depthLo: -13, depthHi: -5, swimSpeed: 7.2, catchable: false, harpoonable: true, catchXp: 45, rarity: 'rare' },
+  { id: 'cute_sunfish', name: 'Sunfish', label: 'Sunfish', modelUrl: cute('Sunfish.fbx'), bodyLengthM: 1.6, depthLo: -10, depthHi: -3, swimSpeed: 1.5, catchable: false, harpoonable: true, catchXp: 40, rarity: 'rare' },
+  { id: 'cute_goblinshark', name: 'GoblinShark', label: 'Goblin Shark', modelUrl: cute('GoblinShark.fbx'), bodyLengthM: 2.2, depthLo: -15, depthHi: -8, swimSpeed: 3.4, catchable: false, harpoonable: true, catchXp: 48, rarity: 'epic' },
+  { id: 'cute_shark', name: 'CuteShark', label: 'Shark', modelUrl: cute('Shark.fbx'), bodyLengthM: 1.8, depthLo: -12, depthHi: -4, swimSpeed: 5.2, catchable: false, harpoonable: true, catchXp: 42, rarity: 'rare' },
+];
+
+/** Codex + spawn table: cute pack first, then Quaternius large fauna. */
+export const ALL_OCEAN_FISH: QuaterniusFishDef[] = [...CUTE_FISH, ...QUATERNIUS_FISH];
+
+export const CUTE_DOCK_URLS = {
+  long: cute('Dock_Long.fbx'),
+  longNoRope: cute('Dock_Long_NoRope.fbx'),
+  wide: cute('Dock_Wide.fbx'),
+  stairs: cute('Dock_Stairs.fbx'),
+} as const;
+
+export const CUTE_ROD_URLS = {
+  lvl1: cute('FishingRod_Lvl1.fbx'),
+  lvl2: cute('FishingRod_Lvl2.fbx'),
+  lvl3: cute('FishingRod_Lvl3.fbx'),
+  lvl4: cute('FishingRod_Lvl4.fbx'),
+  lvl5: cute('FishingRod_Lvl5.fbx'),
+} as const;
+
+/** Hand fishing pole — SI length for a 1.8 m human. */
+export const FISHING_POLE_LENGTH_M = 1.55;

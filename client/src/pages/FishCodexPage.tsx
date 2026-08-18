@@ -1,5 +1,5 @@
 /**
- * Ocean + Quaternius fish + species frame (fishui.png).
+ * Ocean bestiary — Cute Fish Pack + Quaternius fauna (fishui frame).
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
@@ -8,9 +8,10 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js';
 import { Button } from '@/components/ui/button';
 import { FishCodexFrame } from '@/components/hud/FishCodexFrame';
-import { QUATERNIUS_FISH, FISH_DISPLAY_COLOR } from '@/lib/quaterniusFish';
+import { ALL_OCEAN_FISH, FISH_DISPLAY_COLOR } from '@/lib/quaterniusFish';
 import { buildFishCard } from '@shared/gameDefinitions/fishCodex';
 import { normalizeToMetres } from '@/lib/modelNormalize';
+import { preserveFishMaterials } from '@/lib/fishMaterials';
 import { SeascapeOcean } from '@/lib/islandsCanonical/SeascapeOcean';
 
 interface Props {
@@ -19,7 +20,7 @@ interface Props {
 
 export default function FishCodexPage({ onBack }: Props) {
   const wrapRef = useRef<HTMLDivElement>(null);
-  const cards = useMemo(() => QUATERNIUS_FISH.map(buildFishCard), []);
+  const cards = useMemo(() => ALL_OCEAN_FISH.map(buildFishCard), []);
   const [selectedId, setSelectedId] = useState(cards[0]?.id ?? 'fish1');
   const [status, setStatus] = useState('idle');
   const sceneRef = useRef<{
@@ -119,18 +120,7 @@ export default function FishCodexPage({ onBack }: Props) {
           const wrap = new THREE.Group();
           wrap.add(obj);
           normalizeToMetres(wrap, { targetSizeM: 1.15, axis: 'max', center: true });
-          wrap.traverse((c) => {
-            const m = c as THREE.Mesh;
-            if (m.isMesh) {
-              m.castShadow = true;
-              m.frustumCulled = false;
-              m.material = new THREE.MeshLambertMaterial({
-                color: FISH_DISPLAY_COLOR[card.name] ?? 0x2ec4b6,
-                emissive: FISH_DISPLAY_COLOR[card.name] ?? 0x2ec4b6,
-                emissiveIntensity: 0.15,
-              });
-            }
-          });
+          preserveFishMaterials(wrap, FISH_DISPLAY_COLOR[card.name]);
           ctx.root.add(wrap);
           const clips = (obj as THREE.Object3D & { animations?: THREE.AnimationClip[] }).animations ?? [];
           if (clips[0]) {
@@ -156,7 +146,7 @@ export default function FishCodexPage({ onBack }: Props) {
       <div className="flex items-center gap-3 px-4 py-2 border-b border-amber-900/40">
         <Button variant="ghost" size="sm" onClick={onBack}>Back</Button>
         <h1 className="font-serif tracking-widest uppercase text-sm text-amber-300">Ocean bestiary</h1>
-        <span className="text-[10px] text-slate-500">{status}</span>
+        <span className="text-[10px] text-slate-500">{status} · {cards.length} species</span>
       </div>
       <div className="flex-1 flex items-center justify-center p-4">
         <FishCodexFrame

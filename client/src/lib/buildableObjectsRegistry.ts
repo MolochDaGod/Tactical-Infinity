@@ -5,6 +5,15 @@ import { loadSurvivalKitNode } from '@/lib/survivalKitAssets';
 import { loadNoteOfArmsNode } from '@/lib/noteOfArmsAssets';
 import { normalizeToMetres } from '@/lib/modelNormalize';
 import { resolveWarlordsUrl } from '@/lib/warlordsAssetCatalog';
+import { CUTE_DOCK_URLS } from '@/lib/quaterniusFish';
+
+const CUTE_DOCK_MESH: Partial<Record<PlaceableBuildingType, { url: string; lengthM: number }>> = {
+  fishing_dock: { url: CUTE_DOCK_URLS.long, lengthM: 8 },
+  boat_dock: { url: CUTE_DOCK_URLS.wide, lengthM: 7 },
+  dock_long: { url: CUTE_DOCK_URLS.longNoRope, lengthM: 8 },
+  dock_wide: { url: CUTE_DOCK_URLS.wide, lengthM: 7 },
+  dock_stairs: { url: CUTE_DOCK_URLS.stairs, lengthM: 3.2 },
+};
 // Shared camp/RTS SSOT (costs, train, claim, defense) — see shared/camp + docs/CAMP_RTS_SSOT.md
 export {
   buildingPaletteRows,
@@ -47,6 +56,9 @@ export type PlaceableBuildingType =
   | 'fishing_dock'
   | 'war_dock'
   | 'capital_dock'
+  | 'dock_long'
+  | 'dock_wide'
+  | 'dock_stairs'
   /** note_of_arms Chain_V* — buildable chain link / connection tool */
   | 'chain'
   | 'window_thin_flat'
@@ -227,13 +239,49 @@ export const placeableBuildingDefinitions: Record<PlaceableBuildingType, Placeab
   fishing_dock: {
     type: 'fishing_dock',
     name: 'Fishing Dock',
-    description: 'Viking fisherman house + pier. Harpoon work. No shipyard.',
+    description: 'Cute-pack long pier. Shore fishing + small craft.',
     category: 'production',
     cost: { wood: 20, stone: 10 },
     cellSize: { width: 3, height: 5 },
     rotatable: true,
     fallbackGeometry: 'box',
     fallbackColor: 0x7A5A3A,
+    scale: 1.0,
+  },
+  dock_long: {
+    type: 'dock_long',
+    name: 'Long Dock',
+    description: 'Long pier (no rope). Placeable shore walk.',
+    category: 'structure',
+    cost: { wood: 18, stone: 6 },
+    cellSize: { width: 2, height: 6 },
+    rotatable: true,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x7A5A3A,
+    scale: 1.0,
+  },
+  dock_wide: {
+    type: 'dock_wide',
+    name: 'Wide Dock',
+    description: 'Wide berth pier — boat dock deck.',
+    category: 'structure',
+    cost: { wood: 24, stone: 8 },
+    cellSize: { width: 4, height: 4 },
+    rotatable: true,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x6B5344,
+    scale: 1.0,
+  },
+  dock_stairs: {
+    type: 'dock_stairs',
+    name: 'Dock Stairs',
+    description: 'Pier stairs onto the deck.',
+    category: 'structure',
+    cost: { wood: 8 },
+    cellSize: { width: 2, height: 2 },
+    rotatable: true,
+    fallbackGeometry: 'box',
+    fallbackColor: 0x8B6A45,
     scale: 1.0,
   },
   war_dock: {
@@ -978,12 +1026,33 @@ export class BuildableObjectsRegistry {
 
     const definition = placeableBuildingDefinitions[type];
 
-    if (
-      type === 'boat_dock' ||
-      type === 'fishing_dock' ||
-      type === 'war_dock' ||
-      type === 'capital_dock'
-    ) {
+    const cuteDock = CUTE_DOCK_MESH[type];
+    if (cuteDock) {
+      const loadPromise = this.fbxLoader
+        .loadAsync(cuteDock.url)
+        .then((obj) => {
+          const g = new THREE.Group();
+          g.name = `build_${type}`;
+          g.add(obj);
+          normalizeToMetres(g, { targetSizeM: cuteDock.lengthM, axis: 'max', ground: true, centerXZ: true });
+          this.setupMeshProperties(g);
+          this.loadedMeshes.set(type, g);
+          return g.clone();
+        })
+        .catch(async () => {
+          const { buildDockVisual } = await import('@/lib/islandDockSystem');
+          const fallbackKind =
+            type === 'fishing_dock' || type === 'dock_long' ? 'fishing_dock' : 'boat_dock';
+          const mesh = buildDockVisual(fallbackKind);
+          this.setupMeshProperties(mesh);
+          this.loadedMeshes.set(type, mesh);
+          return mesh.clone();
+        });
+      this.loadingPromises.set(type, loadPromise);
+      return loadPromise;
+    }
+
+    if (type === 'war_dock' || type === 'capital_dock') {
       const loadPromise = Promise.resolve().then(async () => {
         const { buildDockVisual } = await import('@/lib/islandDockSystem');
         const mesh = buildDockVisual(type);

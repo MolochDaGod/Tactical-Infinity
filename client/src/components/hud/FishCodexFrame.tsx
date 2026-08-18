@@ -49,7 +49,7 @@ export function FishCodexFrame({
       data-testid="fish-codex-frame"
       style={{ fontFamily: "'Cinzel', serif" }}
     >
-      <div className="flex flex-col gap-2 justify-center">
+      <div className="flex flex-col gap-2 justify-start max-h-[70vh] overflow-y-auto pr-1">
         {cards.map((c) => (
           <button
             key={c.id}

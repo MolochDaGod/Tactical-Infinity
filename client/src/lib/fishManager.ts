@@ -14,10 +14,11 @@ import {
 } from '@shared/gameDefinitions/fishing';
 import { getFishWeightOverrides } from './adminOverrides';
 import {
-  QUATERNIUS_FISH,
+  ALL_OCEAN_FISH,
   FISH_DISPLAY_COLOR,
   type QuaterniusFishDef,
 } from './quaterniusFish';
+import { preserveFishMaterials } from './fishMaterials';
 import {
   normalizeToMetres,
   resolveOceanDepthBand,
@@ -82,7 +83,7 @@ export class FishManager {
   }
 
   async initialize(): Promise<void> {
-    await Promise.allSettled(QUATERNIUS_FISH.map((s) => this.loadFishModel(s)));
+    await Promise.allSettled(ALL_OCEAN_FISH.map((s) => this.loadFishModel(s)));
     this.spawnInitialFish();
     this.isInitialized = true;
     console.log(
@@ -116,16 +117,12 @@ export class FishManager {
           center: true,
         });
 
+        preserveFishMaterials(wrap, FISH_DISPLAY_COLOR[species.name]);
         wrap.traverse((child) => {
           if (child instanceof THREE.Mesh) {
             child.castShadow = false;
             child.receiveShadow = false;
             child.frustumCulled = true;
-            child.material = new THREE.MeshLambertMaterial({
-              color: FISH_DISPLAY_COLOR[species.name] ?? 0x2ec4b6,
-              emissive: FISH_DISPLAY_COLOR[species.name] ?? 0x2ec4b6,
-              emissiveIntensity: 0.12,
-            });
           }
         });
 
@@ -148,7 +145,7 @@ export class FishManager {
   }
 
   private spawnInitialFish(): void {
-    const speciesWithModels = QUATERNIUS_FISH.filter((s) => this.loadedModels.has(s.name));
+    const speciesWithModels = ALL_OCEAN_FISH.filter((s) => this.loadedModels.has(s.name));
     if (speciesWithModels.length === 0) {
       console.warn('[FishManager] no models — procedural fallback');
       this.createProceduralFish();

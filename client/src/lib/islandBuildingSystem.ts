@@ -569,6 +569,7 @@ export class IslandBuildingSystem {
     // Shipyard docks unlock hull construction (skiff…manOWar)
     if (
       this.selectedBuildingType === 'boat_dock' ||
+      this.selectedBuildingType === 'dock_wide' ||
       this.selectedBuildingType === 'war_dock' ||
       this.selectedBuildingType === 'capital_dock'
     ) {

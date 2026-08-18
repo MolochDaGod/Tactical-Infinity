@@ -50,6 +50,9 @@ import { normalizeToMetres } from '@/lib/modelNormalize';
 import { ResourceNodeManager } from '@/lib/resourceNodes';
 import { IslandAnimalManager, ANIMAL_SPAWN_WEIGHTS, type AnimalType } from '@/lib/islandAnimals';
 import { HarvestingSystem } from '@/lib/harvestingProfessions';
+import HarvestToolRadial from '@/components/hud/HarvestToolRadial';
+import type { PlayTool } from '@/lib/islandsCanonical/editorPlayController';
+import { CUTE_ROD_URLS, FISHING_POLE_LENGTH_M } from '@/lib/quaterniusFish';
 import { PropColliderSystem } from '@/lib/PropColliderSystem';
 import { CinzelOverlay, buildHudOverride, isCinzelHudEnabled } from '@/components/hud/CinzelOverlay';
 import {
@@ -169,6 +172,31 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
   const [leather, setLeather] = useState(0);
   const [hide, setHide] = useState(0);
   const [skinningLevel, setSkinningLevel] = useState(1);
+  const [harvestTool, setHarvestTool] = useState<PlayTool>('none');
+  const harvestToolRef = useRef<PlayTool>('none');
+  const applyHarvestTool = useCallback((t: PlayTool) => {
+    harvestToolRef.current = t;
+    setHarvestTool(t);
+    const b = characterBuilderRef.current;
+    if (!b?.ready) return;
+    if (t === 'rod') void b.equipHarvestTool(CUTE_ROD_URLS.lvl1, FISHING_POLE_LENGTH_M);
+    else b.clearHarvestTool();
+  }, []);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const map: Record<string, PlayTool> = {
+        Digit1: 'none',
+        Digit2: 'axe',
+        Digit3: 'pickaxe',
+        Digit4: 'knife',
+        Digit5: 'rod',
+      };
+      const t = map[e.code];
+      if (t) applyHarvestTool(t);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [applyHarvestTool]);
   const [huntToast, setHuntToast] = useState<string | null>(null);
   const huntToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const starterMissionRef = useRef<IslandStarterMission | null>(null);
@@ -499,6 +527,9 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
         if (ph) playerGroup.remove(ph);
         playerGroup.add(builder.group);
         characterBuilderRef.current = builder;
+        if (harvestToolRef.current === 'rod') {
+          void builder.equipHarvestTool(CUTE_ROD_URLS.lvl1, FISHING_POLE_LENGTH_M);
+        }
       })
       .catch((err) => {
         console.warn('Captain CharacterBuilder load failed, keeping placeholder:', err);
@@ -861,7 +892,11 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
 
       // ── Skinning: press E near a carcass ──────────────────────────────────
       skinTimerRef.current = Math.max(0, skinTimerRef.current - dt);
-      if (keys.has('e') && skinTimerRef.current <= 0 && carcassManagerRef.current && harvestSystemRef.current) {
+      if (keys.has('e') && skinTimerRef.current <= 0 && harvestToolRef.current === 'rod' && harvestSystemRef.current) {
+        skinTimerRef.current = 0.8;
+        const leveledUp = harvestSystemRef.current.addXp('fishing', 8);
+        showHuntToast(`Caught a fish${leveledUp ? ' · Fishing up!' : ''}`);
+      } else if (keys.has('e') && skinTimerRef.current <= 0 && carcassManagerRef.current && harvestSystemRef.current) {
         const nodes = carcassManagerRef.current.getAllNodes();
         let nearest: (typeof nodes)[number] | null = null;
         let nearestDist = Infinity;
@@ -951,6 +986,10 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
           <span className="flex items-center gap-1" data-testid="text-hide" title="Hide">🟤 {hide}</span>
           <span className="flex items-center gap-1 text-amber-300" data-testid="text-skinning-level" title="Skinning level">Skin Lv {skinningLevel}</span>
         </div>
+      </div>
+
+      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20">
+        <HarvestToolRadial value={harvestTool} onChange={applyHarvestTool} />
       </div>
 
       {huntToast && (

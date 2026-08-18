@@ -35,9 +35,9 @@ import {
 } from '@/lib/islandsCanonical/editorStylizedAssets';
 import {
   EditorPlayController,
-  PLAY_TOOLS,
   type PlayTool,
 } from '@/lib/islandsCanonical/editorPlayController';
+import HarvestToolRadial from '@/components/hud/HarvestToolRadial';
 import {
   EDITOR_MATERIAL_FAMILIES,
   applyFamilyToObject,
@@ -2012,20 +2012,8 @@ export default function IslandEditorPage() {
                         Human unarmed · {playReady ? 'ready' : 'loading…'}
                       </div>
                       <div>WASD move · F/E or click harvest · Esc exit</div>
-                      <div className="text-[9px] text-emerald-400/80 uppercase tracking-wide">Tools</div>
-                      <div className="grid grid-cols-1 gap-0.5">
-                        {PLAY_TOOLS.map((t, i) => (
-                          <button
-                            key={t.id}
-                            className={`flex items-center gap-2 px-2 py-1 rounded text-[10px] ${playTool === t.id ? 'bg-emerald-600 text-white' : 'bg-gray-900 text-gray-400 hover:bg-gray-800'}`}
-                            onClick={() => setPlayTool(t.id)}
-                          >
-                            <span>{t.icon}</span>
-                            <span className="flex-1 text-left">{t.label}</span>
-                            <kbd className="text-[9px] opacity-60">{i + 1}</kbd>
-                          </button>
-                        ))}
-                      </div>
+                      <div className="text-[9px] text-emerald-400/80 uppercase tracking-wide">Harvest radial</div>
+                      <HarvestToolRadial value={playTool} onChange={setPlayTool} />
                       {harvestLog.length > 0 && (
                         <div className="max-h-24 overflow-y-auto space-y-0.5 border-t border-emerald-900/50 pt-1">
                           {harvestLog.map((line, i) => (

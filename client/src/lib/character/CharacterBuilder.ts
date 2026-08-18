@@ -33,6 +33,7 @@ import {
   type CharState, stateClipKeys, clipKeysForStyle, loadClipSources, getSourceClip,
 } from './grudgeClips';
 import { resolveGrudgeAssetUrl } from '@/lib/grudgeAssetConfig';
+import { normalizeToMetres } from '@/lib/modelNormalize';
 
 export const CHAR_SCALE = 0.012;
 
@@ -156,6 +157,7 @@ export class CharacterBuilder {
   private leftHand: THREE.Bone | null = null;
   private mainHandWeapon: THREE.Object3D | null = null;
   private offHandWeapon: THREE.Object3D | null = null;
+  private harvestTool: THREE.Object3D | null = null;
   private equipToken = 0;
 
   /** slot -> submeshes belonging to that armor slot (initially hidden). */
@@ -345,6 +347,47 @@ export class CharacterBuilder {
     }
   }
 
+  /** Attach a harvest tool (fishing pole, etc.) to the right-hand bone at SI length. */
+  async equipHarvestTool(url: string, lengthM: number): Promise<void> {
+    this.clearHarvestTool();
+    if (!this.rightHand) return;
+    const token = ++this.equipToken;
+    const obj = await new Promise<THREE.Group>((resolve, reject) => {
+      this.fbxLoader.load(url, (g) => resolve(g as THREE.Group), undefined, reject);
+    }).catch((err) => {
+      console.warn('[CharacterBuilder] harvest tool load failed', url, err);
+      return null;
+    });
+    if (!obj || this.disposed || this.equipToken !== token || !this.rightHand) {
+      if (obj) disposeObject(obj);
+      return;
+    }
+    const wrap = new THREE.Group();
+    wrap.name = 'harvest_tool';
+    wrap.add(obj);
+    normalizeToMetres(wrap, { targetSizeM: lengthM, axis: 'max', center: true });
+    this.rightHand.updateWorldMatrix(true, false);
+    const boneScale = this.rightHand.getWorldScale(new THREE.Vector3());
+    const s = 1 / Math.max(boneScale.x, 1e-4);
+    wrap.scale.multiplyScalar(s);
+    wrap.rotation.set(-Math.PI / 2.4, 0, Math.PI / 8);
+    wrap.position.set(0.02 * s, 0.04 * s, 0.01 * s);
+    if (this.mainHandWeapon) this.mainHandWeapon.visible = false;
+    if (this.offHandWeapon) this.offHandWeapon.visible = false;
+    this.rightHand.add(wrap);
+    this.harvestTool = wrap;
+  }
+
+  clearHarvestTool(): void {
+    if (this.harvestTool) {
+      this.harvestTool.parent?.remove(this.harvestTool);
+      disposeObject(this.harvestTool);
+      this.harvestTool = null;
+    }
+    if (this.mainHandWeapon) this.mainHandWeapon.visible = true;
+    if (this.offHandWeapon) this.offHandWeapon.visible = true;
+  }
+
   // ── Modular armor (built-in skinned submeshes toggled per slot) ──────────────
   private buildArmorCatalog(fbx: THREE.Group): void {
     for (const slot of ARMOR_SLOTS) this.armorCatalog.set(slot, []);
@@ -482,6 +525,7 @@ export class CharacterBuilder {
     this.actions.clear();
     if (this.mainHandWeapon) disposeObject(this.mainHandWeapon);
     if (this.offHandWeapon) disposeObject(this.offHandWeapon);
+    if (this.harvestTool) disposeObject(this.harvestTool);
     if (this.fbx) disposeObject(this.fbx);
     // The body texture is freed via its material map in disposeObject(fbx);
     // just drop the reference so a late TGA resolve hits the disposed guard.
