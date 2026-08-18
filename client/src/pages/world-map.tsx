@@ -153,6 +153,16 @@ export default function WorldMapPage({ phase, onBackToMenu }: WorldMapPageProps)
                   <Footprints className="w-4 h-4" />
                   Explore Island (3D)
                 </button>
+                {landedIsland.id === 'waterfall_isle' && (
+                  <button
+                    onClick={() => { window.location.href = '/island?entry=dock'; }}
+                    className="bg-teal-700 hover:bg-teal-800 text-white py-3 px-4 rounded-md transition-colors text-sm font-medium flex items-center justify-center gap-2"
+                    data-testid="button-enter-baked-home"
+                  >
+                    <Footprints className="w-4 h-4" />
+                    Enter baked home
+                  </button>
+                )}
                 <button 
                   className="bg-green-600 hover:bg-green-700 text-white py-3 px-4 rounded-md transition-colors text-sm font-medium flex items-center justify-center gap-2"
                   data-testid="button-deploy-harvesters"

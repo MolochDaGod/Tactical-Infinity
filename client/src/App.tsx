@@ -66,7 +66,15 @@ function GameApp() {
       .finally(() => setFleetBootstrapped(true));
   }, []);
 
-  const handlePlayGame = () => game.setPhase(resolvePlayPhase() as any);
+  const handlePlayGame = () => {
+    const next = resolvePlayPhase();
+    if (next === 'productionisland') {
+      try {
+        window.history.replaceState({}, '', '/island?entry=dock');
+      } catch { /* ignore */ }
+    }
+    game.setPhase(next as any);
+  };
   const handleWorldMap = () => {
     game.setPhase((canSailWorldMap() ? "worldmap" : "productionisland") as any);
   };

@@ -28,9 +28,9 @@ const VERT = `
   varying vec2  vSeaUv;
 
   const int   ITER_GEOMETRY = 3;
-  const float SEA_HEIGHT    = 0.38;
-  const float SEA_CHOPPY    = 2.2;
-  const float SEA_SPEED     = 0.8;
+  const float SEA_HEIGHT    = 0.48;
+  const float SEA_CHOPPY    = 2.6;
+  const float SEA_SPEED     = 0.92;
   const float SEA_FREQ      = 0.16;
 
   #define SEA_TIME (1.0 + uTime * SEA_SPEED)
@@ -91,9 +91,9 @@ const FRAG = `
   varying vec2 vSeaUv;
 
   const int   ITER_FRAGMENT = 5;
-  const float SEA_HEIGHT    = 0.38;
-  const float SEA_CHOPPY    = 2.2;
-  const float SEA_SPEED     = 0.8;
+  const float SEA_HEIGHT    = 0.48;
+  const float SEA_CHOPPY    = 2.6;
+  const float SEA_SPEED     = 0.92;
   const float SEA_FREQ      = 0.16;
 
   #define SEA_TIME (1.0 + uTime * SEA_SPEED)

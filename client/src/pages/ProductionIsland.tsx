@@ -82,6 +82,8 @@ import {
 import { StarterRaftPanel } from '@/components/game/StarterRaftPanel';
 import { awardHarvestXp, discoverRecipe, isRaftBuilt, markRaftBuilt } from '@/lib/playerProgression';
 import { nearIslet, type CoastalIslet } from '@/lib/placeCoastalIslet';
+import { readIslandEntry } from '@/lib/gameStartFlow';
+import { createIslandRapierGround } from '@/lib/islandRapierGround';
 
 interface Props {
   onBack: () => void;
@@ -156,6 +158,7 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
   const dockRef = useRef<DockData | null>(null);
   const isletRef = useRef<CoastalIslet | null>(null);
   const fishMgrRef = useRef<{ update: (dt: number, p: THREE.Vector3) => void; dispose?: () => void } | null>(null);
+  const rapierGroundRef = useRef<{ update: (dt: number) => void; dispose: () => void } | null>(null);
   const carcassManagerRef = useRef<ResourceNodeManager | null>(null);
   const animalManagerRef = useRef<IslandAnimalManager | null>(null);
   const harvestSystemRef = useRef<HarvestingSystem | null>(null);
@@ -421,6 +424,10 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     terrainRef.current = terrain;
     terrain.mesh.castShadow = true;
     scene.add(terrain.mesh);
+    scene.fog = new THREE.FogExp2(0x7ec8c8, 0.008);
+    void createIslandRapierGround(terrain).then((g) => {
+      rapierGroundRef.current = g;
+    });
 
     const seascape = new SeascapeOcean({
       size: 640,
@@ -496,7 +503,13 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     placeholder.name = 'placeholder';
     playerGroup.add(placeholder);
 
-    const spawnPos = dock.spawnPoint;
+    const entry = readIslandEntry();
+    const spawnPos = dock.spawnPoint.clone();
+    if (entry === 'beach') {
+      spawnPos.add(new THREE.Vector3(-6, 0, -8));
+      const beachY = terrain.getHeightAt(spawnPos.x, spawnPos.z);
+      spawnPos.y = Math.max(beachY, 0.05);
+    }
     playerGroup.position.copy(spawnPos);
     playerPosRef.current.copy(spawnPos);
     scene.add(playerGroup);
@@ -737,6 +750,7 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
         seascapeRef.current?.update(elapsed, camera);
         seascapeRef.current?.setSunPosition(skyRef.current.sunDirection);
       }
+      rapierGroundRef.current?.update(dt);
       if (grassRef.current) grassRef.current.update(elapsed);
       if (particlesRef.current) particlesRef.current.update(elapsed);
       if (splashRef.current) splashRef.current.update(elapsed, dt);
@@ -776,7 +790,13 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
           .addScaledVector(camForward, -moveDir.z)
           .normalize();
 
-        playerPosRef.current.addScaledVector(worldDir, PLAYER_SPEED * dt);
+        const next = playerPosRef.current.clone().addScaledVector(worldDir, PLAYER_SPEED * dt);
+        const nextSnap = terrainRef.current
+          ? snapToTerrain(terrainRef.current, next.x, next.z)
+          : null;
+        const tooSteep = nextSnap && nextSnap.slope > 0.9 && nextSnap.y > playerPosRef.current.y + 0.4;
+        if (!tooSteep) playerPosRef.current.copy(next);
+        else playerPosRef.current.addScaledVector(worldDir, PLAYER_SPEED * dt * 0.25);
         if (playerRef.current) {
           playerRef.current.lookAt(
             playerPosRef.current.x + worldDir.x,
@@ -799,9 +819,10 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
           const dockSurface = dockRef.current!.spawnPoint.y;
           const smoothFactor = 1 - Math.exp(-8 * dt);
           playerPosRef.current.y += (dockSurface - playerPosRef.current.y) * smoothFactor;
-        } else if (snapped.isOnTerrain && snapped.y > 0.2) {
+        } else {
+          const standY = snapped.y >= 0.05 ? snapped.y : 0;
           const smoothFactor = 1 - Math.exp(-8 * dt);
-          playerPosRef.current.y += (snapped.y - playerPosRef.current.y) * smoothFactor;
+          playerPosRef.current.y += (standY - playerPosRef.current.y) * smoothFactor;
         }
       }
 
@@ -954,6 +975,8 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
       skyRef.current = null;
       seascapeRef.current?.dispose();
       seascapeRef.current = null;
+      rapierGroundRef.current?.dispose();
+      rapierGroundRef.current = null;
       animalManagerRef.current?.clearAllAnimals();
       animalManagerRef.current = null;
       carcassManagerRef.current?.clearAllNodes();

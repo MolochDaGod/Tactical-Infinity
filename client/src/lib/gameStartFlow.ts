@@ -3,6 +3,17 @@ import { getOnboardingStep, markCaptainReady } from '@/lib/playerProgression';
 import { loadCaptainBuild } from '@/lib/captainBuild';
 import { getFleetCharacterId, TACTICAL_CAPTAIN_KEY } from '@/lib/grudgeCharacterSync';
 
+export type IslandEntry = 'dock' | 'beach' | 'workshop';
+
+export function readIslandEntry(): IslandEntry {
+  try {
+    const q = new URLSearchParams(window.location.search);
+    const e = (q.get('entry') || '').toLowerCase();
+    if (e === 'beach' || e === 'workshop' || e === 'dock') return e;
+  } catch { /* ignore */ }
+  return 'dock';
+}
+
 export type GamePhase =
   | 'menu'
   | 'captain'

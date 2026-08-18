@@ -600,6 +600,7 @@ export function generateIslandTerrain(partialConfig: Partial<TerrainConfig> = {}
   function getHeightAt(worldX: number, worldZ: number): number {
     const u = (worldX / radius + 1) * 0.5;
     const v = (worldZ / radius + 1) * 0.5;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return config.seafloorDepth;
     const i  = u * segments;
     const j  = v * segments;
     const i0 = Math.max(0, Math.min(segments - 1, Math.floor(i)));
@@ -746,7 +747,7 @@ export function snapToTerrain(
 ): TerrainSnappedPosition {
   const distFromCenter = Math.sqrt(x * x + z * z);
   const isOnTerrain = distFromCenter <= terrain.radius;
-  const y = isOnTerrain ? terrain.getHeightAt(x, z) + yOffset : yOffset;
+  const y = terrain.getHeightAt(x, z) + yOffset;
   const normal = isOnTerrain ? terrain.getNormalAt(x, z) : new THREE.Vector3(0, 1, 0);
   const slope  = isOnTerrain ? terrain.getSlopeAt(x, z) : 0;
   return { x, y, z, normal, isOnTerrain, slope };
