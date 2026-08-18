@@ -337,6 +337,7 @@ function hydrateCaptainFromFleet(char: FleetCharacter): void {
 // ── Fleet character API ──────────────────────────────────────────────────────
 
 export async function listFleetCharacters(era = GAME_ERA): Promise<FleetCharacter[]> {
+  if (!getAuthToken()) return [];
   const { ok, data } = await fleetFetch<FleetCharacter[] | { characters: FleetCharacter[] }>(
     `${FLEET_API_PATHS.characters}?era=${encodeURIComponent(era)}`,
   );
@@ -437,8 +438,8 @@ export async function bootstrapFleetSession(): Promise<FleetCharacter | null> {
   await pickupSsoFromUrl();
   if (!isFleetAuthenticated()) {
     const guest = await loginAsGuest();
-    if (!guest) return null;
+    if (!guest || !getAuthToken()) return null;
   }
-  if (!isFleetAuthenticated()) return null;
+  if (!getAuthToken()) return null;
   return hydrateFromFleet();
 }

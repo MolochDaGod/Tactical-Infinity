@@ -5,6 +5,8 @@
 
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { LoadingManager } from 'three';
+import { patchGltfMissingMaps } from '@/lib/gltfMissingMaps';
 import { normalizeToMetres } from '@/lib/modelNormalize';
 import {
   ALL_FOREST_PARTS,
@@ -16,7 +18,9 @@ import {
   type ForestTreeType,
 } from '@shared/gameDefinitions/forestHarvestCatalog';
 
-const loader = new GLTFLoader();
+const gltfMgr = new LoadingManager();
+patchGltfMissingMaps(gltfMgr);
+const loader = new GLTFLoader(gltfMgr);
 let packRoot: THREE.Group | null = null;
 let packPromise: Promise<THREE.Group | null> | null = null;
 

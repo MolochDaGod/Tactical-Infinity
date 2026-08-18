@@ -10,6 +10,8 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import { MeshoptDecoder } from 'three/examples/jsm/libs/meshopt_decoder.module.js';
+import { LoadingManager } from 'three';
+import { patchGltfMissingMaps } from '@/lib/gltfMissingMaps';
 import { SeascapeOcean } from '@/lib/islandsCanonical/SeascapeOcean';
 
 export const DOCK_WORKSHOP_SCENE = '/models/fleet/scenes/dock_workshop_scene.glb';
@@ -125,7 +127,9 @@ export function prepareWorkshopLayers(root: THREE.Object3D): WorkshopScaleReport
 }
 
 export async function loadDockWorkshopScene(scene: THREE.Scene): Promise<DockWorkshopScene> {
-  const loader = new GLTFLoader();
+  const mgr = new LoadingManager();
+  patchGltfMissingMaps(mgr);
+  const loader = new GLTFLoader(mgr);
   loader.setMeshoptDecoder(MeshoptDecoder);
   const group = new THREE.Group();
   group.name = 'dock_workshop_scene';

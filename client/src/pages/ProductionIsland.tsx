@@ -84,6 +84,7 @@ import { awardHarvestXp, discoverRecipe, isRaftBuilt, markRaftBuilt } from '@/li
 import { nearIslet, type CoastalIslet } from '@/lib/placeCoastalIslet';
 import { readIslandEntry } from '@/lib/gameStartFlow';
 import { createIslandRapierGround } from '@/lib/islandRapierGround';
+import { runIslandAssetDoctor } from '@/lib/islandAssetDoctor';
 
 interface Props {
   onBack: () => void;
@@ -549,6 +550,10 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
         if (ph) playerGroup.remove(ph);
         playerGroup.add(builder.group);
         characterBuilderRef.current = builder;
+        void runIslandAssetDoctor({
+          captain: builder.group,
+          harvestCount: starterMissionRef.current?.getColliderSpecs().length ?? 0,
+        });
         if (harvestToolRef.current === 'rod') {
           void builder.equipHarvestTool(CUTE_ROD_URLS.lvl1, FISHING_POLE_LENGTH_M);
         }

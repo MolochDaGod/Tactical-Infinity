@@ -545,8 +545,12 @@ export const WEAPON_STYLE_CONFIGS: Record<WeaponStyle, WeaponStyleConfig> = {
 
 export const WEAPON_CYCLE_ORDER: WeaponStyle[] = ['sword_shield', 'greatsword', 'bow', 'spear', 'staff', 'gun', 'axe', 'mace_shield'];
 
-export function getWeaponFBXForRace(race: Race, style: WeaponStyle): { mainHand: string | null; offHand: string | null } {
-  const equip = RACE_EQUIPMENT[race];
+export function getWeaponFBXForRace(_race: Race, _style: WeaponStyle): { mainHand: string | null; offHand: string | null } {
+  // Extra-model FBX (WK_weapon_sword_A / ORC_Shield_D) is not on the CDN.
+  // Play uses loadRaceKit / race GLB mesh_ids. Do not 404-spam those packs.
+  return { mainHand: null, offHand: null };
+  /*
+  const equip = RACE_EQUIPMENT[_race];
   const shared = SHARED_EQUIPMENT;
 
   switch (style) {
@@ -587,6 +591,7 @@ export function getWeaponFBXForRace(race: Race, style: WeaponStyle): { mainHand:
       return { mainHand: mace || null, offHand: shield || null };
     }
   }
+  */
 }
 
 export const KAYKIT_ANIM_PATHS = {
