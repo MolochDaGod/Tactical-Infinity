@@ -17,6 +17,7 @@ import type { IslandHeightmap } from './IslandHeightmap';
 import type { HarvestSpecies } from './IslandConfig';
 import { HARVEST_ASSETS, loadAsset, createTexturedOreMesh } from '@/lib/islandAssetLoader';
 import { normalizeToMetricSize, METRIC_TARGETS, PLAYER_HEIGHT_M, DOORWAY_HEIGHT_M } from './metricSizing';
+import { stampHarvestNode } from '@/lib/harvestNodeStamp';
 
 /** Per-ore visual tint (clusters glow faintly with this colour too). */
 const ORE_TINT: Record<HarvestSpecies, number> = {
@@ -171,6 +172,8 @@ export class HarvestNodeSystem {
       // Sink into steep ground so deposits read as part of the cliff.
       wrapper.position.set(p.x, p.y - p.slope * 0.4, p.z);
       wrapper.rotation.y = rng() * Math.PI * 2;
+      wrapper.name = `harvest_node_${p.type}`;
+      stampHarvestNode(wrapper, { id: `ore_${p.type}_${this.nodes.length}`, kind: p.type });
       this.group.add(wrapper);
 
       this.nodes.push({

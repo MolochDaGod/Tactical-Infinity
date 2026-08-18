@@ -411,7 +411,13 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     sunLight.shadow.bias = -0.001;
     scene.add(sunLight);
 
-    const terrain = generateIslandTerrain({ seed: 42, segments: 192, radius: 200 });
+    const terrain = generateIslandTerrain({
+      seed: 42,
+      segments: 192,
+      radius: 200,
+      seafloorDepth: -22,
+      waterLevel: 0,
+    });
     terrainRef.current = terrain;
     terrain.mesh.castShadow = true;
     scene.add(terrain.mesh);
@@ -424,7 +430,7 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     seascape.material.uniforms.uSeaBase.value.set(0.02, 0.48, 0.52);
     seascape.material.uniforms.uSeaTint.value.set(0.45, 0.95, 0.72);
     seascape.material.uniforms.uSkyTint.value.set(0.72, 0.88, 1.0);
-    seascape.mesh.position.y = -0.4;
+    seascape.mesh.position.y = 0;
     scene.add(seascape.mesh);
     seascapeRef.current = seascape;
     waterRef.current = seascape.mesh;
@@ -459,7 +465,10 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     propCollidersRef.current.registerMany(mission.getColliderSpecs());
 
     void import('@/lib/fishManager').then(({ FishManager }) => {
-      const fm = new FishManager(scene, 220, () => -9);
+      const fm = new FishManager(scene, 220, (x, z) => {
+        const h = terrain.getHeightAt(x, z);
+        return h < 0 ? h : -1;
+      });
       fm.setIslandPositions([new THREE.Vector3(0, 0, 0)]);
       fm.initialize().then(() => {
         fishMgrRef.current = fm;

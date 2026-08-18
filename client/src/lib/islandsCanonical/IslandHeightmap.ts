@@ -258,7 +258,7 @@ export function generateIslandHeightmap(
   function getHeightAt(worldX: number, worldZ: number): number {
     const u = (worldX + half) / opts.worldSize;
     const v = (worldZ + half) / opts.worldSize;
-    if (u < 0 || u > 1 || v < 0 || v > 1) return 0;
+    if (u < 0 || u > 1 || v < 0 || v > 1) return opts.minHeight;
     const fx = u * opts.size, fy = v * opts.size;
     const x0 = Math.floor(fx), y0 = Math.floor(fy);
     const x1 = Math.min(x0 + 1, opts.size), y1 = Math.min(y0 + 1, opts.size);

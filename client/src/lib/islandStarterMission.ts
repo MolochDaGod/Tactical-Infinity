@@ -27,7 +27,8 @@ import {
   spawnCutDown,
 } from '@/lib/forestHarvest';
 import type { ForestPart, ForestTreeType } from '@shared/gameDefinitions/forestHarvestCatalog';
-import { ALL_FOREST_PARTS } from '@shared/gameDefinitions/forestHarvestCatalog';
+import { ALL_FOREST_PARTS, FOREST_STONES } from '@shared/gameDefinitions/forestHarvestCatalog';
+import { stampHarvestNode } from '@/lib/harvestNodeStamp';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -360,6 +361,7 @@ export class IslandStarterMission {
       mesh.position.set(p.x, p.y, p.z);
       mesh.rotation.y = (i * 1.7) % (Math.PI * 2);
       mesh.userData.baseX = p.x;
+      stampHarvestNode(mesh, { id: `forest_${part.kind}_${part.node}`, kind: part.kind });
       const type: HarvestableType =
         part.kind === 'tree' ? 'tree'
         : part.kind === 'stone' ? 'rock'
@@ -391,6 +393,63 @@ export class IslandStarterMission {
         forestPart: part,
       });
     });
+    this._spawnSeafloorNodes(pack);
+  }
+
+  /** Shore / shallow stones sit on the heightmap seafloor — still harvest nodes. */
+  private _spawnSeafloorNodes(pack: THREE.Group): void {
+    const spots = this._seafloorSpots(FOREST_STONES.length);
+    FOREST_STONES.forEach((part, i) => {
+      const mesh = isolateForestPart(pack, part);
+      if (!mesh.children.length) return;
+      const p = spots[i];
+      if (!p) return;
+      mesh.position.set(p.x, p.y, p.z);
+      mesh.rotation.y = (i * 0.9) % (Math.PI * 2);
+      const ring = this._highlightRing(0.7);
+      mesh.add(ring);
+      stampHarvestNode(mesh, { id: `seafloor_${part.node}`, kind: 'stone' });
+      this.scene.add(mesh);
+      this.nodes.push({
+        id: `seafloor_${part.node}`,
+        mesh,
+        ring,
+        type: 'rock',
+        health: part.hits,
+        maxHealth: part.hits,
+        yield: { resource: 'stone', amount: part.yieldAmt },
+        depleted: false,
+        shakeTimer: 0,
+        depletionElapsed: 0,
+        depletionDuration: 0.45,
+        startScale: new THREE.Vector3(1, 1, 1),
+        startY: p.y,
+        forestPart: part,
+      });
+    });
+  }
+
+  private _seafloorSpots(count: number): Array<{ x: number; y: number; z: number }> {
+    const out: Array<{ x: number; y: number; z: number }> = [];
+    if (!this.terrain) return out;
+    const r = this.terrain.radius;
+    let s = 0xc0ffee;
+    const rnd = () => {
+      s = (Math.imul(s, 1664525) + 1013904223) >>> 0;
+      return s / 0x100000000;
+    };
+    let guard = 0;
+    while (out.length < count && guard < count * 50) {
+      guard++;
+      const ang = rnd() * Math.PI * 2;
+      const dist = r * (0.72 + rnd() * 0.28);
+      const x = Math.cos(ang) * dist;
+      const z = Math.sin(ang) * dist;
+      const h = this.terrain.getHeightAt(x, z);
+      if (h > -0.15 || h < -12) continue;
+      out.push({ x, y: h, z });
+    }
+    return out;
   }
 
   private _landSpots(count: number): Array<{ x: number; y: number; z: number }> {
@@ -417,44 +476,21 @@ export class IslandStarterMission {
     return out;
   }
 
+  private _placeNode(node: HarvestNode, x: number, z: number): void {
+    const y = this.terrain ? this.terrain.getHeightAt(x, z) : 1.2;
+    node.mesh.position.set(x, y, z);
+    node.mesh.userData.baseX = x;
+    node.startY = y;
+    stampHarvestNode(node.mesh, { id: node.id, kind: node.type });
+    this.scene.add(node.mesh);
+    this.nodes.push(node);
+  }
+
   private _spawnNodes(): void {
-    const trees: Array<[number, number]> = [
-      [ 8, -12], [-10,  -8], [ 15,   5], [-6,  14],
-      [12,  10], [ -14,  2], [  5, -18], [-8, -20],
-    ];
-    const rocks: Array<[number, number]> = [
-      [-16, -12], [18, -6], [-4, 20], [13, -18], [-18, 8],
-    ];
-    const hemp: Array<[number, number]> = [
-      [6, 8], [-12, -18], [16, 15], [-5, -4],
-    ];
-
-    // We'll derive Y from island bounds mid-height + a small offset
-    const midY = (this.bounds.max.y + this.bounds.min.y) / 2 + 2;
-
-    trees.forEach(([x, z], i) => {
-      const node = this._makeTree(i);
-      node.mesh.position.set(x, midY, z);
-      node.mesh.userData.baseX = x;
-      this.scene.add(node.mesh);
-      this.nodes.push(node);
-    });
-
-    rocks.forEach(([x, z], i) => {
-      const node = this._makeRock(i);
-      node.mesh.position.set(x, midY - 0.5, z);
-      node.mesh.userData.baseX = x;
-      this.scene.add(node.mesh);
-      this.nodes.push(node);
-    });
-
-    hemp.forEach(([x, z], i) => {
-      const node = this._makeHemp(i);
-      node.mesh.position.set(x, midY - 0.2, z);
-      node.mesh.userData.baseX = x;
-      this.scene.add(node.mesh);
-      this.nodes.push(node);
-    });
+    const land = this._landSpots(8 + 5 + 4);
+    land.slice(0, 8).forEach((p, i) => this._placeNode(this._makeTree(i), p.x, p.z));
+    land.slice(8, 13).forEach((p, i) => this._placeNode(this._makeRock(i), p.x, p.z));
+    land.slice(13, 17).forEach((p, i) => this._placeNode(this._makeHemp(i), p.x, p.z));
   }
 
   private _highlightRing(r: number): THREE.Mesh {
