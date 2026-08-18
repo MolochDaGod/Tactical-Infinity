@@ -21,6 +21,8 @@ const DROP_NAME =
 
 export interface DockWorkshopScene {
   group: THREE.Group;
+  root: THREE.Object3D;
+  clips: THREE.AnimationClip[];
   ocean: SeascapeOcean;
   berth: THREE.Vector3;
   lookAt: THREE.Vector3;
@@ -34,6 +36,7 @@ export interface WorkshopScaleReport {
   dropped: string[];
   sceneSizeM: [number, number, number];
   playerHeightM: number;
+  waterlineAuthorY: number;
 }
 
 function shouldDrop(obj: THREE.Object3D): boolean {
@@ -75,6 +78,8 @@ export function prepareWorkshopLayers(root: THREE.Object3D): WorkshopScaleReport
   }
 
   root.updateMatrixWorld(true);
+  let waterline = Number.POSITIVE_INFINITY;
+  let sandHit = false;
   const box = new THREE.Box3();
   let any = false;
   root.traverse((o) => {
@@ -82,11 +87,20 @@ export function prepareWorkshopLayers(root: THREE.Object3D): WorkshopScaleReport
     if (!m.isMesh || !m.visible) return;
     box.expandByObject(m);
     any = true;
+    const n = `${m.name} ${m.parent?.name || ''}`.toLowerCase();
+    const mb = new THREE.Box3().setFromObject(m);
+    if (/sabbia|sand|beach|shore/.test(n)) {
+      waterline = Math.min(waterline, mb.min.y);
+      sandHit = true;
+    } else if (!sandHit && /casetta|shack|hut/.test(n)) {
+      waterline = Math.min(waterline, mb.min.y - 0.35);
+    }
   });
-  if (any && isFinite(box.min.y)) {
-    root.position.y -= box.min.y;
+  if (!isFinite(waterline) && any) waterline = box.min.y;
+  if (any && isFinite(waterline)) {
+    root.position.y -= waterline;
     root.updateMatrixWorld(true);
-    box.translate(new THREE.Vector3(0, -box.min.y, 0));
+    box.translate(new THREE.Vector3(0, -waterline, 0));
   }
 
   const size = box.getSize(new THREE.Vector3());
@@ -106,6 +120,7 @@ export function prepareWorkshopLayers(root: THREE.Object3D): WorkshopScaleReport
     dropped: [...new Set(dropped)],
     sceneSizeM: [size.x, size.y, size.z],
     playerHeightM: HUMAN_HEIGHT_M,
+    waterlineAuthorY: isFinite(waterline) ? waterline : 0,
   };
 }
 
@@ -158,6 +173,8 @@ export async function loadDockWorkshopScene(scene: THREE.Scene): Promise<DockWor
 
   return {
     group,
+    root,
+    clips: gltf.animations ?? [],
     ocean,
     berth,
     lookAt,

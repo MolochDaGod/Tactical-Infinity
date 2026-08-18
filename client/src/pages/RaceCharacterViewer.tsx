@@ -739,6 +739,16 @@ export default function RaceCharacterViewer({ onBack }: Props) {
 
         <div className="flex items-center gap-2">
           <Button
+            variant="outline"
+            size="sm"
+            onClick={() => {
+              window.location.href = '/dock-workshop?tester=1';
+            }}
+            data-testid="button-test-dock-workshop"
+          >
+            Test on dock
+          </Button>
+          <Button
             variant={showSkeleton ? 'default' : 'outline'}
             size="sm"
             onClick={() => setShowSkeleton(v => !v)}
