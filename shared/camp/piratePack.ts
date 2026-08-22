@@ -4,7 +4,8 @@
  * Binary: models/pirate/low_poly_pirate_pack_1.glb
  * CDN:    https://assets.grudge-studio.com/models/pirate/low_poly_pirate_pack_1.glb
  *
- * Source: D:\Games\Models\low_poly_pirate_pack__pack_1.glb
+ * Source: C:\Users\nugye\Documents\low__poly__pirate__pack___pack_1.glb
+ *         (same pack as D:\Games\Models\low_poly_pirate_pack__pack_1.glb)
  * Never place the whole multi-mesh pack as one entity — isolate meshName.
  */
 
@@ -13,34 +14,52 @@ export const PIRATE_PACK_CDN =
   "https://assets.grudge-studio.com/models/pirate/low_poly_pirate_pack_1.glb";
 export const PIRATE_PACK_LOCAL = "/models/pirate/low_poly_pirate_pack_1.glb";
 
-/** Node name prefixes in the GLB (parent groups; mesh children append `_Material_0`). */
+/**
+ * Node names in the GLB (parent groups; mesh children append `_Material_0`).
+ * Documents re-export `low__poly__pirate__pack___pack_1.glb` uses underscores
+ * (`PIRATE_PACK_Cannon`). Play isolates stay on the hyphen pack already on CDN.
+ *
+ * PIRATE_PACK-RowBoat is a dinghy *visual* only — play hull stays BoatId skiff
+ * (`/models/fleet/boats/rowboat.glb`). Do not set playBoatId on the pack hull.
+ */
 export const PIRATE_MESH = {
-  /** Net dock / fishing stand with nets */
   netDock: "PIRATE_PACK-FishingStandNet",
-  /** Coastal cannon barrel */
   cannon: "PIRATE_PACK-Cannon",
-  /** Cannon carriage / base */
   cannonBase: "PIRATE_PACK-CannonStand",
-  /** Bone / death chest — buried treasure dig find */
   boneChest: "PIRATE_PACK-Death_Chest-Closed",
-  /** Standard pirate chest */
   chest: "PIRATE_PACK-Chest-Closed",
-  /** Hand fishing pole (tool v1) */
+  smallChestClosed: "PIRATE_PACK-SmallCreate-Closed",
+  smallChestOpen: "PIRATE_PACK-SmallCreate-Open",
+  barrelClosed: "PIRATE_PACK-Barell",
+  barrelOpen: "PIRATE_PACK-Barell_Open",
   fishingRod: "PIRATE_PACK-FishingRod",
-  /** Standing fishing pole with line set (tool v2) */
   fishingRodLine: "PIRATE_PACK-FishingRodStanding",
-  /** Dig shovel */
-  shovel: "PIRATE_PACK-Shovel",
-  /** Drying rack (net dock companion prop) */
   fishingDry: "PIRATE_PACK-FishingDry",
+  shovel: "PIRATE_PACK-Shovel",
   rowBoat: "PIRATE_PACK-RowBoat",
   oars: "PIRATE_PACK-RowBoatOars",
+  flintlock: "PIRATE_PACK-Gun",
+  rifle: "PIRATE_PACK-Gun.001",
+  coin: "PIRATE_PACK-Coin",
   coinPileSmall: "PIRATE_PACK-CoinPile_Small",
   coinPileLarge: "PIRATE_PACK-CoinPile_Large",
+  coinBag: "PIRATE_PACK-CoinBag",
+  moneyBag: "PIRATE_PACK-MoneyBag",
   goldBar: "PIRATE_PACK-GoldBar",
+  goldBarPile: "PIRATE_PACK-GoldBar_Pile",
+  goldBarWall: "PIRATE_PACK-GoldBar_Wall",
+  diamond: "PIRATE_PACK-Diamond",
+  ruby: "PIRATE_PACK-Ruby",
+  pearls: "PIRATE_PACK-Pearls",
+  ring: "PIRATE_PACK-Ring",
+  chalice: "PIRATE_PACK-Chalece",
   skull: "PIRATE_PACK-Skull",
   key: "PIRATE_PACK-Key",
   skullKey: "PIRATE_PACK-SkullKey",
+  hook: "PIRATE_PACK-HookHand",
+  longScope: "PIRATE_PACK-LongScope",
+  smallScope: "PIRATE_PACK-SmallScope",
+  deadFish: "PIRATE_PACK-DeadFish",
 } as const;
 
 export type PirateMeshKey = keyof typeof PIRATE_MESH;
@@ -128,6 +147,15 @@ export const PIRATE_PACK_CATALOG: PiratePackEntry[] = [
     ],
   },
   {
+    id: "pirate.fish_trap",
+    role: "tool",
+    name: "Fish Trap",
+    meshName: "fish_trap",
+    targetHeightM: 1.1,
+    description: "Deployable trap — missing fishing-gear prefab filled from author GLB.",
+    catalogIds: ["tool.fish_trap", "fish_trap"],
+  },
+  {
     id: "pirate.shovel",
     role: "tool",
     name: "Pirate Shovel",
@@ -146,7 +174,287 @@ export const PIRATE_PACK_CATALOG: PiratePackEntry[] = [
     description: "Closed treasure chest prop / loot container.",
     catalogIds: ["loot.pirate_chest"],
   },
+  {
+    id: "pirate.small_chest",
+    role: "loot",
+    name: "Small Chest",
+    meshName: PIRATE_MESH.smallChestClosed,
+    targetHeightM: 0.45,
+    description: "Small crate/chest. E inspect swaps closed → open mesh.",
+    catalogIds: ["loot.small_chest", "small_chest"],
+  },
+  {
+    id: "pirate.barrel",
+    role: "prop",
+    name: "Barrel (closed)",
+    meshName: PIRATE_MESH.barrelClosed,
+    targetHeightM: 0.7,
+    description: "Closed barrel. E inspect swaps to open.",
+    catalogIds: ["prop.barrel", "barrel"],
+  },
+  {
+    id: "pirate.flintlock",
+    role: "tool",
+    name: "Flintlock Pistol",
+    meshName: PIRATE_MESH.flintlock,
+    targetHeightM: 0.22,
+    description: "Deck / nest pistol prop — not a second weapon-skill tree.",
+    catalogIds: ["tool.flintlock", "flintlock"],
+  },
+  {
+    id: "pirate.rifle",
+    role: "tool",
+    name: "Flintlock Rifle",
+    meshName: PIRATE_MESH.rifle,
+    targetHeightM: 0.85,
+    description: "Long gun prop for crow's nest. Weapon skills stay T0 packs.",
+    catalogIds: ["tool.pirate_rifle", "pirate_rifle"],
+  },
+  {
+    id: "pirate.oars",
+    role: "prop",
+    name: "Oar pair",
+    meshName: PIRATE_MESH.oars,
+    targetHeightM: 0.14,
+    description: "Row station loom. Hands IK to this isolate.",
+    catalogIds: ["prop.oars", "rowboatoars"],
+  },
+  {
+    id: "pirate.dinghy",
+    role: "prop",
+    name: "Pack dinghy hull",
+    meshName: PIRATE_MESH.rowBoat,
+    targetHeightM: 0.7,
+    description:
+      "Visual dinghy isolate. Play hull is BoatId skiff — do not spawn this as WARLORDS_PLAY_BOATS.",
+    catalogIds: ["prop.dinghy_visual"],
+  },
+  {
+    id: "pirate.gold_bar",
+    role: "treasure",
+    name: "Gold Bar",
+    meshName: PIRATE_MESH.goldBar,
+    targetHeightM: 0.08,
+    description: "Treasure inspect / shovel loot.",
+    catalogIds: ["loot.gold_bar"],
+  },
+  {
+    id: "pirate.coin_pile_small",
+    role: "treasure",
+    name: "Coin Pile (small)",
+    meshName: PIRATE_MESH.coinPileSmall,
+    targetHeightM: 0.12,
+    description: "Gold pile inside open chests.",
+    catalogIds: ["loot.coin_pile_small"],
+  },
 ];
+
+/** Closed/open mesh pairs — one interactable, E toggles visibility (no second mixer). */
+export interface PirateLidPair {
+  id: string;
+  name: "small_chest" | "barrel" | "chest";
+  closed: string;
+  open: string;
+  heightM: number;
+  prompt: string;
+  lootIds: string[];
+}
+
+export const PIRATE_LID_PAIRS: readonly PirateLidPair[] = [
+  {
+    id: "prefab.small_chest",
+    name: "small_chest",
+    closed: PIRATE_MESH.smallChestClosed,
+    open: PIRATE_MESH.smallChestOpen,
+    heightM: 0.45,
+    prompt: "E — look in chest",
+    lootIds: ["pirate.coin_pile_small", "pirate.gold_bar", "pirate.chest"],
+  },
+  {
+    id: "prefab.barrel",
+    name: "barrel",
+    closed: PIRATE_MESH.barrelClosed,
+    open: PIRATE_MESH.barrelOpen,
+    heightM: 0.7,
+    prompt: "E — look in barrel",
+    lootIds: ["pirate.gold_bar"],
+  },
+];
+
+export type PiratePrefabRole =
+  | "cannon"
+  | "inspect"
+  | "fishing"
+  | "dinghy"
+  | "weapon_prop"
+  | "tool"
+  | "treasure";
+
+export interface PiratePrefabPart {
+  meshName: string;
+  role: string;
+  /** Local metres after isolate ground. */
+  offset?: [number, number, number];
+}
+
+export interface PiratePrefabDef {
+  id: string;
+  name: string;
+  role: PiratePrefabRole;
+  stationKind?: "oar" | "cannon" | "harpoon" | "sniper_nest" | "mage_spot" | "helm";
+  parts: PiratePrefabPart[];
+  lid?: PirateLidPair;
+  lengthM: number;
+  heightM: number;
+  notes: string;
+  /** D1 definition key fragment (pack#prefab:id). */
+  d1Key: string;
+}
+
+/**
+ * Gameplay prefabs — composed isolates, not a second pack.
+ * First cannon = independent base + barrel parented together.
+ */
+export const PIRATE_PREFABS: readonly PiratePrefabDef[] = [
+  {
+    id: "prefab.deck_cannon_t0",
+    name: "T0 Deck Cannon",
+    role: "cannon",
+    stationKind: "cannon",
+    parts: [
+      { meshName: PIRATE_MESH.cannonBase, role: "base" },
+      { meshName: PIRATE_MESH.cannon, role: "barrel" },
+    ],
+    lengthM: 1.4,
+    heightM: 0.85,
+    notes: "First play cannon. Recoil on barrel isolate (name contains Cannon).",
+    d1Key: `${PIRATE_PACK_R2_KEY}#prefab:deck_cannon_t0`,
+  },
+  {
+    id: "prefab.small_chest",
+    name: "Small Chest (E inspect)",
+    role: "inspect",
+    stationKind: "mage_spot",
+    parts: [
+      { meshName: PIRATE_MESH.smallChestClosed, role: "closed" },
+      { meshName: PIRATE_MESH.smallChestOpen, role: "open" },
+    ],
+    lid: PIRATE_LID_PAIRS[0],
+    lengthM: 0.55,
+    heightM: 0.45,
+    notes: "One asset. Closed visible until E, then open + loot peek.",
+    d1Key: `${PIRATE_PACK_R2_KEY}#prefab:small_chest`,
+  },
+  {
+    id: "prefab.barrel",
+    name: "Barrel (E inspect)",
+    role: "inspect",
+    stationKind: "mage_spot",
+    parts: [
+      { meshName: PIRATE_MESH.barrelClosed, role: "closed" },
+      { meshName: PIRATE_MESH.barrelOpen, role: "open" },
+    ],
+    lid: PIRATE_LID_PAIRS[1],
+    lengthM: 0.55,
+    heightM: 0.7,
+    notes: "Closed/open barrel pair. E looks inside.",
+    d1Key: `${PIRATE_PACK_R2_KEY}#prefab:barrel`,
+  },
+  {
+    id: "prefab.fishing_rod",
+    name: "Fishing Pole",
+    role: "fishing",
+    stationKind: "harpoon",
+    parts: [{ meshName: PIRATE_MESH.fishingRod, role: "rod" }],
+    lengthM: 1.6,
+    heightM: 0.08,
+    notes: "Hand pole (no line).",
+    d1Key: `${PIRATE_PACK_R2_KEY}#prefab:fishing_rod`,
+  },
+  {
+    id: "prefab.fishing_rod_line",
+    name: "Fishing Pole with Line",
+    role: "fishing",
+    stationKind: "harpoon",
+    parts: [{ meshName: PIRATE_MESH.fishingRodLine, role: "rod_line" }],
+    lengthM: 1.6,
+    heightM: 1.5,
+    notes: "Standing pole with line in the water.",
+    d1Key: `${PIRATE_PACK_R2_KEY}#prefab:fishing_rod_line`,
+  },
+  {
+    id: "prefab.net_dock",
+    name: "Net stand",
+    role: "fishing",
+    stationKind: "harpoon",
+    parts: [{ meshName: PIRATE_MESH.netDock, role: "net" }],
+    lengthM: 1.4,
+    heightM: 2.2,
+    notes: "Fishing nets / stand.",
+    d1Key: `${PIRATE_PACK_R2_KEY}#prefab:net_dock`,
+  },
+  {
+    id: "prefab.oars",
+    name: "Oar pair",
+    role: "tool",
+    stationKind: "oar",
+    parts: [{ meshName: PIRATE_MESH.oars, role: "oar" }],
+    lengthM: 2.2,
+    heightM: 0.14,
+    notes: "Row station.",
+    d1Key: `${PIRATE_PACK_R2_KEY}#prefab:oars`,
+  },
+  {
+    id: "prefab.dinghy",
+    name: "Pack dinghy (visual)",
+    role: "dinghy",
+    parts: [
+      { meshName: PIRATE_MESH.rowBoat, role: "hull" },
+      { meshName: PIRATE_MESH.oars, role: "oar", offset: [0.55, 0.12, 0] },
+    ],
+    lengthM: 3.2,
+    heightM: 0.7,
+    notes: "Not a play BoatId. Skiff play mesh stays models/fleet/boats/rowboat.glb.",
+    d1Key: `${PIRATE_PACK_R2_KEY}#prefab:dinghy_visual`,
+  },
+  {
+    id: "prefab.flintlock",
+    name: "Flintlock pistol",
+    role: "weapon_prop",
+    stationKind: "sniper_nest",
+    parts: [{ meshName: PIRATE_MESH.flintlock, role: "pistol" }],
+    lengthM: 0.35,
+    heightM: 0.22,
+    notes: "Prop only.",
+    d1Key: `${PIRATE_PACK_R2_KEY}#prefab:flintlock`,
+  },
+  {
+    id: "prefab.rifle",
+    name: "Flintlock rifle",
+    role: "weapon_prop",
+    stationKind: "sniper_nest",
+    parts: [{ meshName: PIRATE_MESH.rifle, role: "rifle" }],
+    lengthM: 1.1,
+    heightM: 0.18,
+    notes: "Crow's nest prop.",
+    d1Key: `${PIRATE_PACK_R2_KEY}#prefab:rifle`,
+  },
+  {
+    id: "prefab.shovel",
+    name: "Shovel",
+    role: "tool",
+    stationKind: "mage_spot",
+    parts: [{ meshName: PIRATE_MESH.shovel, role: "shovel" }],
+    lengthM: 1.2,
+    heightM: 1.2,
+    notes: "Dig / buried treasure.",
+    d1Key: `${PIRATE_PACK_R2_KEY}#prefab:shovel`,
+  },
+];
+
+export function getPiratePrefab(id: string): PiratePrefabDef | undefined {
+  return PIRATE_PREFABS.find((p) => p.id === id);
+}
 
 export function pirateMeshUrl(preferCdn = true): string {
   return preferCdn ? PIRATE_PACK_CDN : PIRATE_PACK_LOCAL;

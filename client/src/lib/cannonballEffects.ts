@@ -1,6 +1,75 @@
 import * as THREE from 'three';
 import type { CannonSkillId } from '@shared/gameDefinitions/sailing';
 import { createCannonFlashTexture, createExplosionTexture, createSmokeTexture } from '@/lib/islandAssetLoader';
+import { loadGltfProduction } from '@/lib/threeProductionLoader';
+
+/** Sketchfab CC-BY-4.0 yanix — animated low-poly explosion (one clip, fire+smoke). */
+export const BOAT_EXPLOSION_GLB = '/models/vfx/animated-low-poly-explosion.glb';
+export const BOAT_EXPLOSION_CDN =
+  'https://assets.grudge-studio.com/models/vfx/animated-low-poly-explosion.glb';
+
+const MAX_GLB_BURSTS = 3;
+
+interface GlbBurst {
+  wrap: THREE.Group;
+  mixer: THREE.AnimationMixer;
+  life: number;
+  maxLife: number;
+}
+
+let _expRoot: THREE.Group | null = null;
+let _expClip: THREE.AnimationClip | null = null;
+let _expPeakM = 1;
+let _expLoad: Promise<boolean> | null = null;
+
+function explosionRadiusM(ammo: CannonSkillId): number {
+  switch (ammo) {
+    case 'explosive_shell':
+      return 7.0;
+    case 'fire_bomb':
+      return 4.8;
+    case 'grapeshot':
+    case 'scatter_shot':
+      return 1.8;
+    case 'chain_shot':
+      return 2.4;
+    default:
+      return 3.2;
+  }
+}
+
+/** Load once. Peak AABB is sampled at clip end (scale 0→1). */
+export function preloadBoatExplosion(): Promise<boolean> {
+  if (_expRoot && _expClip) return Promise.resolve(true);
+  if (_expLoad) return _expLoad;
+  _expLoad = (async () => {
+    try {
+      let gltf;
+      try {
+        gltf = await loadGltfProduction(BOAT_EXPLOSION_GLB);
+      } catch {
+        gltf = await loadGltfProduction(BOAT_EXPLOSION_CDN);
+      }
+      _expRoot = gltf.scene;
+      _expClip = gltf.animations?.[0] ?? null;
+      if (_expClip && _expRoot) {
+        const probe = _expRoot.clone(true);
+        const mix = new THREE.AnimationMixer(probe);
+        mix.clipAction(_expClip).play();
+        mix.update(_expClip.duration);
+        probe.updateMatrixWorld(true);
+        const size = new THREE.Box3().setFromObject(probe).getSize(new THREE.Vector3());
+        _expPeakM = Math.max(size.x, size.y, size.z, 0.5);
+      }
+      return true;
+    } catch (e) {
+      console.warn('[cannonballFx] explosion glb miss', e);
+      _expLoad = null;
+      return false;
+    }
+  })();
+  return _expLoad;
+}
 
 let _flashTex: THREE.Texture | null = null;
 let _explosionTex: THREE.Texture | null = null;
@@ -17,6 +86,28 @@ function getExplosionTex(): THREE.Texture {
 function getSmokeTex(): THREE.Texture {
   if (!_smokeTex) _smokeTex = createSmokeTexture();
   return _smokeTex;
+}
+
+/** Recoil isolated deck cannon (props pack / station pad). Not a second mixer. */
+export function kickBoatCannons(root: THREE.Object3D | null | undefined): void {
+  if (!root) return;
+  root.traverse((o) => {
+    if (/cannon|uvthecannon/i.test(o.name) || o.userData?.deckStation === 'cannon') {
+      o.userData.cannonRecoil = 0.22;
+    }
+  });
+}
+
+export function updateBoatCannonRecoil(root: THREE.Object3D | null | undefined, dt: number): void {
+  if (!root) return;
+  root.traverse((o) => {
+    const r = o.userData?.cannonRecoil;
+    if (typeof r !== 'number') return;
+    o.rotation.x = -r * 0.4;
+    const n = Math.max(0, r - dt * 1.6);
+    o.userData.cannonRecoil = n;
+    if (n <= 0) o.rotation.x = 0;
+  });
 }
 
 interface TrailParticle {
@@ -92,6 +183,7 @@ export class CannonballEffects {
   private trails: Map<string, { particles: TrailParticle[]; ammoType: CannonSkillId }> = new Map();
   private splashes: SplashParticle[] = [];
   private shipFires: Map<string, ShipFire> = new Map();
+  private glbBursts: GlbBurst[] = [];
 
   private smokeGeometry: THREE.SphereGeometry;
   private smokeMaterial: THREE.MeshBasicMaterial;
@@ -129,6 +221,56 @@ export class CannonballEffects {
       new THREE.MeshBasicMaterial({ color: 0xffcc00, transparent: true, opacity: 0.7 }),
     ];
     this.smokeDarkGeometry = new THREE.SphereGeometry(0.6, 6, 6);
+    void preloadBoatExplosion();
+  }
+
+  private cullOldestBurst(): void {
+    if (this.glbBursts.length < MAX_GLB_BURSTS) return;
+    const old = this.glbBursts.shift();
+    if (!old) return;
+    this.scene.remove(old.wrap);
+    old.mixer.stopAllAction();
+    old.wrap.traverse((c) => {
+      const m = c as THREE.Mesh;
+      if (!m.isMesh) return;
+      const mat = m.material;
+      if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
+      else (mat as THREE.Material).dispose();
+    });
+  }
+
+  private spawnGlbBurst(position: THREE.Vector3, radiusM: number): void {
+    if (!_expRoot || !_expClip) {
+      void preloadBoatExplosion();
+      return;
+    }
+    this.cullOldestBurst();
+    const vis = _expRoot.clone(true);
+    vis.traverse((c) => {
+      const m = c as THREE.Mesh;
+      if (!m.isMesh) return;
+      const mats = Array.isArray(m.material) ? m.material : [m.material];
+      const next = mats.map((mat) => {
+        const cloned = (mat as THREE.Material).clone();
+        cloned.transparent = true;
+        cloned.depthWrite = false;
+        return cloned;
+      });
+      m.material = next.length === 1 ? next[0] : next;
+    });
+    const wrap = new THREE.Group();
+    wrap.name = 'boat_impact_explosion';
+    wrap.add(vis);
+    wrap.scale.setScalar(radiusM / _expPeakM);
+    wrap.position.copy(position);
+    this.scene.add(wrap);
+    const mixer = new THREE.AnimationMixer(vis);
+    const act = mixer.clipAction(_expClip);
+    act.setLoop(THREE.LoopOnce, 1);
+    act.clampWhenFinished = true;
+    act.reset().play();
+    const life = _expClip.duration + 0.08;
+    this.glbBursts.push({ wrap, mixer, life, maxLife: life });
   }
 
   startTrail(cannonballId: string, ammoType: CannonSkillId = 'heavy_ball') {
@@ -579,6 +721,8 @@ export class CannonballEffects {
   }
 
   createImpactExplosion(position: THREE.Vector3, ammoType: CannonSkillId = 'heavy_ball') {
+    this.spawnGlbBurst(position.clone(), explosionRadiusM(ammoType));
+
     if (ammoType === 'explosive_shell') {
       this.createExplosiveWaterImpact(position);
       return;
@@ -738,6 +882,34 @@ export class CannonballEffects {
   }
 
   update(delta: number) {
+    for (let i = this.glbBursts.length - 1; i >= 0; i--) {
+      const b = this.glbBursts[i];
+      b.mixer.update(delta);
+      b.life -= delta;
+      const fade = Math.max(0, Math.min(1, b.life / 0.22));
+      b.wrap.traverse((c) => {
+        const m = c as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mats = Array.isArray(m.material) ? m.material : [m.material];
+        for (const mat of mats) {
+          const std = mat as THREE.MeshStandardMaterial;
+          if (std.opacity != null) std.opacity = fade;
+        }
+      });
+      if (b.life <= 0) {
+        this.scene.remove(b.wrap);
+        b.mixer.stopAllAction();
+        b.wrap.traverse((c) => {
+          const m = c as THREE.Mesh;
+          if (!m.isMesh) return;
+          const mat = m.material;
+          if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
+          else (mat as THREE.Material).dispose();
+        });
+        this.glbBursts.splice(i, 1);
+      }
+    }
+
     this.trails.forEach((entry) => {
       for (let i = entry.particles.length - 1; i >= 0; i--) {
         const p = entry.particles[i];
@@ -804,6 +976,19 @@ export class CannonballEffects {
       (p.mesh.material as THREE.Material).dispose();
     });
     this.splashes = [];
+
+    for (const b of this.glbBursts) {
+      this.scene.remove(b.wrap);
+      b.mixer.stopAllAction();
+      b.wrap.traverse((c) => {
+        const m = c as THREE.Mesh;
+        if (!m.isMesh) return;
+        const mat = m.material;
+        if (Array.isArray(mat)) mat.forEach((x) => x.dispose());
+        else (mat as THREE.Material).dispose();
+      });
+    }
+    this.glbBursts = [];
 
     this.smokeGeometry.dispose();
     this.smokeMaterial.dispose();

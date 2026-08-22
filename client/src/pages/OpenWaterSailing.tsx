@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import * as THREE from 'three';
-import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { loadGltfProduction } from '@/lib/threeProductionLoader';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
@@ -8,7 +8,7 @@ import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { DynamicOcean, createOceanGeometry, createOceanMaterial } from '@/lib/oceanShader';
 import { ShipPhysics, calculateWaveHeightAt, getWeatherSeverityLevel } from '@/lib/shipPhysics';
-import { SHIP_MODEL_PATHS, applyShipTextures } from '@/lib/shipPrefabs';
+import { applyShipTextures } from '@/lib/shipPrefabs';
 import { SHIP_TYPES, calculatePolarSpeed, CANNON_SKILLS, SHIP_CANNON_CONFIGS, getEligibleMounts } from '@shared/gameDefinitions/sailing';
 import type { CannonSkillId, CannonMount } from '@shared/gameDefinitions/sailing';
 import type { WeatherConfig } from '@/lib/weatherSystem';
@@ -20,10 +20,14 @@ import { BoatBoardingSystem, type BoardingMode } from '@/lib/BoatBoardingSystem'
 import { Minimap, type MinimapMarker } from '@/components/game/Minimap';
 import { IslandGenerator, type IslandConfig } from '@/lib/islandGenerator';
 import { createIslandDefenses, type IslandDefenseSystem, type DefenseHitResult } from '@/lib/islandDefenseSystem';
-import { CannonballEffects } from '@/lib/cannonballEffects';
+import { CannonballEffects, kickBoatCannons, updateBoatCannonRecoil } from '@/lib/cannonballEffects';
 import { RtsSeaHud, type RtsSeaCommand } from '@/components/hud/RtsSeaHud';
 import { resolvePlayerBoatId } from '@/lib/captainBuild';
-import { getBoat } from '@shared/gameDefinitions/boatRegistry';
+import { getBoat, isOpenDeckBoat, resolveBoatId } from '@shared/gameDefinitions/boatRegistry';
+import { loadFleetColliderOverlay, peekDeckY, peekHullHalfExtents } from '@/lib/fleetColliderRuntime';
+import { RapierOpenSeaCombat } from '@/lib/naval/rapierOpenSeaCombat';
+import { MainGamePanel } from '@/components/game/MainGamePanel';
+import { useMainPanel } from '@/hooks/useMainPanel';
 import { shipAudio } from '@/lib/shipAudio';
 import '@/styles/sailingFx.css';
 import { SailingScenics } from '@/lib/sailingScenics';
@@ -466,6 +470,8 @@ export default function OpenWaterSailing({ onBack, onLandOnIsland }: OpenWaterSa
 
   // Boarding system state
   const boardingSystemRef = useRef<BoatBoardingSystem | null>(null);
+  const rapierSeaRef = useRef<RapierOpenSeaCombat | null>(null);
+  const panel = useMainPanel({ hotKey: 'i', defaultTab: 'home-island' });
   // Weather visuals + ambient sea life, owned by this scene.
   const scenicsRef = useRef<SailingScenics | null>(null);
   const moistureCtlRef = useRef<ReturnType<typeof makeMoisturePass> | null>(null);
@@ -697,31 +703,20 @@ export default function OpenWaterSailing({ onBack, onLandOnIsland }: OpenWaterSa
     let sailYardMesh: THREE.Mesh | null = null;
     let sailBoomMesh: THREE.Mesh | null = null;
 
+    await loadFleetColliderOverlay();
     const boat = getBoat(shipType);
     try {
-      const loader = new GLTFLoader();
       const modelPath = boat.modelPath;
       console.log(`[Sailing] Spawning boat "${boat.id}" (${boat.name}) → ${modelPath}`);
-      // Race the load against a timeout so a hung/stalled GLB can never
-      // leave the player floating with no boat — the catch builds a
-      // procedural placeholder hull instead.
-      const gltf = await new Promise<any>((resolve, reject) => {
-        let settled = false;
-        const timer = setTimeout(() => {
-          if (!settled) {
-            settled = true;
-            reject(new Error(`Ship model load timed out: ${modelPath}`));
-          }
-        }, 15000);
-        loader.load(
-          modelPath,
-          (g) => { if (!settled) { settled = true; clearTimeout(timer); resolve(g); } },
-          undefined,
-          (e) => { if (!settled) { settled = true; clearTimeout(timer); reject(e); } },
-        );
-      });
+      const gltf = await Promise.race([
+        loadGltfProduction(modelPath),
+        new Promise<never>((_, reject) => {
+          setTimeout(() => reject(new Error(`Ship model load timed out: ${modelPath}`)), 15000);
+        }),
+      ]);
       ship = gltf.scene;
       ship!.scale.setScalar(boat.modelScale);
+      ship!.userData.playBoatId = boat.id;
       ship!.castShadow = true;
 
       const existingSails: THREE.Mesh[] = [];
@@ -736,7 +731,7 @@ export default function OpenWaterSailing({ onBack, onLandOnIsland }: OpenWaterSa
         }
       });
 
-      if (existingSails.length > 0) {
+      if (!isOpenDeckBoat(boat.id) && existingSails.length > 0) {
         for (const oldSail of existingSails) {
           const bbox = new THREE.Box3().setFromObject(oldSail);
           const size = bbox.getSize(new THREE.Vector3());
@@ -749,7 +744,7 @@ export default function OpenWaterSailing({ onBack, onLandOnIsland }: OpenWaterSa
           oldSail.visible = false;
           clothSails.push(sail);
         }
-      } else {
+      } else if (!isOpenDeckBoat(boat.id) && existingSails.length === 0) {
         const mainSail = createClothSail(3.0, 4.2, new THREE.Color(0xfffdd0));
         mainSail.mesh.position.set(0, 4.9, 0);
         ship!.add(mainSail.mesh);
@@ -1251,12 +1246,22 @@ export default function OpenWaterSailing({ onBack, onLandOnIsland }: OpenWaterSa
       onPrompt:     (msg) => setBoardingPrompt(msg),
       onLoaded:     () => {
         if (ship) {
-          const deckY = boarding.probeDeckHeight(ship);
-          boarding.setDeckY(deckY > 0 ? deckY : 1.0);
+          const hid = resolveBoatId(shipType);
+          boarding.setHullId(hid);
+          const he = peekHullHalfExtents(hid);
+          boarding.setDeckExtents(he.x * 0.92, he.z * 0.92);
+          const bakedY = peekDeckY(hid, 0);
+          const deckY = bakedY > 0.05 ? bakedY : boarding.probeDeckHeight(ship);
+          boarding.setDeckY(deckY > 0 ? deckY : he.y);
         }
       },
     });
     boarding.setShip(ship);
+    boarding.setHullId(resolveBoatId(shipType));
+    {
+      const he = peekHullHalfExtents(resolveBoatId(shipType));
+      boarding.setDeckExtents(he.x * 0.92, he.z * 0.92);
+    }
     boarding.setWeather(weather);
     // Place character on deck at ship start position
     boarding.worldPos.copy(state.shipPosition).add(new THREE.Vector3(0, BUOYANCY_OFFSET + 1.2, 0));
@@ -1264,6 +1269,10 @@ export default function OpenWaterSailing({ onBack, onLandOnIsland }: OpenWaterSa
     // Load asynchronously — character appears once ready
     boarding.load();
     boardingSystemRef.current = boarding;
+
+    const seaPhys = new RapierOpenSeaCombat();
+    rapierSeaRef.current = seaPhys;
+    void seaPhys.init(scene).then(() => seaPhys.ensureWaterCollider());
 
     setLoading(false);
 
@@ -1383,6 +1392,21 @@ export default function OpenWaterSailing({ onBack, onLandOnIsland }: OpenWaterSa
       // No-op when no riders have been added.
       if (deckRigRef.current) deckRigRef.current.update(delta);
       seaCreaturesRef.current?.update(delta, elapsed);
+
+      const seaP = rapierSeaRef.current;
+      updateBoatCannonRecoil(state.ship, delta);
+      if (seaP?.isReady()) {
+        const hid = resolveBoatId(shipType);
+        seaP.syncShipHull({
+          id: 'player',
+          kind: 'player',
+          halfExtents: peekHullHalfExtents(hid),
+          position: state.shipPosition,
+          yaw: state.shipHeading,
+          colliderAssetId: hid,
+        });
+        seaP.step(delta);
+      }
 
       // ── Boarding character update ───────────────────────────────────────
       const bs = boardingSystemRef.current;
@@ -1889,7 +1913,7 @@ export default function OpenWaterSailing({ onBack, onLandOnIsland }: OpenWaterSa
             </div>
           )}
           <div className="text-white/40 text-xs mt-1">
-            WASD move &nbsp;|&nbsp; right-drag orbit &nbsp;|&nbsp; E jump off &nbsp;|&nbsp; F board (when swimming)
+            WASD walk · Ctrl sneak · Shift hurry · E jump off · F board
           </div>
         </div>
       )}
@@ -2164,6 +2188,12 @@ export default function OpenWaterSailing({ onBack, onLandOnIsland }: OpenWaterSa
           </div>
         </div>
       )}
+      <MainGamePanel
+        isOpen={panel.isOpen}
+        onClose={panel.close}
+        hotKey="I"
+        defaultTab="home-island"
+      />
     </div>
   );
 }
@@ -2440,6 +2470,7 @@ function fireCannonFromState(state: any, side: 'port' | 'starboard') {
     state.starboardCooldown = STARBOARD_COOLDOWN_MAX;
   }
   state.shipPhysics.applyImpact(2, (side === 'port' ? -1 : 1) * Math.PI / 2);
+  kickBoatCannons(state.ship);
 }
 
 function fireCannonMount(state: any, mount: CannonMount) {
@@ -2492,6 +2523,7 @@ function fireCannonMount(state: any, mount: CannonMount) {
   } else {
     createMuzzleFlash(state, origin.clone());
   }
+  kickBoatCannons(state.ship);
 }
 
 function fireCannonAtAngle(state: any, angle: number, owner: 'player' | 'enemy') {
@@ -2624,9 +2656,9 @@ function fireSniperShot(state: any) {
 
 // Pool of enemy model paths — randomly chosen for visual variety
 const ENEMY_SHIP_MODELS = [
-  SHIP_MODEL_PATHS.pirateSmall,
-  SHIP_MODEL_PATHS.pirateMedium,
-  SHIP_MODEL_PATHS.medium,
+  getBoat('skiff').modelPath,
+  getBoat('sloop').modelPath,
+  getBoat('raft').modelPath,
 ];
 const ENEMY_SAIL_COLORS = [0xcc2222, 0x991111, 0xaa1133];
 
@@ -2646,12 +2678,9 @@ async function spawnEnemyFromState(state: any) {
   try {
     const modelIdx  = Math.floor(Math.random() * ENEMY_SHIP_MODELS.length);
     const sailColor = ENEMY_SAIL_COLORS[modelIdx % ENEMY_SAIL_COLORS.length];
-    const loader    = new GLTFLoader();
-    const gltf = await new Promise<any>((resolve, reject) => {
-      loader.load(ENEMY_SHIP_MODELS[modelIdx], resolve, undefined, reject);
-    });
+    const gltf = await loadGltfProduction(ENEMY_SHIP_MODELS[modelIdx]!);
     enemyMesh = gltf.scene;
-    enemyMesh.scale.setScalar(2.5);
+    enemyMesh.scale.setScalar(1);
     enemyMesh.castShadow = true;
 
     // Detect and replace existing sails
@@ -2882,9 +2911,7 @@ function updateProjectiles(state: any, delta: number, elapsed: number) {
           const at = (proj.ammoType || 'heavy_ball') as CannonSkillId;
           if (state.cannonballFx) {
             state.cannonballFx.createSplash(proj.mesh.position.clone(), false, at);
-            if (at === 'explosive_shell') {
-              state.cannonballFx.createImpactExplosion(proj.mesh.position.clone(), at);
-            }
+            state.cannonballFx.createImpactExplosion(proj.mesh.position.clone(), at);
           } else {
             createSplash(state, proj.mesh.position.clone());
           }
@@ -2908,6 +2935,7 @@ function updateProjectiles(state: any, delta: number, elapsed: number) {
         state.playerHealth -= proj.damage;
         if (state.cannonballFx) {
           state.cannonballFx.createSplash(proj.mesh.position.clone(), false, 'heavy_ball');
+          state.cannonballFx.createImpactExplosion(proj.mesh.position.clone(), 'heavy_ball');
         } else {
           createSplash(state, proj.mesh.position.clone());
         }
@@ -3455,7 +3483,7 @@ const CLOSE_DIST    = 50;           // clearly visible / high detail
 
 // MMO-scale island definitions  (sx/sz already in sailing-space units)
 const SAILING_ISLANDS = [
-  { id: 'waterfall_isle', name: 'Waterfall Isle', sx:    0 * WORLD_SCALE, sz:    0 * WORLD_SCALE, sr: 110, faction: 0xffd700, biome: 'forest',   seed: 1001 },
+  { id: 'waterfall_isle', name: 'Home Isle', sx:    0 * WORLD_SCALE, sz:    0 * WORLD_SCALE, sr: 42, faction: 0xffd700, biome: 'tropical',   seed: 1001 },
   { id: 'valheim_port',   name: 'Valheim Port',   sx: -1800 * WORLD_SCALE, sz: -2200 * WORLD_SCALE, sr:  80, faction: 0x4488ff, biome: 'forest',   seed: 1002 },
   { id: 'ravens_perch',   name: "Raven's Perch",  sx: -2200 * WORLD_SCALE, sz: -1600 * WORLD_SCALE, sr:  55, faction: 0x4488ff, biome: 'beach',    seed: 1003 },
   { id: 'berserker_bay',  name: 'Berserker Bay',  sx: -1200 * WORLD_SCALE, sz: -2600 * WORLD_SCALE, sr:  65, faction: 0x4488ff, biome: 'forest',   seed: 1004 },

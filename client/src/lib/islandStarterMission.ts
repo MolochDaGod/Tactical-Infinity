@@ -71,6 +71,8 @@ const HARVEST_COOLDOWN = 0.4; // seconds between hits
 export interface IslandStarterMissionOpts {
   terrain?: TerrainData;
   skipDock?: boolean;
+  /** Dock / Fruzer kit already has harvest isolates — do not scatter a second forest. */
+  skipHarvestNodes?: boolean;
 }
 
 export class IslandStarterMission {
@@ -111,19 +113,53 @@ export class IslandStarterMission {
     this.bounds = bounds;
     this.terrain = opts.terrain ?? null;
 
-    this._spawnNodes();
+    if (!opts.skipHarvestNodes) {
+      this._spawnNodes();
+      void loadForestPack().then((pack) => {
+        if (pack) this._reskinFromForest(pack);
+      });
+    }
     if (!opts.skipDock) {
       this.dock = this._createDock();
       this.scene.add(this.dock);
     }
-    void loadForestPack().then((pack) => {
-      if (pack) this._reskinFromForest(pack);
-    });
   }
 
   // ── Public API ────────────────────────────────────────────────────────────
 
   setPlayerPosition(pos: THREE.Vector3): void { this.playerPos = pos; }
+
+  /** Register an already-placed kit isolate as an E-harvest node (dock Fruzer path). */
+  adoptHarvest(
+    mesh: THREE.Object3D,
+    spec: {
+      id: string;
+      type: HarvestableType;
+      hits: number;
+      resource: keyof MissionResources;
+      amount: number;
+    },
+  ): void {
+    const ring = this._highlightRing(spec.type === 'tree' ? 1.4 : spec.type === 'hemp' ? 0.7 : 0.85);
+    mesh.add(ring);
+    stampHarvestNode(mesh, { id: spec.id, kind: spec.type });
+    mesh.userData.baseX = mesh.position.x;
+    this.nodes.push({
+      id: spec.id,
+      mesh: mesh as THREE.Group,
+      ring,
+      type: spec.type,
+      health: spec.hits,
+      maxHealth: spec.hits,
+      yield: { resource: spec.resource, amount: spec.amount },
+      depleted: false,
+      shakeTimer: 0,
+      depletionElapsed: 0,
+      depletionDuration: 0.45,
+      startScale: mesh.scale.clone(),
+      startY: mesh.position.y,
+    });
+  }
 
   /** Pass the Sketchbook controller so tool props can be parented to the hand bone. */
   setController(ctrl: typeof this._ctrl): void { this._ctrl = ctrl; }

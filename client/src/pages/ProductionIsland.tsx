@@ -8,15 +8,16 @@ import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPa
 import { ShaderPass } from 'three/examples/jsm/postprocessing/ShaderPass.js';
 import { FXAAShader } from 'three/examples/jsm/shaders/FXAAShader.js';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
-import { Progress } from '@/components/ui/progress';
 import {
-  ArrowLeft, Sword, Heart, Shield, Target,
-  TreePine, Mountain, Waves, Eye, Crosshair,
-  Anchor, Ship
+  ArrowLeft, Mountain, Anchor, Ship,
 } from 'lucide-react';
-import { GameHUD } from '@/components/game/GameHUD';
-import type { SlotDef, VitalBarDef } from '@/components/game/GameHUD';
+import { MainGamePanel } from '@/components/game/MainGamePanel';
+import { GameHUD, type SlotDef } from '@/components/game/GameHUD';
+import { configureProductionRenderer, preloadProductionUrls, loadGltfProduction } from '@/lib/threeProductionLoader';
+import { resolveGrudachainAdmin } from '@/lib/grudachainAdmin';
+import { SectorAtlasHud } from '@/components/WorldMap/SectorAtlasHud';
+import { loadBoatTemplate } from '@/lib/boatAssetLoader';
+import { useMainPanel } from '@/hooks/useMainPanel';
 import {
   generateIslandTerrain,
   snapToTerrain,
@@ -25,9 +26,10 @@ import {
   selectNodeTypeForZone,
   type TerrainData,
 } from '@/lib/islandHeightmapTerrain';
-import { IslandNavMeshV2 } from '@/lib/IslandNavMeshV2';
-import { YukaAISystem, type AIEnemyConfig, type AIEnemy } from '@/lib/yukaEnemyAI';
-import MagicBookUI from '@/components/game/MagicBookUI';
+import { UnifiedNavSystem } from '@/lib/nav';
+import { YukaAISystem, AGGRO_RINGS, type AIEnemyConfig, type AIEnemy } from '@/lib/yukaEnemyAI';
+import { preloadAnimatedEnemyAssets, cloneAnimatedEnemy, type AnimatedEnemyInstance } from '@/lib/animatedEnemyLoader';
+
 import {
   createGrassSystem,
   createAmbientParticles,
@@ -41,20 +43,21 @@ import {
 } from '@/lib/islandVisualEffects';
 import type { Race, WeaponStyle } from '@/data/toonRTSAssets';
 import { CharacterBuilder } from '@/lib/character/CharacterBuilder';
-import { CLASS_TO_WEAPON_STYLE, loadCaptainBuild } from '@/lib/captainBuild';
+import { CLASS_LABELS, CLASS_TO_WEAPON_STYLE, loadCaptainBuild } from '@/lib/captainBuild';
+import { PLAY_TOOLS, type PlayTool } from '@/lib/islandsCanonical/editorPlayController';
 import { IslandSky } from '@/lib/islandsCanonical/IslandSky';
 import { SeascapeOcean } from '@/lib/islandsCanonical/SeascapeOcean';
 import { getCanonicalBackdrop } from '@/lib/grudgeAssetConfig';
 import { createDock, isPlayerNearDock, type DockData } from '@/lib/islandDockSystem';
+import { mountChickenGunDockIsland } from '@/lib/chickenGunDockIsland';
+import { mountDwarfArcticIsland } from '@/lib/dwarfArcticIsland';
 import { normalizeToMetres } from '@/lib/modelNormalize';
 import { ResourceNodeManager } from '@/lib/resourceNodes';
 import { IslandAnimalManager, ANIMAL_SPAWN_WEIGHTS, type AnimalType } from '@/lib/islandAnimals';
 import { HarvestingSystem } from '@/lib/harvestingProfessions';
-import HarvestToolRadial from '@/components/hud/HarvestToolRadial';
-import type { PlayTool } from '@/lib/islandsCanonical/editorPlayController';
 import { CUTE_ROD_URLS, FISHING_POLE_LENGTH_M } from '@/lib/quaterniusFish';
 import { PropColliderSystem } from '@/lib/PropColliderSystem';
-import { CinzelOverlay, buildHudOverride, isCinzelHudEnabled } from '@/components/hud/CinzelOverlay';
+import type { HarvestProfessionId } from '@shared/gameDefinitions/professions';
 import {
   preloadIslandAssets,
   loadRandomTree,
@@ -80,10 +83,15 @@ import {
   type MissionResources,
 } from '@/lib/islandStarterMission';
 import { StarterRaftPanel } from '@/components/game/StarterRaftPanel';
-import { awardHarvestXp, discoverRecipe, isRaftBuilt, markRaftBuilt } from '@/lib/playerProgression';
+import { awardHarvestXp, discoverRecipe, isRaftBuilt, markRaftBuilt, anyIslandAutoHarvest, getIslandAutoHarvest } from '@/lib/playerProgression';
 import { nearIslet, type CoastalIslet } from '@/lib/placeCoastalIslet';
 import { readIslandEntry } from '@/lib/gameStartFlow';
-import { createIslandRapierGround } from '@/lib/islandRapierGround';
+import { createIslandRapierGround, type IslandRapierGround } from '@/lib/islandRapierGround';
+import { RapierHelper } from 'three/examples/jsm/helpers/RapierHelper.js';
+import { nearHatch } from '@/lib/captainsQuartersInstance';
+import type { KeepInteriorHandle } from '@/lib/dwarfArcticIsland';
+import type { BuildingInteriorHandle } from '@/lib/buildingInteriorInstance';
+import { applyResourceWealth } from '@/lib/resourceWealthVisual';
 import { runIslandAssetDoctor } from '@/lib/islandAssetDoctor';
 
 interface Props {
@@ -136,7 +144,7 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
 
   const terrainRef = useRef<TerrainData | null>(null);
   const waterRef = useRef<THREE.Mesh | null>(null);
-  const navRef = useRef<IslandNavMeshV2 | null>(null);
+  const navRef = useRef<UnifiedNavSystem | null>(null);
   const aiRef = useRef<YukaAISystem | null>(null);
   const playerRef = useRef<THREE.Group | null>(null);
   const playerPosRef = useRef(new THREE.Vector3(0, 5, 0));
@@ -153,13 +161,21 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
   const particlesRef = useRef<ParticleSystem | null>(null);
   const splashRef = useRef<ShoreSplashSystem | null>(null);
   const characterBuilderRef = useRef<CharacterBuilder | null>(null);
-  const captainAnimRef = useRef<'idle' | 'walk'>('idle');
+  const captainAnimRef = useRef<'idle' | 'walk' | 'harvest'>('idle');
   const skyRef = useRef<IslandSky | null>(null);
   const seascapeRef = useRef<SeascapeOcean | null>(null);
   const dockRef = useRef<DockData | null>(null);
   const isletRef = useRef<CoastalIslet | null>(null);
   const fishMgrRef = useRef<{ update: (dt: number, p: THREE.Vector3) => void; dispose?: () => void } | null>(null);
-  const rapierGroundRef = useRef<{ update: (dt: number) => void; dispose: () => void } | null>(null);
+  const rapierGroundRef = useRef<IslandRapierGround | null>(null);
+  const rapierHelperRef = useRef<RapierHelper | null>(null);
+  const keepInteriorRef = useRef<KeepInteriorHandle | null>(null);
+  const inKeepRef = useRef(false);
+  const buildingInteriorsRef = useRef<BuildingInteriorHandle[]>([]);
+  const inInteriorRef = useRef<BuildingInteriorHandle | null>(null);
+  const vendorStandRef = useRef<THREE.Vector3 | null>(null);
+  const vendorNpcRef = useRef<AnimatedEnemyInstance | null>(null);
+  const dockWealthRef = useRef<THREE.Group | null>(null);
   const carcassManagerRef = useRef<ResourceNodeManager | null>(null);
   const animalManagerRef = useRef<IslandAnimalManager | null>(null);
   const harvestSystemRef = useRef<HarvestingSystem | null>(null);
@@ -171,8 +187,11 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
   const [waveNum, setWaveNum] = useState(1);
   const [nodeCount, setNodeCount] = useState(0);
   const [nearDock, setNearDock] = useState(false);
-  const [bookOpen, setBookOpen] = useState(false);
   const [webglError, setWebglError] = useState(false);
+  const panel = useMainPanel({ hotKey: 'i', defaultTab: 'home-island' });
+  const [worldMini, setWorldMini] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+  const adminSpawnedRef = useRef<THREE.Object3D[]>([]);
   const [leather, setLeather] = useState(0);
   const [hide, setHide] = useState(0);
   const [skinningLevel, setSkinningLevel] = useState(1);
@@ -201,6 +220,20 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
   }, [applyHarvestTool]);
+  useEffect(() => {
+    void resolveGrudachainAdmin().then(setIsAdmin);
+  }, []);
+  useEffect(() => {
+    const onM = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() !== 'm') return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA') return;
+      e.preventDefault();
+      setWorldMini((v) => !v);
+    };
+    window.addEventListener('keydown', onM);
+    return () => window.removeEventListener('keydown', onM);
+  }, []);
   const [huntToast, setHuntToast] = useState<string | null>(null);
   const huntToastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const starterMissionRef = useRef<IslandStarterMission | null>(null);
@@ -254,6 +287,7 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
 
   const spawnResourceNodes = useCallback(async (scene: THREE.Scene, terrain: TerrainData) => {
     await preloadIslandAssets();
+    void preloadProductionUrls(['/models/ships/wooden-raft.prod.glb']);
     // Fixed seed matches generateIslandTerrain({ seed: 42 }) for canonical home island.
     const HOME_SEED = 42;
     const positions = generateResourceNodePositions(terrain, 55, 10);
@@ -348,12 +382,17 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     const w = containerRef.current.clientWidth;
     const h = containerRef.current.clientHeight;
 
+    const islandEntry = readIslandEntry();
+    const isDockEntry = islandEntry === 'dock';
+    const fortressSkin = islandEntry === 'arctic' || islandEntry === 'dwarf' ? islandEntry : null;
+
     const scene = new THREE.Scene();
     scene.background = null;
     sceneRef.current = scene;
 
     const backdrop = getCanonicalBackdrop('homeIsland');
     const sky = new IslandSky({
+      radius: 1200,
       weather: backdrop.weather,
       timeOfDay: backdrop.timeOfDay,
     });
@@ -362,17 +401,13 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     const fogStrength = sky.fogStrength * (backdrop.fogScale ?? 1);
     scene.fog = new THREE.FogExp2(sky.material.uniforms.uHorizon.value.getHex(), fogStrength * 0.0012);
 
-    const camera = new THREE.PerspectiveCamera(55, w / h, 0.5, 800);
+    const camera = new THREE.PerspectiveCamera(55, w / h, 0.5, 2500);
     cameraRef.current = camera;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
     renderer.setSize(w, h);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    configureProductionRenderer(renderer);
     renderer.toneMappingExposure = 1.1;
-    renderer.outputColorSpace = THREE.SRGBColorSpace;
     containerRef.current.appendChild(renderer.domElement);
     rendererRef.current = renderer;
 
@@ -417,18 +452,22 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
 
     const terrain = generateIslandTerrain({
       seed: 42,
-      segments: 192,
-      radius: 200,
+      segments: 96,
+      radius: 56,
       seafloorDepth: -22,
       waterLevel: 0,
     });
+    terrain.mesh.visible = false;
     terrainRef.current = terrain;
-    terrain.mesh.castShadow = true;
     scene.add(terrain.mesh);
+    const bounds = new THREE.Box3().setFromObject(terrain.mesh);
     scene.fog = new THREE.FogExp2(0x7ec8c8, 0.008);
-    void createIslandRapierGround(terrain).then((g) => {
-      rapierGroundRef.current = g;
-    });
+    // Load order: renderer → (Rapier WASM on kit after glTF) → nav → player → fish → AI.
+    if (!isDockEntry) {
+      void createIslandRapierGround(terrain).then((g) => {
+        if (g) rapierGroundRef.current = g;
+      });
+    }
 
     const seascape = new SeascapeOcean({
       size: 640,
@@ -443,25 +482,186 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     seascapeRef.current = seascape;
     waterRef.current = seascape.mesh;
 
-    const dock = createDock(terrain, 'south', { kind: 'capital_dock' });
-    scene.add(dock.group);
+    const dock = createDock(terrain, 'south', { kind: 'fishing_dock' });
+    dock.group.visible = false;
     dockRef.current = dock;
 
-    // Lobby shipyard: reuse the capital dock berths — do not spawn a second pier
-    void import('@/lib/lobbyShipYard').then(({ createLobbyShipYard }) => {
-      createLobbyShipYard(scene, terrain, 'south', dock).catch((e) =>
-        console.warn('[ProductionIsland] lobby shipyard', e),
-      );
+    const nav = new UnifiedNavSystem({
+      resolution: 1.0,
+      agentRadius: 0.5,
+      classifier: { seaLevel: 0.05, minLandY: 0.05, maxLandY: 40 },
     });
-
-    const nav = new IslandNavMeshV2({ resolution: 1.2, maxSlopeRad: 0.7 });
-    const bounds = new THREE.Box3().setFromObject(terrain.mesh);
-    nav.generate([terrain.mesh], bounds);
     navRef.current = nav;
 
+    const bakeNav = (meshes: THREE.Mesh[], box: THREE.Box3) => {
+      const expanded = box.clone().expandByScalar(8);
+      try {
+        nav.bake({ meshes, bounds: expanded });
+        ai.setNavSystem(nav, 'land');
+      } catch (err) {
+        console.warn('[ProductionIsland] nav bake failed — Yuka steers straight', err);
+      }
+    };
+
+    const kitPromise = fortressSkin
+      ? mountDwarfArcticIsland(scene, fortressSkin)
+      : mountChickenGunDockIsland(scene);
+    void kitPromise.then(async (kit) => {
+      dockRef.current = kit.dock;
+      const proc = terrain;
+      terrainRef.current = {
+        ...proc,
+        getHeightAt: (x, z) => {
+          const h = kit.terrain.getHeightAt(x, z);
+          return h > -21 ? h : proc.getHeightAt(x, z);
+        },
+      };
+      const walk = ((kit.terrain as TerrainData & { walkMeshes?: THREE.Mesh[] }).walkMeshes ?? []) as THREE.Mesh[];
+      const kitBounds = new THREE.Box3().setFromObject(kit.group);
+      bounds.copy(kitBounds);
+      if (walk.length) bakeNav(walk, kitBounds);
+      if (playerRef.current) {
+        playerRef.current.position.copy(kit.dock.spawnPoint);
+        playerPosRef.current.copy(kit.dock.spawnPoint);
+      }
+      kit.group.updateMatrixWorld(true);
+      if ('keepInterior' in kit) keepInteriorRef.current = kit.keepInterior ?? null;
+      buildingInteriorsRef.current = [];
+      if (keepInteriorRef.current) buildingInteriorsRef.current.push(keepInteriorRef.current);
+      if ('interiors' in kit && kit.interiors?.length) {
+        buildingInteriorsRef.current.push(...kit.interiors);
+      }
+      if ('dockWealth' in kit && kit.dockWealth) {
+        dockWealthRef.current = kit.dockWealth;
+        applyResourceWealth(kit.dockWealth, starterMissionRef.current?.getResources() ?? { wood: 0, hemp: 0, stone: 0 });
+      }
+      if ('vendorStand' in kit && kit.vendorStand) vendorStandRef.current = kit.vendorStand.clone();
+      if ('harvestables' in kit && kit.harvestables?.length && starterMissionRef.current) {
+        for (const h of kit.harvestables) {
+          starterMissionRef.current.adoptHarvest(h.object, h);
+        }
+        propCollidersRef.current.registerMany(starterMissionRef.current.getColliderSpecs());
+        setNodeCount(kit.harvestables.length);
+      }
+      await preloadAnimatedEnemyAssets();
+      if (vendorStandRef.current) {
+        const shop = cloneAnimatedEnemy('bandit');
+        if (shop) {
+          shop.group.position.copy(vendorStandRef.current);
+          shop.group.position.x -= 1.6;
+          shop.play(shop.actions.idle);
+          scene.add(shop.group);
+          vendorNpcRef.current = shop;
+        }
+        const dockSpawn = kit.dock.spawnPoint;
+        ai.spawnAlly({
+          name: 'Harbour guard',
+          level: 2,
+          position: dockSpawn.clone().add(new THREE.Vector3(2.4, 0, 0.8)),
+          faction: 'bandit',
+          aggroRange: AGGRO_RINGS.aggro,
+          attackRange: 2.2,
+          attackDamage: 5,
+          attackCooldown: 1.5,
+          moveSpeed: 3.0,
+          hp: 48,
+          assetUuid: 'ally-harbour-guard-1',
+        });
+        ai.spawnAlly({
+          name: 'Harbour guard',
+          level: 2,
+          position: dockSpawn.clone().add(new THREE.Vector3(-2.6, 0, 1.1)),
+          faction: 'bandit',
+          aggroRange: AGGRO_RINGS.aggro,
+          attackRange: 2.2,
+          attackDamage: 5,
+          attackCooldown: 1.5,
+          moveSpeed: 3.0,
+          hp: 48,
+          assetUuid: 'ally-harbour-guard-2',
+        });
+      }
+      rapierGroundRef.current?.dispose();
+      const occluders: THREE.Object3D[] = [];
+      kit.group.traverse((o) => {
+        if (o.userData?.kitKind === 'prop' || o.userData?.ident === 'grave') occluders.push(o);
+      });
+      const phys = await createIslandRapierGround(kit.terrain, { occluders });
+      if (phys) {
+        rapierGroundRef.current = phys;
+        const heightAt = (x: number, z: number) => phys.heightAt(x, z);
+        terrainRef.current = {
+          ...(terrainRef.current as TerrainData),
+          getHeightAt: heightAt,
+          getNormalAt: (x, z) => phys.normalAt(x, z),
+          getSlopeAt: (x, z) => phys.slopeAt(x, z),
+        };
+        ai.setPhysicsQueries({
+          losClear: (from, to) => phys.losClear(from, to),
+          heightAt,
+        });
+        try {
+          const dbg = new URLSearchParams(window.location.search).get('physicsDebug') === '1';
+          if (dbg) {
+            rapierHelperRef.current?.dispose();
+            const helper = new RapierHelper(phys.world);
+            helper.name = 'rapier_debug';
+            scene.add(helper);
+            rapierHelperRef.current = helper;
+          }
+        } catch (err) {
+          console.warn('[ProductionIsland] RapierHelper', err);
+        }
+      }
+      if (isDockEntry) {
+        const fm = await import('@/lib/fishManager').then((m) => new m.FishManager(
+          scene,
+          48,
+          (x, z) => {
+            const h = (terrainRef.current ?? terrain).getHeightAt(x, z);
+            return h < 0 ? h : -1;
+          },
+          { includeWorldHabitats: false, maxFish: 36 },
+        ));
+        fm.setIslandPositions([new THREE.Vector3(0, 0, 0)]);
+        fm.initialize().then(() => { fishMgrRef.current = fm; }).catch((e) => console.warn('[ProductionIsland] fish', e));
+      }
+      kit.camps.forEach((camp, i) => {
+        const grounded = camp.position.clone();
+        grounded.y = terrainRef.current?.getHeightAt(grounded.x, grounded.z) ?? 0.6;
+        if (grounded.y < 0.2) grounded.y = 0.6;
+        ai.spawnEnemy({
+          name: `${camp.faction} camp ${i + 1}`,
+          level: 2,
+          position: grounded,
+          faction: camp.faction === 'legion' ? 'raider' : camp.faction === 'crusade' ? 'bandit' : 'beast',
+          aggroRange: AGGRO_RINGS.aggro,
+          attackRange: 2.4,
+          attackDamage: 6,
+          attackCooldown: 1.6,
+          moveSpeed: 3.2,
+          hp: 42,
+          assetUuid: `camp-${camp.faction}-${i}`,
+        });
+      });
+    }).catch((e) => {
+      console.warn('[ProductionIsland] chicken-gun kit failed — procedural dock', e);
+      dock.group.visible = true;
+      scene.add(dock.group);
+      const fb = new THREE.Box3().setFromObject(terrain.mesh);
+      bakeNav([terrain.mesh], fb);
+    });
+
     // Always forest-harvest on the existing home island (not a second island).
-    const mission = new IslandStarterMission(scene, bounds, { terrain, skipDock: true });
-    mission.onUpdate((r) => setMissionResources({ ...r }));
+    const mission = new IslandStarterMission(scene, bounds, {
+      terrain,
+      skipDock: true,
+      skipHarvestNodes: isDockEntry,
+    });
+    mission.onUpdate((r) => {
+      setMissionResources({ ...r });
+      if (dockWealthRef.current) applyResourceWealth(dockWealthRef.current, r);
+    });
     mission.onComplete(() => {
       markRaftBuilt();
       setRaftBuilt(true);
@@ -472,26 +672,35 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     starterMissionRef.current = mission;
     propCollidersRef.current.registerMany(mission.getColliderSpecs());
 
-    void import('@/lib/fishManager').then(({ FishManager }) => {
-      const fm = new FishManager(scene, 220, (x, z) => {
-        const h = terrain.getHeightAt(x, z);
-        return h < 0 ? h : -1;
+    if (!isDockEntry) {
+      void import('@/lib/fishManager').then(({ FishManager }) => {
+        const fm = new FishManager(
+          scene,
+          70,
+          (x, z) => {
+            const h = (terrainRef.current ?? terrain).getHeightAt(x, z);
+            return h < 0 ? h : -1;
+          },
+          { includeWorldHabitats: true, maxFish: 80 },
+        );
+        fm.setIslandPositions([new THREE.Vector3(0, 0, 0)]);
+        fm.initialize().then(() => {
+          fishMgrRef.current = fm;
+        }).catch((e) => console.warn('[ProductionIsland] fish', e));
       });
-      fm.setIslandPositions([new THREE.Vector3(0, 0, 0)]);
-      fm.initialize().then(() => {
-        fishMgrRef.current = fm;
-      }).catch((e) => console.warn('[ProductionIsland] fish', e));
-    });
+    }
 
-    void import('@/lib/placeCoastalIslet').then(({ placeCoastalIslet }) => {
-      placeCoastalIslet(scene, terrain).then((islet) => {
-        if (islet) isletRef.current = islet;
-      }).catch((e) => console.warn('[ProductionIsland] coastal islet', e));
-    });
+    if (readIslandEntry() !== 'dock' && !fortressSkin) {
+      void import('@/lib/placeCoastalIslet').then(({ placeCoastalIslet }) => {
+        placeCoastalIslet(scene, terrain).then((islet) => {
+          if (islet) isletRef.current = islet;
+        }).catch((e) => console.warn('[ProductionIsland] coastal islet', e));
+      });
+    }
 
     const ai = new YukaAISystem(scene);
     aiRef.current = ai;
-    spawnWave(ai, terrain, 1);
+    if (readIslandEntry() !== 'dock' && !fortressSkin) spawnWave(ai, terrain, 1);
 
     const playerGroup = new THREE.Group();
     playerGroup.name = 'player';
@@ -530,7 +739,10 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     }
 
     const captainBuild = loadCaptainBuild();
-    let captainRace: Race = captainBuild?.race ?? 'human';
+    let captainRace: Race =
+      captainBuild?.race === 'orc' || captainBuild?.race === 'barbarian'
+        ? captainBuild.race
+        : 'barbarian';
     let weaponStyle: WeaponStyle = captainBuild?.weaponStyle
       ?? (captainBuild ? CLASS_TO_WEAPON_STYLE[captainBuild.classKey] : 'sword_shield');
     try {
@@ -562,11 +774,13 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
         console.warn('Captain CharacterBuilder load failed, keeping placeholder:', err);
       });
 
-    spawnResourceNodes(scene, terrain);
+    if (!isDockEntry) spawnResourceNodes(scene, terrain);
 
     // ── Mines: craftpix multi-profession dig + UF stone quarry (miner only) ──
     const mines: ActiveMine[] = [];
+    const skipOffIslandBlobs = isDockEntry;
     (async () => {
+      if (skipOffIslandBlobs) return;
       const angles = [0.4, 2.1, 4.0];
       for (let i = 0; i < 2; i++) {
         const a = angles[i]! + Math.random() * 0.3;
@@ -623,17 +837,25 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     harvestSystemRef.current = harvestSystem;
     setSkinningLevel(harvestSystem.getProfessionLevel('skinning').level);
     const animalManager = new IslandAnimalManager(scene, carcassManager);
-    animalManager.setGroundSampler((x, z) => terrain.getHeightAt(x, z));
+    animalManager.setGroundSampler((x, z) => (terrainRef.current ?? terrain).getHeightAt(x, z));
     animalManagerRef.current = animalManager;
-    animalManager.spawnRandomAnimalsOnIsland(
-      new THREE.Vector3(0, 0, 0), 120, HUNTABLE_ANIMALS, 16, ANIMAL_SPAWN_WEIGHTS,
-    );
+    if (!isDockEntry) {
+      animalManager.spawnRandomAnimalsOnIsland(
+        new THREE.Vector3(0, 0, 0), 28, HUNTABLE_ANIMALS, 8, ANIMAL_SPAWN_WEIGHTS,
+      );
+    } else {
+      animalManager.spawnRandomAnimalsOnIsland(
+        new THREE.Vector3(0, 0, 0), 16, ['rabbit', 'goat', 'boar'], 3, ANIMAL_SPAWN_WEIGHTS,
+      );
+    }
 
-    const grass = createGrassSystem(terrain, 15000, 42);
-    scene.add(grass.mesh);
-    grassRef.current = grass;
+    if (!isDockEntry) {
+      const grass = createGrassSystem(terrain, 15000, 42);
+      scene.add(grass.mesh);
+      grassRef.current = grass;
+    }
 
-    const ambientParticles = createAmbientParticles(500, 123);
+    const ambientParticles = createAmbientParticles(isDockEntry ? 80 : 500, 123);
     scene.add(ambientParticles.points);
     particlesRef.current = ambientParticles;
 
@@ -641,8 +863,10 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     scene.add(splashes.group);
     splashRef.current = splashes;
 
-    const fog = createAtmosphericFog(200);
-    scene.add(fog);
+    if (!isDockEntry) {
+      const fog = createAtmosphericFog(200);
+      scene.add(fog);
+    }
 
     const colorGradePass = new ShaderPass(ColorGradingShader);
     composer.addPass(colorGradePass);
@@ -650,15 +874,38 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     const handleKeyDown = (e: KeyboardEvent) => {
       keysRef.current.add(e.key.toLowerCase());
       if (e.key.toLowerCase() === 'f' && dockRef.current && isPlayerNearDock(playerPosRef.current, dockRef.current, 8)) {
-        if (isRaftBuilt()) {
-          (onSetSail ?? onBack)();
-        }
-      }
-      if (e.key.toLowerCase() === 'b') {
-        setBookOpen(prev => !prev);
+        if (onOpenDockWorkshop) onOpenDockWorkshop();
+        else if (isRaftBuilt()) (onSetSail ?? onBack)();
       }
       // E near mine → enter 4s dig, exit with multi-profession bag
       if (e.key.toLowerCase() === 'e') {
+        const room = inInteriorRef.current;
+        if (room && nearHatch(playerPosRef.current, room.standInside, 1.8)) {
+          inInteriorRef.current = null;
+          inKeepRef.current = false;
+          playerPosRef.current.copy(room.standOutside);
+          showHuntToast('Leave');
+          return;
+        }
+        if (!inInteriorRef.current) {
+          for (const next of buildingInteriorsRef.current) {
+            const doorPos = new THREE.Vector3();
+            next.door.getWorldPosition(doorPos);
+            if (nearHatch(playerPosRef.current, doorPos, 1.6)) {
+              inInteriorRef.current = next;
+              inKeepRef.current = true;
+              playerPosRef.current.copy(next.standInside);
+              showHuntToast('Inside (E to leave)');
+              return;
+            }
+          }
+        }
+        const stand = vendorStandRef.current;
+        if (stand && playerPosRef.current.distanceTo(stand) < 2.6) {
+          showHuntToast('Shipwright — F opens the boat workshop');
+          if (onOpenDockWorkshop) onOpenDockWorkshop();
+          return;
+        }
         const list = (window as unknown as { __wgMines?: ActiveMine[] }).__wgMines || [];
         const mine = tryEnterMine(playerPosRef.current, list, performance.now());
         if (mine && playerRef.current) {
@@ -756,6 +1003,8 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
         seascapeRef.current?.setSunPosition(skyRef.current.sunDirection);
       }
       rapierGroundRef.current?.update(dt);
+      rapierHelperRef.current?.update();
+      vendorNpcRef.current?.mixer.update(dt);
       if (grassRef.current) grassRef.current.update(elapsed);
       if (particlesRef.current) particlesRef.current.update(elapsed);
       if (splashRef.current) splashRef.current.update(elapsed, dt);
@@ -771,7 +1020,11 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
         characterBuilderRef.current.update(dt);
         const moving = keys.has('w') || keys.has('s') || keys.has('a') || keys.has('d')
           || keys.has('arrowup') || keys.has('arrowdown') || keys.has('arrowleft') || keys.has('arrowright');
-        const nextAnim = moving ? 'walk' : 'idle';
+        const nextAnim = moving
+          ? 'walk'
+          : harvestToolRef.current !== 'none'
+            ? 'harvest'
+            : 'idle';
         if (captainAnimRef.current !== nextAnim) {
           captainAnimRef.current = nextAnim;
           characterBuilderRef.current.play(nextAnim);
@@ -796,9 +1049,13 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
           .normalize();
 
         const next = playerPosRef.current.clone().addScaledVector(worldDir, PLAYER_SPEED * dt);
-        const nextSnap = terrainRef.current
-          ? snapToTerrain(terrainRef.current, next.x, next.z)
-          : null;
+        const phys = rapierGroundRef.current;
+        const nextHit = phys?.detectGround(next.x, next.z);
+        const nextSnap = nextHit
+          ? { y: nextHit.y, slope: nextHit.slope, isOnTerrain: nextHit.grounded }
+          : terrainRef.current
+            ? snapToTerrain(terrainRef.current, next.x, next.z)
+            : null;
         const tooSteep = nextSnap && nextSnap.slope > 0.9 && nextSnap.y > playerPosRef.current.y + 0.4;
         if (!tooSteep) playerPosRef.current.copy(next);
         else playerPosRef.current.addScaledVector(worldDir, PLAYER_SPEED * dt * 0.25);
@@ -819,13 +1076,19 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
 
       if (terrainRef.current) {
         const onDock = dockRef.current && isPlayerNearDock(playerPosRef.current, dockRef.current, 5);
-        const snapped = snapToTerrain(terrainRef.current, playerPosRef.current.x, playerPosRef.current.z);
-        if (onDock) {
+        const phys = rapierGroundRef.current;
+        const hit = phys?.detectGround(playerPosRef.current.x, playerPosRef.current.z);
+        const capY = phys?.capsuleGroundY(playerPosRef.current.x, playerPosRef.current.z, playerPosRef.current.y);
+        const snapped = hit ?? snapToTerrain(terrainRef.current, playerPosRef.current.x, playerPosRef.current.z);
+        if (inInteriorRef.current) {
+          playerPosRef.current.y = inInteriorRef.current.floorY;
+        } else if (onDock) {
           const dockSurface = dockRef.current!.spawnPoint.y;
           const smoothFactor = 1 - Math.exp(-8 * dt);
           playerPosRef.current.y += (dockSurface - playerPosRef.current.y) * smoothFactor;
         } else {
-          const standY = snapped.y >= 0.05 ? snapped.y : 0;
+          const rawY = capY ?? snapped.y;
+          const standY = rawY >= 0.05 ? rawY : 0;
           const smoothFactor = 1 - Math.exp(-8 * dt);
           playerPosRef.current.y += (standY - playerPosRef.current.y) * smoothFactor;
         }
@@ -929,6 +1192,7 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
       skinTimerRef.current = Math.max(0, skinTimerRef.current - dt);
       if (keys.has('e') && skinTimerRef.current <= 0 && harvestToolRef.current === 'rod' && harvestSystemRef.current) {
         skinTimerRef.current = 0.8;
+        characterBuilderRef.current?.play('harvest', { force: true });
         harvestSystemRef.current.addXp('fishing', 8);
         const fish = awardHarvestXp('fishing', 8);
         showHuntToast(
@@ -936,7 +1200,33 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
             ? `Caught a fish · Fishing ${fish.level}${fish.level >= 26 ? ' · boat learned' : ''}`
             : 'Caught a fish',
         );
-      } else if (keys.has('e') && skinTimerRef.current <= 0 && carcassManagerRef.current && harvestSystemRef.current) {
+      }
+
+      if (anyIslandAutoHarvest() && harvestSystemRef.current && skinTimerRef.current <= 0) {
+        const profMap: Record<string, HarvestProfessionId> = {
+          woodcutting: 'woodcutting',
+          mining: 'mining',
+          quarrying: 'mining',
+          herbalism: 'herbalism',
+          fishing: 'fishing',
+          skinning: 'skinning',
+        };
+        const nodes = harvestSystemRef.current.getActiveNodes();
+        for (const node of nodes) {
+          const hid = profMap[node.profession];
+          if (!hid || !getIslandAutoHarvest(hid)) continue;
+          if (playerPosRef.current.distanceTo(node.position) > 6) continue;
+          const result = harvestSystemRef.current.harvest(node.id);
+          if (result?.success) {
+            awardHarvestXp(hid, result.xpGained);
+            characterBuilderRef.current?.play('harvest', { force: true });
+            skinTimerRef.current = 0.45;
+          }
+          break;
+        }
+      }
+
+      if (keys.has('e') && skinTimerRef.current <= 0 && carcassManagerRef.current && harvestSystemRef.current) {
         const nodes = carcassManagerRef.current.getAllNodes();
         let nearest: (typeof nodes)[number] | null = null;
         let nearestDist = Infinity;
@@ -947,6 +1237,7 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
         }
         if (nearest) {
           skinTimerRef.current = 0.6;
+          characterBuilderRef.current?.play('harvest', { force: true });
           const yield_ = nearest.yieldMin + Math.floor(Math.random() * (nearest.yieldMax - nearest.yieldMin + 1));
           const isLeather = nearest.type === 'leather';
           if (isLeather) setLeather(prev => prev + yield_); else setHide(prev => prev + yield_);
@@ -982,6 +1273,16 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
       seascapeRef.current = null;
       rapierGroundRef.current?.dispose();
       rapierGroundRef.current = null;
+      rapierHelperRef.current?.dispose();
+      rapierHelperRef.current = null;
+      keepInteriorRef.current = null;
+      inKeepRef.current = false;
+      buildingInteriorsRef.current = [];
+      inInteriorRef.current = null;
+      vendorNpcRef.current?.dispose();
+      vendorNpcRef.current = null;
+      vendorStandRef.current = null;
+      dockWealthRef.current = null;
       animalManagerRef.current?.clearAllAnimals();
       animalManagerRef.current = null;
       carcassManagerRef.current?.clearAllNodes();
@@ -1009,29 +1310,17 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
     );
   }
 
-  const hpPct = (playerHP / PLAYER_MAX_HP) * 100;
+  const captain = loadCaptainBuild();
 
   return (
     <div className="h-screen w-full bg-black relative overflow-hidden" data-testid="production-island">
       <div ref={containerRef} className="w-full h-full" data-testid="island-viewport" />
 
-      <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
+      <div className="absolute top-4 left-4 z-10">
         <Button variant="ghost" size="icon" className="bg-black/50 text-white hover:bg-black/70 backdrop-blur-sm"
           onClick={onBack} data-testid="button-back">
           <ArrowLeft className="w-5 h-5" />
         </Button>
-        <div className="bg-black/50 backdrop-blur-sm rounded-lg px-3 py-1.5 text-white text-sm flex items-center gap-3">
-          <span className="flex items-center gap-1"><Sword className="w-3.5 h-3.5 text-red-400" /> {killCount}</span>
-          <span className="flex items-center gap-1"><Target className="w-3.5 h-3.5 text-amber-400" /> Wave {waveNum}</span>
-          <span className="flex items-center gap-1"><TreePine className="w-3.5 h-3.5 text-green-400" /> {nodeCount}</span>
-          <span className="flex items-center gap-1" data-testid="text-leather" title="Leather">🟫 {leather}</span>
-          <span className="flex items-center gap-1" data-testid="text-hide" title="Hide">🟤 {hide}</span>
-          <span className="flex items-center gap-1 text-amber-300" data-testid="text-skinning-level" title="Skinning level">Skin Lv {skinningLevel}</span>
-        </div>
-      </div>
-
-      <div className="absolute bottom-8 left-1/2 -translate-x-1/2 z-20">
-        <HarvestToolRadial value={harvestTool} onChange={applyHarvestTool} />
       </div>
 
       {huntToast && (
@@ -1040,37 +1329,6 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
             {huntToast}
           </div>
         </div>
-      )}
-
-      {targetInfo && (
-        <div className="absolute bottom-[120px] left-1/2 -translate-x-1/2 z-10 w-[320px] max-w-[90vw]">
-          <div className="bg-black/60 backdrop-blur-sm rounded-lg px-4 py-2 w-full" data-testid="target-frame">
-            <div className="flex items-center justify-between text-xs text-white mb-1">
-              <span className="flex items-center gap-1"><Crosshair className="w-3 h-3 text-red-400" /> {targetInfo.name}</span>
-              <span>{targetInfo.hp}/{targetInfo.maxHp}</span>
-            </div>
-            <Progress value={(targetInfo.hp / targetInfo.maxHp) * 100} className="h-2 bg-red-950" />
-          </div>
-        </div>
-      )}
-
-      {/* Legacy GameHUD only renders with the dev escape hatch ?legacyhud=1 — */}
-      {/* otherwise the Cinzel overlay below is the single character HUD.    */}
-      {!isCinzelHudEnabled() && (
-        <GameHUD
-          mode="combat"
-          slots={[
-            { id: "attack", label: "Attack", iconUrl: "/ui/magic_book/icons/Icon1_big.png", hotkey: "1" },
-            { id: "block",  label: "Block",  iconUrl: "/ui/magic_book/icons/Icon6_big.png", hotkey: "2" },
-            { id: "heal",   label: "Heal",   iconUrl: "/ui/magic_book/icons/Icon15_big.png", hotkey: "3" },
-            { id: "range",  label: "Range",  iconUrl: "/ui/magic_book/icons/Icon7_big.png", hotkey: "4" },
-            { id: "dash",   label: "Dash",   iconUrl: "/ui/magic_book/icons/Icon17_big.png", hotkey: "5" },
-          ]}
-          vitals={[
-            { id: "hp", label: "HP", current: playerHP, max: PLAYER_MAX_HP, color: hpPct < 30 ? "#ef4444" : "#22c55e", icon: "heart" },
-          ]}
-          hint="WASD move · Click target · Space attack · Tab next · B grimoire"
-        />
       )}
 
       {!raftBuilt && (
@@ -1093,13 +1351,13 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
       )}
 
       {nearDock && (
-        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 z-20 pointer-events-auto" data-testid="dock-prompt">
-          <div className="bg-black/70 backdrop-blur-md rounded-xl px-6 py-4 border border-amber-500/40 shadow-lg shadow-amber-500/10 text-center animate-pulse">
+        <div className="absolute top-24 left-1/2 -translate-x-1/2 z-20 pointer-events-auto" data-testid="dock-prompt">
+          <div className="bg-black/70 backdrop-blur-md rounded-xl px-6 py-4 border border-amber-500/40 shadow-lg shadow-amber-500/10 text-center">
             <div className="flex items-center justify-center gap-2 mb-1">
               <Anchor className="w-5 h-5 text-amber-400" />
               <span className="text-amber-300 font-bold text-lg tracking-wide">Dock</span>
             </div>
-            <div className="text-white/90 text-sm mb-2">Press <kbd className="px-1.5 py-0.5 bg-white/20 rounded text-amber-300 font-mono font-bold">F</kbd> to set sail</div>
+            <div className="text-white/90 text-sm mb-2">Small dock + sailboat — 0.5 m deck slots (cannon / harpoon / shield)</div>
             <div className="flex flex-col gap-1 mt-2">
               {onOpenDockWorkshop && (
                 <button
@@ -1107,7 +1365,7 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
                   className="pointer-events-auto text-[11px] text-amber-200 underline"
                   onClick={onOpenDockWorkshop}
                 >
-                  Open boat dock workshop
+                  Boat editor (paint · 0.5 m slots · colliders)
                 </button>
               )}
               {onOpenFishCodex && (
@@ -1128,41 +1386,88 @@ export default function ProductionIsland({ onBack, onSetSail, onOpenDockWorkshop
         </div>
       )}
 
-      <div className="absolute top-4 right-4 z-10 flex items-start gap-2">
-        <button
-          data-testid="button-open-book"
-          onClick={() => setBookOpen(true)}
-          className="w-10 h-10 bg-black/50 hover:bg-black/70 backdrop-blur-sm rounded-lg border border-amber-500/30 flex items-center justify-center transition-colors group"
-          title="Open Grimoire (B)"
-        >
-          <img src="/ui/magic_book/Open_book.png" alt="Book"
-            className="w-7 h-7 object-cover group-hover:scale-110 transition-transform"
-            style={{
-              imageRendering: "pixelated",
-              objectPosition: "0% 0%",
-            }}
-            draggable={false}
-          />
-        </button>
-      </div>
-
-      <MagicBookUI
-        isOpen={bookOpen}
-        onClose={() => setBookOpen(false)}
-        playerClass="warrior"
-        playerRace="human"
-        playerName="Captain"
-        playerLevel={5}
+      <GameHUD
+        mode="harvest"
+        compact
+        hint="I main panel · 1 unarmed · 2 axe · 3 pick · 4 knife · 5 rod · F dock editor"
+        vitals={[{ id: 'hp', label: 'Health', current: playerHP, max: PLAYER_MAX_HP, color: '#c45c4a', icon: 'heart' }]}
+        slots={([
+          { id: 'none', label: 'Hand', hotkey: '1', active: harvestTool === 'none', onClick: () => applyHarvestTool('none') },
+          { id: 'axe', label: 'Axe', hotkey: '2', active: harvestTool === 'axe', onClick: () => applyHarvestTool('axe') },
+          { id: 'pick', label: 'Pick', hotkey: '3', active: harvestTool === 'pickaxe', onClick: () => applyHarvestTool('pickaxe') },
+          { id: 'knife', label: 'Knife', hotkey: '4', active: harvestTool === 'knife', onClick: () => applyHarvestTool('knife') },
+          { id: 'rod', label: 'Rod', hotkey: '5', active: harvestTool === 'rod', onClick: () => applyHarvestTool('rod') },
+        ] satisfies SlotDef[])}
       />
-
-      {isCinzelHudEnabled() && (
-        <CinzelOverlay
-          state={buildHudOverride({
-            hp: { current: playerHP, max: PLAYER_MAX_HP },
-            fallback: { name: 'Captain', race: 'human', className: 'Warrior', level: 5 },
-          })}
-        />
+      <Button
+        variant="outline"
+        className="absolute top-4 right-4 z-20 bg-black/70 text-amber-100 border-amber-700/50"
+        onClick={() => panel.open('home-island')}
+        data-testid="button-island-panel"
+      >
+        Island (I)
+      </Button>
+      <Button
+        variant="outline"
+        className="absolute top-4 right-32 z-20 bg-black/70 text-amber-100 border-amber-700/50"
+        onClick={() => setWorldMini((v) => !v)}
+      >
+        Map (M)
+      </Button>
+      {worldMini && (
+        <div className="absolute inset-0 z-30 pointer-events-none">
+          <div className="pointer-events-auto absolute top-16 right-4">
+            <SectorAtlasHud
+              embedded
+              onTeleport={() => {
+                setWorldMini(false);
+                onSetSail();
+              }}
+            />
+          </div>
+        </div>
       )}
+      {isAdmin && (
+        <div className="absolute bottom-4 left-1/2 -translate-x-1/2 z-20 flex flex-wrap gap-1 bg-black/80 border border-amber-700/50 rounded p-2">
+          <Button size="sm" variant="outline" onClick={() => void (async () => {
+            const p = playerPosRef.current;
+            try {
+              const g = await loadGltfProduction('/models/fleet/fishing/fish_trap.prod.glb');
+              const m = g.scene.clone();
+              m.position.set(p.x + 2, p.y, p.z);
+              sceneRef.current?.add(m);
+              adminSpawnedRef.current.push(m);
+            } catch { /* ignore */ }
+          })()}>Harvest node</Button>
+          <Button size="sm" variant="outline" onClick={() => void (async () => {
+            const p = playerPosRef.current;
+            const boat = await loadBoatTemplate('raft');
+            if (!boat) return;
+            boat.position.set(p.x, p.y, p.z + 6);
+            sceneRef.current?.add(boat);
+            adminSpawnedRef.current.push(boat);
+          })()}>Ship</Button>
+          <Button size="sm" variant="outline" onClick={() => {
+            const b = new CharacterBuilder({ race: 'orc', weaponStyle: 'sword_shield' });
+            void b.load().then(() => {
+              const p = playerPosRef.current;
+              b.group.position.set(p.x + 3, p.y, p.z);
+              sceneRef.current?.add(b.group);
+              adminSpawnedRef.current.push(b.group);
+            });
+          }}>Orc</Button>
+          <Button size="sm" variant="outline" onClick={() => {
+            const last = adminSpawnedRef.current.pop();
+            if (last) sceneRef.current?.remove(last);
+          }}>Delete last</Button>
+        </div>
+      )}
+      <MainGamePanel
+        isOpen={panel.isOpen}
+        onClose={panel.close}
+        hotKey="I"
+        defaultTab="home-island"
+      />
     </div>
   );
 }

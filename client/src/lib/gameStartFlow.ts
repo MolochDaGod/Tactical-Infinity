@@ -3,13 +3,25 @@ import { getOnboardingStep, markCaptainReady } from '@/lib/playerProgression';
 import { loadCaptainBuild } from '@/lib/captainBuild';
 import { getFleetCharacterId, TACTICAL_CAPTAIN_KEY } from '@/lib/grudgeCharacterSync';
 
-export type IslandEntry = 'dock' | 'beach' | 'workshop';
+/**
+ * Play island load is a query on ProductionIsland — not a `?file=` GLB dump.
+ *
+ *   /island?entry=dock     chicken-gun Fruzer kit (home dock, default)
+ *   /island?entry=beach    same page, spawn offset toward the beach
+ *   /island?entry=arctic   dwarfislands.glb + tundra paint
+ *   /island?entry=dwarf    dwarfislands.glb + dwarf-zone paint
+ *   /island?entry=workshop still this page (BoatDockWorkshop is its own route)
+ *   /island?physicsDebug=1 Rapier collider outlines (existing RapierHelper)
+ *
+ * Definition UUIDs: fleetMeshUuid / stampWorldLocation. Not player grudge_uuid.
+ */
+export type IslandEntry = 'dock' | 'beach' | 'workshop' | 'arctic' | 'dwarf';
 
 export function readIslandEntry(): IslandEntry {
   try {
     const q = new URLSearchParams(window.location.search);
     const e = (q.get('entry') || '').toLowerCase();
-    if (e === 'beach' || e === 'workshop' || e === 'dock') return e;
+    if (e === 'beach' || e === 'workshop' || e === 'dock' || e === 'arctic' || e === 'dwarf') return e;
   } catch { /* ignore */ }
   return 'dock';
 }

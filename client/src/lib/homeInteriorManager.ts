@@ -1,5 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js';
+import { buildInteriorShell, paintInterior } from '@/lib/buildingInteriorInstance';
+import { warlordsInterior, type WarlordsInteriorId } from '@shared/gameDefinitions/warlordsInteriorKit';
 
 export type HomeType = 'cottage' | 'farmhouse' | 'manor' | 'cabin' | 'tavern' | 'shop';
 
@@ -113,6 +115,15 @@ export const homeInteriorThemes: Record<HomeType, HomeInteriorTheme> = {
   }
 };
 
+const HOME_TO_INTERIOR: Record<HomeType, WarlordsInteriorId> = {
+  cottage: 'cottage',
+  farmhouse: 'cottage',
+  manor: 'hall',
+  cabin: 'hut',
+  tavern: 'tavern',
+  shop: 'shop',
+};
+
 export interface LoadedInterior {
   scene: THREE.Group;
   type: HomeType;
@@ -156,21 +167,23 @@ export class HomeInteriorManager {
   }
   
   async createThemedInterior(homeType: HomeType, instanceId: string): Promise<LoadedInterior | null> {
-    await this.loadBaseInterior();
-    
-    if (!this.baseInteriorScene) {
-      console.error('Base interior not loaded');
-      return null;
-    }
-    
     const theme = homeInteriorThemes[homeType];
-    const interiorClone = this.baseInteriorScene.clone(true);
-    
-    this.applyTheme(interiorClone, theme);
+    const typeId = HOME_TO_INTERIOR[homeType];
+    const def = warlordsInterior(typeId);
+    let interiorClone: THREE.Group | null = null;
+    try {
+      const gltf = await this.loader.loadAsync(def.localUrl);
+      interiorClone = gltf.scene;
+    } catch {
+      interiorClone = null;
+    }
+    if (!interiorClone) {
+      interiorClone = buildInteriorShell(typeId);
+      await paintInterior(interiorClone, typeId);
+    }
     
     const bounds = new THREE.Box3().setFromObject(interiorClone);
     const center = bounds.getCenter(new THREE.Vector3());
-    const size = bounds.getSize(new THREE.Vector3());
     
     const entryPoint = new THREE.Vector3(
       center.x,
